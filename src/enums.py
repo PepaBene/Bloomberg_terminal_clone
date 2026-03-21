@@ -736,3 +736,528 @@ class SensitivityVariable(str, Enum):
     CAPEX_TO_REVENUE = "capex_to_revenue"
     DNA_TO_REVENUE = "dna_to_revenue"
     WC_TO_REVENUE = "wc_to_revenue"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement — Capital Structure enums
+# ---------------------------------------------------------------------------
+
+class InstrumentType(str, Enum):
+    """Debt instrument classification (CAST)."""
+    SENIOR_SECURED_NOTES = "SENIOR_SECURED_NOTES"
+    SENIOR_UNSECURED_NOTES = "SENIOR_UNSECURED_NOTES"
+    SUBORDINATED_NOTES = "SUBORDINATED_NOTES"
+    CONVERTIBLE_NOTES = "CONVERTIBLE_NOTES"
+    REVOLVING_CREDIT_FACILITY = "REVOLVING_CREDIT_FACILITY"
+    TERM_LOAN_A = "TERM_LOAN_A"
+    TERM_LOAN_B = "TERM_LOAN_B"
+    CAPITAL_LEASE_OBLIGATION = "CAPITAL_LEASE_OBLIGATION"
+    FINANCE_LEASE = "FINANCE_LEASE"
+    COMMERCIAL_PAPER = "COMMERCIAL_PAPER"
+    PREFERRED_STOCK = "PREFERRED_STOCK"
+    OTHER = "OTHER"
+
+
+class CouponType(str, Enum):
+    """Coupon payment type for debt instruments."""
+    FIXED = "FIXED"
+    FLOATING = "FLOATING"
+    ZERO = "ZERO"
+
+
+class SeniorityType(str, Enum):
+    """Debt seniority/priority ranking."""
+    SUPER_SENIOR = "SUPER_SENIOR"
+    SENIOR_SECURED = "SENIOR_SECURED"
+    SENIOR_UNSECURED = "SENIOR_UNSECURED"
+    SENIOR_SUBORDINATED = "SENIOR_SUBORDINATED"
+    SUBORDINATED = "SUBORDINATED"
+    JUNIOR_SUBORDINATED = "JUNIOR_SUBORDINATED"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement — Credit Rating enums
+# ---------------------------------------------------------------------------
+
+class RatingAgency(str, Enum):
+    """Credit rating agencies."""
+    SP = "SP"
+    MOODYS = "MOODYS"
+    FITCH = "FITCH"
+
+
+class RatingType(str, Enum):
+    """Type of credit rating."""
+    LONG_TERM = "LONG_TERM"
+    SHORT_TERM = "SHORT_TERM"
+    OUTLOOK = "OUTLOOK"
+
+
+class RatingDirection(str, Enum):
+    """Direction of a rating change."""
+    UPGRADE = "UPGRADE"
+    DOWNGRADE = "DOWNGRADE"
+    AFFIRM = "AFFIRM"
+    INITIATED = "INITIATED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class RatingOutlook(str, Enum):
+    """Rating outlook assessment."""
+    POSITIVE = "POSITIVE"
+    STABLE = "STABLE"
+    NEGATIVE = "NEGATIVE"
+    DEVELOPING = "DEVELOPING"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement — Calendar enums
+# ---------------------------------------------------------------------------
+
+class CalendarEventType(str, Enum):
+    """Corporate actions calendar event types."""
+    DIVIDEND_EX_DATE = "DIVIDEND_EX_DATE"
+    DIVIDEND_RECORD_DATE = "DIVIDEND_RECORD_DATE"
+    DIVIDEND_PAYMENT_DATE = "DIVIDEND_PAYMENT_DATE"
+    STOCK_SPLIT = "STOCK_SPLIT"
+    REVERSE_SPLIT = "REVERSE_SPLIT"
+    MERGER_VOTE = "MERGER_VOTE"
+    MERGER_CLOSE = "MERGER_CLOSE"
+    SPINOFF_RECORD = "SPINOFF_RECORD"
+    SPINOFF_DISTRIBUTION = "SPINOFF_DISTRIBUTION"
+    TENDER_OFFER_EXPIRATION = "TENDER_OFFER_EXPIRATION"
+    RIGHTS_ISSUE_EXPIRATION = "RIGHTS_ISSUE_EXPIRATION"
+    EARNINGS_ANNOUNCEMENT = "EARNINGS_ANNOUNCEMENT"
+    SHAREHOLDER_MEETING = "SHAREHOLDER_MEETING"
+    ANALYST_DAY = "ANALYST_DAY"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement – Part 2: Yield Curve / Central Bank / Money Market
+# ---------------------------------------------------------------------------
+
+
+class CurveType(str, Enum):
+    """Type of yield curve."""
+    TREASURY_NOMINAL = "TREASURY_NOMINAL"
+    TREASURY_REAL = "TREASURY_REAL"
+    SWAP = "SWAP"
+    TIPS = "TIPS"
+
+
+class MeetingType(str, Enum):
+    """Type of central bank meeting."""
+    SCHEDULED = "SCHEDULED"
+    UNSCHEDULED = "UNSCHEDULED"
+
+
+class RateDecision(str, Enum):
+    """Central bank rate decision."""
+    HIKE = "HIKE"
+    CUT = "CUT"
+    HOLD = "HOLD"
+
+
+class MoneyMarketRateType(str, Enum):
+    """Money market rate identifier."""
+    SOFR = "SOFR"
+    FED_FUNDS_EFFECTIVE = "FED_FUNDS_EFFECTIVE"
+    FED_FUNDS_TARGET = "FED_FUNDS_TARGET"
+    TBILL_3M = "TBILL_3M"
+    TBILL_6M = "TBILL_6M"
+    TBILL_1Y = "TBILL_1Y"
+    COMMERCIAL_PAPER_FIN = "COMMERCIAL_PAPER_FIN"
+    COMMERCIAL_PAPER_NONFIN = "COMMERCIAL_PAPER_NONFIN"
+    PRIME = "PRIME"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement – Part 3: M&A / IPO / Earnings Intelligence
+# ---------------------------------------------------------------------------
+
+
+class DealType(str, Enum):
+    """M&A deal type."""
+    ACQUISITION = "ACQUISITION"
+    MERGER_OF_EQUALS = "MERGER_OF_EQUALS"
+    LEVERAGED_BUYOUT = "LEVERAGED_BUYOUT"
+    MANAGEMENT_BUYOUT = "MANAGEMENT_BUYOUT"
+    SPINOFF = "SPINOFF"
+    DIVESTITURE = "DIVESTITURE"
+    TENDER_OFFER = "TENDER_OFFER"
+    GOING_PRIVATE = "GOING_PRIVATE"
+    ASSET_PURCHASE = "ASSET_PURCHASE"
+
+
+class DealStatus(str, Enum):
+    """M&A deal status."""
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    TERMINATED = "TERMINATED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class PaymentType(str, Enum):
+    """M&A payment type."""
+    CASH = "CASH"
+    STOCK = "STOCK"
+    MIXED = "MIXED"
+
+
+class IPOStatus(str, Enum):
+    """IPO lifecycle status."""
+    FILED = "FILED"
+    AMENDED = "AMENDED"
+    PRICED = "PRICED"
+    TRADING = "TRADING"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class GuidanceType(str, Enum):
+    """Corporate guidance type."""
+    INITIAL = "INITIAL"
+    RAISED = "RAISED"
+    LOWERED = "LOWERED"
+    MAINTAINED = "MAINTAINED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class GuidanceVsConsensus(str, Enum):
+    """Guidance vs. consensus comparison."""
+    ABOVE = "ABOVE"
+    INLINE = "INLINE"
+    BELOW = "BELOW"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 Supplement – Part 4: Fund Holdings / Executives
+# ---------------------------------------------------------------------------
+
+
+class FundType(str, Enum):
+    """Investment fund type."""
+    ETF = "ETF"
+    MUTUAL_FUND = "MUTUAL_FUND"
+    CLOSED_END = "CLOSED_END"
+    INTERVAL = "INTERVAL"
+
+
+class FundAssetType(str, Enum):
+    """Asset type within fund holdings."""
+    EQUITY = "EQUITY"
+    DEBT = "DEBT"
+    DERIVATIVE = "DERIVATIVE"
+    CASH = "CASH"
+    OTHER = "OTHER"
+
+
+class IssuerCategory(str, Enum):
+    """Issuer category for fund holdings."""
+    CORPORATE = "CORPORATE"
+    GOVERNMENT = "GOVERNMENT"
+    AGENCY = "AGENCY"
+    MUNICIPAL = "MUNICIPAL"
+
+
+class RoleType(str, Enum):
+    """Executive/director role type."""
+    EXECUTIVE = "EXECUTIVE"
+    DIRECTOR = "DIRECTOR"
+    BOTH = "BOTH"
+
+
+# ---------------------------------------------------------------------------
+# Part 5 — Technical Studies, Custom Classifications, ESG Temperature
+# ---------------------------------------------------------------------------
+
+class TechnicalIndicator(str, Enum):
+    """Technical analysis indicator names."""
+    RSI = "RSI"
+    MACD = "MACD"
+    MACD_SIGNAL = "MACD_SIGNAL"
+    MACD_HISTOGRAM = "MACD_HISTOGRAM"
+    BOLLINGER_UPPER = "BOLLINGER_UPPER"
+    BOLLINGER_MIDDLE = "BOLLINGER_MIDDLE"
+    BOLLINGER_LOWER = "BOLLINGER_LOWER"
+    SMA_50 = "SMA_50"
+    SMA_200 = "SMA_200"
+    EMA_20 = "EMA_20"
+    VWAP = "VWAP"
+    STOCHASTIC_K = "STOCHASTIC_K"
+    STOCHASTIC_D = "STOCHASTIC_D"
+    ATR = "ATR"
+    OBV = "OBV"
+
+
+class IndicatorCategory(str, Enum):
+    """Category grouping for technical indicators."""
+    MOMENTUM = "MOMENTUM"
+    TREND = "TREND"
+    VOLATILITY = "VOLATILITY"
+    VOLUME = "VOLUME"
+
+
+class ClassificationVisibility(str, Enum):
+    """Visibility scope for custom classifications."""
+    PRIVATE = "PRIVATE"
+    SHARED = "SHARED"
+
+
+class TemperatureAlignment(str, Enum):
+    """Paris Agreement temperature alignment buckets."""
+    BELOW_1_5C = "BELOW_1_5C"
+    BETWEEN_1_5_AND_2C = "BETWEEN_1_5_AND_2C"
+    BETWEEN_2_AND_3C = "BETWEEN_2_AND_3C"
+    ABOVE_3C = "ABOVE_3C"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Yield Curve Analytics (Part 1)
+# ---------------------------------------------------------------------------
+
+class InterpolationMethod(str, Enum):
+    """Yield curve interpolation method."""
+    LINEAR = "LINEAR"
+    CUBIC_SPLINE = "CUBIC_SPLINE"
+    NELSON_SIEGEL = "NELSON_SIEGEL"
+
+
+class CurveShiftType(str, Enum):
+    """Yield curve scenario shift type."""
+    PARALLEL = "PARALLEL"
+    STEEPENER = "STEEPENER"
+    FLATTENER = "FLATTENER"
+    CUSTOM = "CUSTOM"
+
+
+class CurveAnalyticType(str, Enum):
+    """Yield curve analytic metric type."""
+    SPREAD_2S10S = "SPREAD_2S10S"
+    SPREAD_3M10Y = "SPREAD_3M10Y"
+    STEEPNESS = "STEEPNESS"
+    CURVATURE = "CURVATURE"
+    BREAKEVEN_INFLATION = "BREAKEVEN_INFLATION"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Default Risk Scoring (Part 2)
+# ---------------------------------------------------------------------------
+
+class CreditScoreZone(str, Enum):
+    """Credit risk zone classification."""
+    INVESTMENT_GRADE = "INVESTMENT_GRADE"
+    CROSSOVER = "CROSSOVER"
+    HIGH_YIELD = "HIGH_YIELD"
+    DISTRESSED = "DISTRESSED"
+
+
+class ImpliedRating(str, Enum):
+    """Credit rating mapped from composite score."""
+    AAA = "AAA"
+    AA_PLUS = "AA+"
+    AA = "AA"
+    AA_MINUS = "AA-"
+    A_PLUS = "A+"
+    A = "A"
+    A_MINUS = "A-"
+    BBB_PLUS = "BBB+"
+    BBB = "BBB"
+    BBB_MINUS = "BBB-"
+    BB_PLUS = "BB+"
+    BB = "BB"
+    BB_MINUS = "BB-"
+    B_PLUS = "B+"
+    B = "B"
+    B_MINUS = "B-"
+    CCC = "CCC"
+    CC = "CC"
+    C = "C"
+    D = "D"
+
+
+class DefaultRiskModel(str, Enum):
+    """Default risk model type."""
+    ALTMAN_Z = "ALTMAN_Z"
+    MERTON_DD = "MERTON_DD"
+    COMPOSITE = "COMPOSITE"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Equity Strategy Backtester (Part 3)
+# ---------------------------------------------------------------------------
+
+class BacktestStatus(str, Enum):
+    """Backtest run status."""
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class WeightingMethod(str, Enum):
+    """Portfolio weighting method."""
+    EQUAL = "EQUAL"
+    MARKET_CAP = "MARKET_CAP"
+    SCORE_BASED = "SCORE_BASED"
+    CUSTOM = "CUSTOM"
+
+
+class RebalanceFrequency(str, Enum):
+    """Portfolio rebalance frequency."""
+    MONTHLY = "MONTHLY"
+    QUARTERLY = "QUARTERLY"
+    SEMI_ANNUAL = "SEMI_ANNUAL"
+    ANNUAL = "ANNUAL"
+
+
+class BenchmarkType(str, Enum):
+    """Benchmark for backtest comparison."""
+    SP500 = "SP500"
+    RUSSELL_1000 = "RUSSELL_1000"
+    RUSSELL_2000 = "RUSSELL_2000"
+    EQUAL_WEIGHT_UNIVERSE = "EQUAL_WEIGHT_UNIVERSE"
+    CUSTOM = "CUSTOM"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Custom Index + Portfolio Upload (Part 4)
+# ---------------------------------------------------------------------------
+
+class IndexStatus(str, Enum):
+    """Custom index status."""
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    ARCHIVED = "ARCHIVED"
+
+
+class UploadFormat(str, Enum):
+    """Portfolio upload file format."""
+    CSV = "CSV"
+    EXCEL = "EXCEL"
+
+
+class UploadStatus(str, Enum):
+    """Portfolio upload processing status."""
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    PARTIAL = "PARTIAL"
+
+
+class UploadMappingStatus(str, Enum):
+    """Individual holding mapping status."""
+    MATCHED = "MATCHED"
+    AMBIGUOUS = "AMBIGUOUS"
+    NOT_FOUND = "NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Security Finder, Events Calendar, Market Movers (Part 5)
+# ---------------------------------------------------------------------------
+
+class SecurityFinderSort(str, Enum):
+    """Sort order for security finder."""
+    RELEVANCE = "RELEVANCE"
+    MARKET_CAP = "MARKET_CAP"
+    NAME = "NAME"
+    TICKER = "TICKER"
+
+
+class MoverCategory(str, Enum):
+    """Market mover category."""
+    TOP_GAINERS = "TOP_GAINERS"
+    TOP_LOSERS = "TOP_LOSERS"
+    MOST_ACTIVE = "MOST_ACTIVE"
+    FIFTY_TWO_WEEK_HIGH = "52_WEEK_HIGH"
+    FIFTY_TWO_WEEK_LOW = "52_WEEK_LOW"
+
+
+class EventSourceType(str, Enum):
+    """Unified event source type."""
+    CALENDAR_EVENT = "CALENDAR_EVENT"
+    EARNINGS_ANNOUNCEMENT = "EARNINGS_ANNOUNCEMENT"
+    FED_MEETING = "FED_MEETING"
+    CORPORATE_ACTION = "CORPORATE_ACTION"
+    IPO_EVENT = "IPO_EVENT"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Custom Data Environment, Technical Backtester (Part 6)
+# ---------------------------------------------------------------------------
+
+class CustomFieldType(str, Enum):
+    """Data type for custom computed fields."""
+    NUMERIC = "NUMERIC"
+    BOOLEAN = "BOOLEAN"
+    STRING = "STRING"
+
+
+class CustomFieldScope(str, Enum):
+    """Visibility scope for custom fields."""
+    PRIVATE = "PRIVATE"
+    SHARED = "SHARED"
+
+
+class TechnicalSignalType(str, Enum):
+    """Technical trading signal types."""
+    CROSSOVER_ABOVE = "CROSSOVER_ABOVE"
+    CROSSOVER_BELOW = "CROSSOVER_BELOW"
+    THRESHOLD_ABOVE = "THRESHOLD_ABOVE"
+    THRESHOLD_BELOW = "THRESHOLD_BELOW"
+    BAND_BREAKOUT = "BAND_BREAKOUT"
+    BAND_BREAKDOWN = "BAND_BREAKDOWN"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — AI Company Intelligence, Company Primers (Part 7)
+# ---------------------------------------------------------------------------
+
+class BriefingType(str, Enum):
+    """Type of company intelligence briefing."""
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    EVENT_DRIVEN = "EVENT_DRIVEN"
+
+
+class BriefingStatus(str, Enum):
+    """Status of a briefing generation."""
+    PENDING = "PENDING"
+    GENERATING = "GENERATING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    STALE = "STALE"
+
+
+class SignalSeverity(str, Enum):
+    """Severity level for key signals."""
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 2 Supplement — Sentiment Analysis (Part 8)
+# ---------------------------------------------------------------------------
+
+class SentimentLabel(str, Enum):
+    """Sentiment classification label."""
+    POSITIVE = "POSITIVE"
+    NEUTRAL = "NEUTRAL"
+    NEGATIVE = "NEGATIVE"
+
+
+class SentimentSource(str, Enum):
+    """Source type for sentiment analysis."""
+    NEWS_ARTICLE = "NEWS_ARTICLE"
+    EARNINGS_CALL = "EARNINGS_CALL"
+    PRESS_RELEASE = "PRESS_RELEASE"
+    SEC_FILING = "SEC_FILING"
+
+
+class SentimentTimeframe(str, Enum):
+    """Timeframe for sentiment aggregation."""
+    ROLLING_7D = "ROLLING_7D"
+    ROLLING_30D = "ROLLING_30D"
+    ROLLING_90D = "ROLLING_90D"

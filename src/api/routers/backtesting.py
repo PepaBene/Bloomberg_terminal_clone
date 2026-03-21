@@ -1,0 +1,151 @@
+"""Backtesting API endpoints (Pillar 2 Supplement – Part 3)."""
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.api.deps import get_session
+from src.models.backtesting import BacktestResult, BacktestRun
+from src.schemas.backtesting import (
+    BacktestCompareRequest,
+    BacktestCompareResponse,
+    BacktestHoldingsResponse,
+    BacktestPerformanceResponse,
+    BacktestRequest,
+    BacktestRunResponse,
+)
+
+router = APIRouter(tags=["Backtesting"])
+
+
+@router.post(
+    "/analytics/backtest",
+    response_model=BacktestRunResponse,
+    status_code=201,
+)
+async def submit_backtest(
+    body: BacktestRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Submit a new backtest. Creates the run record with COMPLETED status."""
+    run = BacktestRun(
+        backtest_id=uuid.uuid4(),
+        name=body.name,
+        description=body.description,
+        status="COMPLETED",
+        strategy_definition=body.strategy_definition,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        benchmark=body.benchmark,
+        weighting_method=body.weighting_method,
+        rebalance_frequency=body.rebalance_frequency,
+        max_positions=body.max_positions,
+        transaction_cost_bps=body.transaction_cost_bps,
+    )
+    session.add(run)
+    await session.commit()
+    return BacktestRunResponse.model_validate(run)
+
+
+@router.get(
+    "/analytics/backtest/{backtest_id}/results",
+    response_model=BacktestPerformanceResponse,
+)
+async def get_backtest_results(
+    backtest_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return performance metrics for a backtest."""
+    query = (
+        select(BacktestResult)
+        .where(BacktestResult.backtest_id == backtest_id)
+        .limit(1)
+    )
+    result = await session.execute(query)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="No results found for this backtest")
+
+    return BacktestPerformanceResponse(
+        backtest_id=backtest_id,
+        total_return=float(row.total_return) if row.total_return else None,
+        annualized_return=float(row.annualized_return) if row.annualized_return else None,
+        benchmark_return=float(row.benchmark_return) if row.benchmark_return else None,
+        excess_return=float(row.excess_return) if row.excess_return else None,
+        sharpe_ratio=float(row.sharpe_ratio) if row.sharpe_ratio else None,
+        sortino_ratio=float(row.sortino_ratio) if row.sortino_ratio else None,
+        max_drawdown=float(row.max_drawdown) if row.max_drawdown else None,
+        max_drawdown_duration_days=row.max_drawdown_duration_days,
+        annualized_volatility=float(row.annualized_volatility) if row.annualized_volatility else None,
+        beta=float(row.beta) if row.beta else None,
+        tracking_error=float(row.tracking_error) if row.tracking_error else None,
+        information_ratio=float(row.information_ratio) if row.information_ratio else None,
+        win_rate=float(row.win_rate) if row.win_rate else None,
+        avg_win=float(row.avg_win) if row.avg_win else None,
+        avg_loss=float(row.avg_loss) if row.avg_loss else None,
+        turnover_annual=float(row.turnover_annual) if row.turnover_annual else None,
+        total_trades=row.total_trades,
+        monthly_returns=row.monthly_returns,
+    )
+
+
+@router.get(
+    "/analytics/backtest/{backtest_id}/holdings",
+    response_model=BacktestHoldingsResponse,
+)
+async def get_backtest_holdings(
+    backtest_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return holdings for a backtest."""
+    query = (
+        select(BacktestResult)
+        .where(BacktestResult.backtest_id == backtest_id)
+        .limit(1)
+    )
+    result = await session.execute(query)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="No results found for this backtest")
+
+    return BacktestHoldingsResponse(
+        backtest_id=backtest_id,
+        period_holdings=row.period_holdings,
+    )
+
+
+@router.post(
+    "/analytics/backtest/compare",
+    response_model=BacktestCompareResponse,
+)
+async def compare_backtests(
+    body: BacktestCompareRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Compare performance of multiple backtests."""
+    results = []
+    for bid in body.backtest_ids:
+        query = (
+            select(BacktestResult)
+            .where(BacktestResult.backtest_id == bid)
+            .limit(1)
+        )
+        result = await session.execute(query)
+        row = result.scalar_one_or_none()
+        if row:
+            results.append(BacktestPerformanceResponse(
+                backtest_id=bid,
+                total_return=float(row.total_return) if row.total_return else None,
+                annualized_return=float(row.annualized_return) if row.annualized_return else None,
+                benchmark_return=float(row.benchmark_return) if row.benchmark_return else None,
+                excess_return=float(row.excess_return) if row.excess_return else None,
+                sharpe_ratio=float(row.sharpe_ratio) if row.sharpe_ratio else None,
+                sortino_ratio=float(row.sortino_ratio) if row.sortino_ratio else None,
+                max_drawdown=float(row.max_drawdown) if row.max_drawdown else None,
+                max_drawdown_duration_days=row.max_drawdown_duration_days,
+                annualized_volatility=float(row.annualized_volatility) if row.annualized_volatility else None,
+            ))
+
+    return BacktestCompareResponse(backtests=results)

@@ -70,6 +70,15 @@ def create_app() -> FastAPI:
     except ImportError:
         logger.warning("Entities router not available; skipping.")
 
+    # NOTE: Security Finder must be registered BEFORE Securities to avoid
+    # /securities/find being captured by /securities/{security_id}
+    try:
+        from src.api.routers.security_finder import router as security_finder_router
+
+        app.include_router(security_finder_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Security Finder router not available; skipping.")
+
     try:
         from src.api.routers.securities import router as securities_router
 
@@ -177,6 +186,207 @@ def create_app() -> FastAPI:
         app.include_router(scenario_router)
     except ImportError:
         logger.warning("Scenario router not available; skipping.")
+
+    # Pillar 1 Supplement routers
+    try:
+        from src.api.routers.capital_structure import router as capital_structure_router
+
+        app.include_router(capital_structure_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Capital Structure router not available; skipping.")
+
+    try:
+        from src.api.routers.debt_maturity import router as debt_maturity_router
+
+        app.include_router(debt_maturity_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Debt Maturity router not available; skipping.")
+
+    try:
+        from src.api.routers.credit_rating import router as credit_rating_router
+
+        app.include_router(credit_rating_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Credit Rating router not available; skipping.")
+
+    try:
+        from src.api.routers.calendar import router as calendar_router
+
+        app.include_router(calendar_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Calendar router not available; skipping.")
+
+    # Pillar 1 Supplement – Part 2: Macro extensions
+    try:
+        from src.api.routers.yield_curve import router as yield_curve_router
+
+        app.include_router(yield_curve_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Yield Curve router not available; skipping.")
+
+    try:
+        from src.api.routers.fed_meeting import router as fed_meeting_router
+
+        app.include_router(fed_meeting_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Fed Meeting router not available; skipping.")
+
+    try:
+        from src.api.routers.money_market import router as money_market_router
+
+        app.include_router(money_market_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Money Market router not available; skipping.")
+
+    # Pillar 1 Supplement – Part 3: Deals / IPO / Earnings
+    try:
+        from src.api.routers.ma_deals import router as ma_deals_router
+
+        app.include_router(ma_deals_router, prefix="/v1")
+    except ImportError:
+        logger.warning("M&A Deals router not available; skipping.")
+
+    try:
+        from src.api.routers.ipo import router as ipo_router
+
+        app.include_router(ipo_router, prefix="/v1")
+    except ImportError:
+        logger.warning("IPO router not available; skipping.")
+
+    try:
+        from src.api.routers.earnings_intelligence import router as earnings_router
+
+        app.include_router(earnings_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Earnings Intelligence router not available; skipping.")
+
+    # Pillar 1 Supplement – Part 4: Fund Holdings / Executives
+    try:
+        from src.api.routers.fund_holdings import router as fund_holdings_router
+
+        app.include_router(fund_holdings_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Fund Holdings router not available; skipping.")
+
+    try:
+        from src.api.routers.executives import router as executives_router
+
+        app.include_router(executives_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Executives router not available; skipping.")
+
+    try:
+        from src.api.routers.technical_studies import router as technical_studies_router
+
+        app.include_router(technical_studies_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Technical Studies router not available; skipping.")
+
+    try:
+        from src.api.routers.custom_classifications import router as custom_classifications_router
+
+        app.include_router(custom_classifications_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Custom Classifications router not available; skipping.")
+
+    try:
+        from src.api.routers.esg_temperature import router as esg_temperature_router
+
+        app.include_router(esg_temperature_router, prefix="/v1")
+    except ImportError:
+        logger.warning("ESG Temperature router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 1: Yield Curve Analytics
+    try:
+        from src.api.routers.yield_curve_analytics import router as yield_curve_analytics_router
+
+        app.include_router(yield_curve_analytics_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Yield Curve Analytics router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 5: Events Calendar, Market Movers
+    try:
+        from src.api.routers.events_calendar_engine import router as events_calendar_engine_router
+
+        app.include_router(events_calendar_engine_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Events Calendar Engine router not available; skipping.")
+
+    try:
+        from src.api.routers.market_movers import router as market_movers_router
+
+        app.include_router(market_movers_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Market Movers router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 4: Custom Index + Portfolio Upload
+    try:
+        from src.api.routers.custom_index import router as custom_index_router
+
+        app.include_router(custom_index_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Custom Index router not available; skipping.")
+
+    try:
+        from src.api.routers.portfolio_upload import router as portfolio_upload_router
+
+        app.include_router(portfolio_upload_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Portfolio Upload router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 3: Backtesting
+    try:
+        from src.api.routers.backtesting import router as backtesting_router
+
+        app.include_router(backtesting_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Backtesting router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 2: Default Risk Scoring
+    try:
+        from src.api.routers.default_risk import router as default_risk_router
+
+        app.include_router(default_risk_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Default Risk router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 6: Custom Data + Technical Backtest
+    try:
+        from src.api.routers.custom_data import router as custom_data_router
+
+        app.include_router(custom_data_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Custom Data router not available; skipping.")
+
+    try:
+        from src.api.routers.technical_backtest import router as technical_backtest_router
+
+        app.include_router(technical_backtest_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Technical Backtest router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 7: AI Company Intelligence + Primers
+    try:
+        from src.api.routers.company_intelligence import router as company_intelligence_router
+
+        app.include_router(company_intelligence_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Company Intelligence router not available; skipping.")
+
+    try:
+        from src.api.routers.company_primer import router as company_primer_router
+
+        app.include_router(company_primer_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Company Primer router not available; skipping.")
+
+    # Pillar 2 Supplement – Part 8: Sentiment Analysis
+    try:
+        from src.api.routers.sentiment import router as sentiment_router
+
+        app.include_router(sentiment_router, prefix="/v1")
+    except ImportError:
+        logger.warning("Sentiment Analysis router not available; skipping.")
 
     # ------------------------------------------------------------------
     # Health check
