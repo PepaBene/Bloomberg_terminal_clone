@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { icon: '\u{1F52C}', label: 'Research', path: '/research' },
   { icon: '\u{1F4C8}', label: 'Flows', path: '/flows' },
   { icon: '\u2B50', label: 'Watchlist', path: '/watchlist' },
+  { icon: '\uD83D\uDD14', label: 'Alerts', path: '/alerts' },
   { icon: '\u2699\uFE0F', label: 'Settings', path: '/settings' },
 ];
 
