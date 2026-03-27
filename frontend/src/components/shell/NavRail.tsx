@@ -1,59 +1,514 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import clsx from 'clsx';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 
-interface NavItem {
-  icon: string;
-  label: string;
-  path: string;
+/* ── SVG Icon Components (16x16, stroke-based, Lucide-style) ── */
+
+interface IconProps {
+  filled?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { icon: '\u{1F3E0}', label: 'Home', path: '/' },
-  { icon: '\u{1F50D}', label: 'Screener', path: '/screener' },
-  { icon: '\u{1F3E2}', label: 'Company', path: '/company' },
-  { icon: '\u{1F4CA}', label: 'Sector', path: '/sector' },
-  { icon: '\u{1F4B0}', label: 'Fixed Inc', path: '/fi' },
-  { icon: '\u{1F4C1}', label: 'Portfolio', path: '/portfolio' },
-  { icon: '\u2696\uFE0F', label: 'Risk', path: '/risk' },
-  { icon: '\u{1F30D}', label: 'Macro', path: '/macro' },
-  { icon: '\u{1F310}', label: 'Global', path: '/global' },
-  { icon: '\u{1F4F0}', label: 'News', path: '/news' },
-  { icon: '\u{1F52C}', label: 'Research', path: '/research' },
-  { icon: '\u{1F4C8}', label: 'Flows', path: '/flows' },
-  { icon: '\u2B50', label: 'Watchlist', path: '/watchlist' },
-  { icon: '\uD83D\uDD14', label: 'Alerts', path: '/alerts' },
-  { icon: '\u2699\uFE0F', label: 'Settings', path: '/settings' },
+const s = { width: 16, height: 16, strokeWidth: 1.5, stroke: 'currentColor', fill: 'none' } as const;
+const sf = { width: 16, height: 16, strokeWidth: 1.5, stroke: 'currentColor' } as const;
+
+function IconHome({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M2 6.5L8 2l6 4.5V13a1 1 0 01-1 1H3a1 1 0 01-1-1V6.5z" />
+      <path d="M6 14V9h4v5" fill="none" />
+    </svg>
+  );
+}
+
+function IconScreener({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <rect x="2" y="2" width="5" height="5" rx="0.5" />
+      <rect x="9" y="2" width="5" height="5" rx="0.5" />
+      <rect x="2" y="9" width="5" height="5" rx="0.5" />
+      <rect x="9" y="9" width="5" height="5" rx="0.5" />
+    </svg>
+  );
+}
+
+function IconCompany({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M2 14V3a1 1 0 011-1h6a1 1 0 011 1v11" />
+      <path d="M10 8h3a1 1 0 011 1v5" />
+      <path d="M2 14h12" fill="none" />
+      <path d="M4.5 4.5h1M4.5 7h1M4.5 9.5h1M7 4.5h1M7 7h1M7 9.5h1" fill="none" />
+    </svg>
+  );
+}
+
+function IconSector({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M8 2a6 6 0 110 12 6 6 0 010-12z" />
+      <path d="M8 2v6l4.24 4.24" fill="none" />
+    </svg>
+  );
+}
+
+function IconFixedIncome({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M2 4l3.5 3L8 5l3 2.5L14 4" fill="none" />
+      <path d="M2 8.5l3.5 3L8 9.5l3 2.5L14 8.5" fill="none" />
+      <line x1="2" y1="13" x2="14" y2="13" fill="none" />
+    </svg>
+  );
+}
+
+function IconPortfolio({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <rect x="2" y="5" width="12" height="9" rx="1" />
+      <path d="M5 5V3.5A1.5 1.5 0 016.5 2h3A1.5 1.5 0 0111 3.5V5" fill="none" />
+      <line x1="2" y1="9" x2="14" y2="9" fill="none" />
+    </svg>
+  );
+}
+
+function IconRisk({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M8 1.5l6 3.5v4c0 3.5-2.5 5.5-6 7-3.5-1.5-6-3.5-6-7V5L8 1.5z" />
+      <path d="M8 5v3.5M8 10.5h.01" fill="none" />
+    </svg>
+  );
+}
+
+function IconMacro({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M2 8h12M8 2a10 10 0 013 6 10 10 0 01-3 6M8 2a10 10 0 00-3 6 10 10 0 003 6" fill="none" />
+    </svg>
+  );
+}
+
+function IconGlobal({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <circle cx="8" cy="8" r="6" />
+      <ellipse cx="8" cy="8" rx="2.5" ry="6" fill="none" />
+      <line x1="2" y1="6" x2="14" y2="6" fill="none" />
+      <line x1="2" y1="10" x2="14" y2="10" fill="none" />
+    </svg>
+  );
+}
+
+function IconNews({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <rect x="2" y="2" width="10" height="12" rx="1" />
+      <path d="M12 5h1.5a.5.5 0 01.5.5V13a1 1 0 01-1 1H4" fill="none" />
+      <line x1="4.5" y1="5" x2="9.5" y2="5" fill="none" />
+      <line x1="4.5" y1="7.5" x2="9.5" y2="7.5" fill="none" />
+      <line x1="4.5" y1="10" x2="7" y2="10" fill="none" />
+    </svg>
+  );
+}
+
+function IconResearch({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M6 14v-3a2 2 0 012-2h0a2 2 0 012 2v3" fill="none" />
+      <circle cx="8" cy="5.5" r="3.5" />
+      <line x1="8" y1="3" x2="8" y2="5.5" fill="none" />
+      <line x1="6.5" y1="5.5" x2="9.5" y2="5.5" fill="none" />
+    </svg>
+  );
+}
+
+function IconFlows({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <polyline points="2,8 4.5,4 6.5,10 8.5,3 10.5,11 12.5,6 14,8" fill="none" />
+    </svg>
+  );
+}
+
+function IconWatchlist({ filled }: IconProps) {
+  return (
+    <svg {...sf} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M8 1.5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L8 10.5l-3.52 1.85.67-3.93L2.3 5.64l3.94-.57L8 1.5z" />
+    </svg>
+  );
+}
+
+function IconAlerts({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M6 13a2 2 0 004 0" fill="none" />
+      <path d="M8 1.5a.75.75 0 01.75.75v.5A4.25 4.25 0 0112.5 7v2.5l1 1.5H2.5l1-1.5V7a4.25 4.25 0 013.75-4.25v-.5A.75.75 0 018 1.5z" />
+    </svg>
+  );
+}
+
+function IconSettings({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <circle cx="8" cy="8" r="2" />
+      <path
+        d="M8 1.5l.65 1.84a4.5 4.5 0 011.5.87l1.87-.53.75 1.3-1.22 1.37a4.5 4.5 0 010 1.3l1.22 1.37-.75 1.3-1.87-.53a4.5 4.5 0 01-1.5.87L8 14.5l-.65-1.84a4.5 4.5 0 01-1.5-.87l-1.87.53-.75-1.3 1.22-1.37a4.5 4.5 0 010-1.3L3.23 6.98l.75-1.3 1.87.53a4.5 4.5 0 011.5-.87L8 1.5z"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+/* ── Nav item data model ──────────────────────────────────── */
+
+interface NavItemDef {
+  id: string;
+  icon: (props: IconProps) => ReactNode;
+  label: string;
+  path: string;
+  shortcut: string;
+  subItems?: string[];
+}
+
+interface NavGroup {
+  id: string;
+  label?: string;
+  items: NavItemDef[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'home',
+    items: [
+      { id: 'home', icon: IconHome, label: 'Home', path: '/', shortcut: '1', subItems: ['Dashboard', 'Overview'] },
+    ],
+  },
+  {
+    id: 'analysis',
+    label: 'Analysis',
+    items: [
+      { id: 'screener', icon: IconScreener, label: 'Screener', path: '/screener', shortcut: '2', subItems: ['Equity', 'Fixed Income', 'Custom'] },
+      { id: 'company', icon: IconCompany, label: 'Company', path: '/company', shortcut: '3', subItems: ['Profile', 'Financials', 'Peers'] },
+      { id: 'sector', icon: IconSector, label: 'Sector', path: '/sector', shortcut: '4', subItems: ['Overview', 'Heatmap', 'Rotation'] },
+    ],
+  },
+  {
+    id: 'investment',
+    label: 'Investment',
+    items: [
+      { id: 'fi', icon: IconFixedIncome, label: 'Fixed Inc', path: '/fi', shortcut: '5', subItems: ['Curves', 'Spreads', 'Issuance'] },
+      { id: 'portfolio', icon: IconPortfolio, label: 'Portfolio', path: '/portfolio', shortcut: '6', subItems: ['Holdings', 'Attribution', 'Rebalance'] },
+      { id: 'risk', icon: IconRisk, label: 'Risk', path: '/risk', shortcut: '7', subItems: ['VaR', 'Stress Test', 'Exposure'] },
+    ],
+  },
+  {
+    id: 'macro',
+    label: 'Macro',
+    items: [
+      { id: 'macro', icon: IconMacro, label: 'Macro', path: '/macro', shortcut: '8', subItems: ['Indicators', 'Central Banks', 'Calendar'] },
+      { id: 'global', icon: IconGlobal, label: 'Global', path: '/global', shortcut: '9', subItems: ['Markets', 'FX', 'Commodities'] },
+    ],
+  },
+  {
+    id: 'intelligence',
+    label: 'Intelligence',
+    items: [
+      { id: 'news', icon: IconNews, label: 'News', path: '/news', shortcut: '0', subItems: ['Feed', 'Trending', 'Saved'] },
+      { id: 'research', icon: IconResearch, label: 'Research', path: '/research', shortcut: 'Q', subItems: ['Reports', 'Estimates', 'Transcripts'] },
+      { id: 'flows', icon: IconFlows, label: 'Flows', path: '/flows', shortcut: 'W', subItems: ['Fund Flows', 'Positioning', 'Sentiment'] },
+    ],
+  },
+  {
+    id: 'monitoring',
+    label: 'Monitoring',
+    items: [
+      { id: 'watchlist', icon: IconWatchlist, label: 'Watchlist', path: '/watchlist', shortcut: 'E', subItems: ['Lists', 'Movers', 'Alerts'] },
+      { id: 'alerts', icon: IconAlerts, label: 'Alerts', path: '/alerts', shortcut: 'R', subItems: ['Active', 'History', 'Create'] },
+    ],
+  },
 ];
+
+const SETTINGS_ITEM: NavItemDef = {
+  id: 'settings',
+  icon: IconSettings,
+  label: 'Settings',
+  path: '/settings',
+  shortcut: 'S',
+  subItems: ['General', 'Display', 'Data', 'Shortcuts'],
+};
+
+/* ── Styles ───────────────────────────────────────────────── */
+
+const RAIL_WIDTH = 56;
+const ITEM_HEIGHT = 48;
+
+const styles = {
+  rail: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    height: '100%',
+    width: RAIL_WIDTH,
+    minWidth: RAIL_WIDTH,
+    background: 'var(--color-surface-base)',
+    borderRight: '1px solid var(--color-surface-border)',
+    overflowY: 'auto' as const,
+    overflowX: 'hidden' as const,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  separator: {
+    height: 1,
+    margin: '4px 16px',
+    background: 'var(--color-surface-border-strong)',
+    flexShrink: 0,
+  },
+  spacer: {
+    flex: 1,
+    minHeight: 8,
+  },
+  navButton: (isActive: boolean, isHovered: boolean) => ({
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: '100%',
+    height: ITEM_HEIGHT,
+    border: 'none',
+    cursor: 'pointer',
+    position: 'relative' as const,
+    padding: 0,
+    gap: 2,
+    transition: 'background 120ms ease, color 120ms ease',
+    background: isActive
+      ? 'var(--accent-glow)'
+      : isHovered
+        ? 'var(--color-surface-overlay)'
+        : 'transparent',
+    color: isActive
+      ? 'var(--color-accent-primary)'
+      : isHovered
+        ? 'var(--color-text-secondary)'
+        : 'var(--color-text-tertiary)',
+    borderLeft: isActive ? '2px solid var(--color-accent-primary)' : '2px solid transparent',
+    boxShadow: isActive ? 'inset 4px 0 12px -4px rgba(59, 130, 246, 0.2)' : 'none',
+  }),
+  iconContainer: {
+    display: 'flex',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: 20,
+    height: 20,
+  },
+  label: {
+    fontFamily: 'var(--font-ui)',
+    fontSize: 9,
+    lineHeight: 1,
+    letterSpacing: '0.01em',
+    whiteSpace: 'nowrap' as const,
+    userSelect: 'none' as const,
+  },
+  shortcutBadge: {
+    position: 'absolute' as const,
+    top: 3,
+    right: 4,
+    fontFamily: 'var(--font-data)',
+    fontSize: 8,
+    lineHeight: 1,
+    color: 'var(--color-text-tertiary)',
+    opacity: 0.5,
+  },
+  flyout: {
+    position: 'fixed' as const,
+    left: RAIL_WIDTH + 4,
+    zIndex: 300,
+    background: 'var(--color-surface-raised)',
+    border: '1px solid var(--color-surface-border)',
+    borderRadius: 4,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+    padding: '8px 12px',
+    minWidth: 140,
+    pointerEvents: 'none' as const,
+  },
+  flyoutTitle: {
+    fontFamily: 'var(--font-ui)',
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'var(--color-text-primary)',
+    marginBottom: 4,
+  },
+  flyoutGroup: {
+    fontFamily: 'var(--font-ui)',
+    fontSize: 9,
+    color: 'var(--color-text-tertiary)',
+    marginBottom: 2,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+  },
+  flyoutSub: {
+    fontFamily: 'var(--font-ui)',
+    fontSize: 10,
+    color: 'var(--color-text-secondary)',
+    padding: '1px 0',
+  },
+  flyoutShortcut: {
+    fontFamily: 'var(--font-data)',
+    fontSize: 9,
+    color: 'var(--color-text-tertiary)',
+    marginTop: 6,
+    borderTop: '1px solid var(--color-surface-border)',
+    paddingTop: 4,
+  },
+} as const;
+
+/* ── NavButton component ──────────────────────────────────── */
+
+interface NavButtonProps {
+  item: NavItemDef;
+  isActive: boolean;
+  groupLabel?: string;
+  onClick: () => void;
+}
+
+function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
+  const [hovered, setHovered] = useState(false);
+  const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    setHovered(true);
+    setButtonRect(e.currentTarget.getBoundingClientRect());
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setHovered(false);
+    setButtonRect(null);
+  }, []);
+
+  const Icon = item.icon;
+
+  return (
+    <>
+      <button
+        style={styles.navButton(isActive, hovered)}
+        onClick={onClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        aria-label={item.label}
+        aria-current={isActive ? 'page' : undefined}
+        data-shortcut={item.shortcut}
+      >
+        <span style={styles.shortcutBadge}>{item.shortcut}</span>
+        <span style={styles.iconContainer}>
+          <Icon filled={isActive} />
+        </span>
+        <span style={styles.label}>{item.label}</span>
+      </button>
+      {hovered && buttonRect && (
+        <FlyoutTooltip item={item} groupLabel={groupLabel} rect={buttonRect} />
+      )}
+    </>
+  );
+}
+
+/* ── FlyoutTooltip component ──────────────────────────────── */
+
+interface FlyoutTooltipProps {
+  item: NavItemDef;
+  groupLabel?: string;
+  rect: DOMRect;
+}
+
+function FlyoutTooltip({ item, groupLabel, rect }: FlyoutTooltipProps) {
+  const top = Math.max(4, rect.top);
+
+  return (
+    <div style={{ ...styles.flyout, top }}>
+      {groupLabel && <div style={styles.flyoutGroup}>{groupLabel}</div>}
+      <div style={styles.flyoutTitle}>{item.label}</div>
+      {item.subItems && item.subItems.length > 0 && (
+        <div style={{ marginTop: 2 }}>
+          {item.subItems.map((sub) => (
+            <div key={sub} style={styles.flyoutSub}>
+              {sub}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={styles.flyoutShortcut}>
+        Shortcut: {item.shortcut}
+      </div>
+    </div>
+  );
+}
+
+/* ── Separator ────────────────────────────────────────────── */
+
+function Separator() {
+  return <div style={styles.separator} />;
+}
+
+/* ── NavRail ──────────────────────────────────────────────── */
 
 export function NavRail() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  return (
-    <nav className="flex flex-col h-full bg-surface-base border-r border-surface-border overflow-y-auto py-1">
-      {NAV_ITEMS.map((item) => {
-        const isActive = location.pathname === item.path ||
-          (item.path !== '/' && location.pathname.startsWith(item.path));
+  const isItemActive = useCallback(
+    (path: string) =>
+      location.pathname === path ||
+      (path !== '/' && location.pathname.startsWith(path)),
+    [location.pathname],
+  );
 
-        return (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={clsx(
-              'flex flex-col items-center justify-center w-full h-12 text-xs gap-0.5 transition-colors relative',
-              isActive
-                ? 'text-accent-primary bg-surface-overlay'
-                : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-overlay/50'
-            )}
-          >
-            {isActive && (
-              <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-accent-primary rounded-r" />
-            )}
-            <span className="text-base">{item.icon}</span>
-            <span className="font-ui text-[9px] leading-none">{item.label}</span>
-          </button>
-        );
-      })}
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const allItems = [
+      ...NAV_GROUPS.flatMap((g) => g.items),
+      SETTINGS_ITEM,
+    ];
+
+    const handler = (e: KeyboardEvent) => {
+      // Only fire when no modifier keys and no input is focused
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+
+      const key = e.key.toUpperCase();
+      const match = allItems.find((item) => item.shortcut === key);
+      if (match) {
+        e.preventDefault();
+        navigate(match.path);
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [navigate]);
+
+  return (
+    <nav style={styles.rail} aria-label="Main navigation">
+      {NAV_GROUPS.map((group, gi) => (
+        <div key={group.id}>
+          {gi > 0 && <Separator />}
+          {group.items.map((item) => (
+            <NavButton
+              key={item.id}
+              item={item}
+              isActive={isItemActive(item.path)}
+              groupLabel={group.label}
+              onClick={() => navigate(item.path)}
+            />
+          ))}
+        </div>
+      ))}
+
+      <div style={styles.spacer} />
+      <Separator />
+      <NavButton
+        item={SETTINGS_ITEM}
+        isActive={isItemActive(SETTINGS_ITEM.path)}
+        onClick={() => navigate(SETTINGS_ITEM.path)}
+      />
     </nav>
   );
 }
