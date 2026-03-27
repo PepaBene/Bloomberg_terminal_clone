@@ -1,0 +1,44 @@
+{
+  "name": "bloomberg-terminal",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:tauri": "tauri dev",
+    "build": "tsc -b && vite build",
+    "build:tauri": "tauri build",
+    "preview": "vite preview",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.13.2",
+    "recharts": "^2.15.3",
+    "lightweight-charts": "^5.0.5",
+    "@visx/visx": "^3.12.0",
+    "d3": "^7.9.0",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.6",
+    "@tanstack/react-query": "^5.75.5",
+    "@tanstack/react-query-devtools": "^5.75.5",
+    "zustand": "^5.0.5",
+    "motion": "^12.12.1",
+    "cmdk": "^1.1.1",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/d3": "^7.4.3",
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite": "^6.3.5",
+    "@tailwindcss/vite": "^4.1.7",
+    "tailwindcss": "^4.1.7",
+    "eslint": "^9.27.0",
+    "prettier": "^3.5.3"
+  }
+}
