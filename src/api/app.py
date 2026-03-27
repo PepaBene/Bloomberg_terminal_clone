@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from src.api.middleware import RequestContextMiddleware
+from src.api.middleware.audit import AuditLogMiddleware
 from src.api.utils.field_selection import FieldSelectionMiddleware
 from src.schemas.common import ErrorDetail, ErrorResponse, ResponseMeta
 
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     # order, so the last-registered middleware runs first on request.)
     # ------------------------------------------------------------------
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(AuditLogMiddleware)
     app.add_middleware(FieldSelectionMiddleware)
 
     # ------------------------------------------------------------------
@@ -387,6 +389,327 @@ def create_app() -> FastAPI:
         app.include_router(sentiment_router, prefix="/v1")
     except ImportError:
         logger.warning("Sentiment Analysis router not available; skipping.")
+
+    # D11 FI Supplement – Part 2: Treasuries
+    try:
+        from src.api.routers.fi_treasuries import router as fi_treasuries_router
+
+        app.include_router(fi_treasuries_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Treasuries router not available; skipping.")
+
+    # D11 FI Supplement – Part 3: Fixed Income Yield Curve
+    try:
+        from src.api.routers.fi_yield_curve import router as fi_yield_curve_router
+
+        app.include_router(fi_yield_curve_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Yield Curve router not available; skipping.")
+
+    # D11 FI Supplement – Part 4: Corporate Bonds + TRACE
+    try:
+        from src.api.routers.fi_bonds import router as fi_bonds_router
+
+        app.include_router(fi_bonds_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Bonds router not available; skipping.")
+
+    # D11 FI Supplement – Part 5: Credit Rating Analytics
+    try:
+        from src.api.routers.fi_ratings import router as fi_ratings_router
+
+        app.include_router(fi_ratings_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Ratings router not available; skipping.")
+
+    # D11 FI Supplement – Part 6: Credit Spreads
+    try:
+        from src.api.routers.fi_spreads import router as fi_spreads_router
+
+        app.include_router(fi_spreads_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Spreads router not available; skipping.")
+
+    # D11 FI Supplement – Part 7: Bond Issuances
+    try:
+        from src.api.routers.fi_issuances import router as fi_issuances_router
+
+        app.include_router(fi_issuances_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Issuances router not available; skipping.")
+
+    # D11 FI Supplement – Part 8: Agency Bonds
+    try:
+        from src.api.routers.fi_agency_bonds import router as fi_agency_bonds_router
+
+        app.include_router(fi_agency_bonds_router, prefix="/v1")
+    except ImportError:
+        logger.warning("FI Agency Bonds router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 1: Bond Analytics
+    try:
+        from src.api.routers.fi_bond_analytics import router as fi_bond_analytics_router
+
+        app.include_router(fi_bond_analytics_router)
+    except ImportError:
+        logger.warning("FI Bond Analytics router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 2: Duration Analytics
+    try:
+        from src.api.routers.fi_duration import router as fi_duration_router
+
+        app.include_router(fi_duration_router)
+    except ImportError:
+        logger.warning("FI Duration Analytics router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 3: Spread Analytics
+    try:
+        from src.api.routers.fi_spread_analytics import router as fi_spread_analytics_router
+
+        app.include_router(fi_spread_analytics_router)
+    except ImportError:
+        logger.warning("FI Spread Analytics router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 4: Credit Quality Analytics
+    try:
+        from src.api.routers.fi_credit_quality import router as fi_credit_quality_router
+
+        app.include_router(fi_credit_quality_router)
+    except ImportError:
+        logger.warning("FI Credit Quality router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 5: FI Risk Analytics
+    try:
+        from src.api.routers.fi_risk import router as fi_risk_router
+
+        app.include_router(fi_risk_router)
+    except ImportError:
+        logger.warning("FI Risk Analytics router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 6: FI Screening & Scenarios
+    try:
+        from src.api.routers.fi_screening import router as fi_screening_router
+
+        app.include_router(fi_screening_router)
+    except ImportError:
+        logger.warning("FI Screening & Scenarios router not available; skipping.")
+
+    # Pillar 2 FI Supplement – Part 7: Issuer FI Profile + Cross-Asset Signals
+    try:
+        from src.api.routers.fi_issuer_profile import router as fi_issuer_profile_router
+
+        app.include_router(fi_issuer_profile_router)
+    except ImportError:
+        logger.warning("FI Issuer Profile router not available; skipping.")
+
+    try:
+        from src.api.routers.fi_cross_asset import router as fi_cross_asset_router
+
+        app.include_router(fi_cross_asset_router)
+    except ImportError:
+        logger.warning("FI Cross-Asset Signals router not available; skipping.")
+
+    # ------------------------------------------------------------------
+    # Pillar 3: Research & Intelligence
+    # ------------------------------------------------------------------
+    try:
+        from src.api.routers.filing_intelligence import router as filing_intel_router
+
+        app.include_router(filing_intel_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Filing intelligence router not available; skipping.")
+
+    try:
+        from src.api.routers.governance_intelligence import router as governance_intel_router
+
+        app.include_router(governance_intel_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Governance intelligence router not available; skipping.")
+
+    try:
+        from src.api.routers.news import router as news_router
+
+        app.include_router(news_router, prefix="/v3")
+    except ImportError:
+        logger.warning("News router not available; skipping.")
+
+    # NOTE: Alerts Expansion must be registered BEFORE Alerts to avoid
+    # /alerts/quality-scores being captured by /alerts/{entity_id}
+    try:
+        from src.api.routers.alerts_expansion import router as alerts_exp_router
+
+        app.include_router(alerts_exp_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Alerts expansion router not available; skipping.")
+
+    try:
+        from src.api.routers.alerts import router as alerts_router
+
+        app.include_router(alerts_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Alerts router not available; skipping.")
+
+    # Pillar 3 Phase 2: Earnings, Sentiment, Economic Calendar, Company Intel
+    try:
+        from src.api.routers.earnings_p2 import router as earnings_p2_router
+
+        app.include_router(earnings_p2_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Earnings P2 router not available; skipping.")
+
+    try:
+        from src.api.routers.sentiment_p2 import router as sentiment_p2_router
+
+        app.include_router(sentiment_p2_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Sentiment P2 router not available; skipping.")
+
+    try:
+        from src.api.routers.economic_calendar import router as economic_calendar_router
+
+        app.include_router(economic_calendar_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Economic Calendar router not available; skipping.")
+
+    try:
+        from src.api.routers.company_intel_p2 import router as company_intel_p2_router
+
+        app.include_router(company_intel_p2_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Company Intelligence P2 router not available; skipping.")
+
+    # Pillar 3 Phase 3A: Industry & Competitive Intelligence
+    try:
+        from src.api.routers.industry import router as industry_router
+
+        app.include_router(industry_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Industry router not available; skipping.")
+
+    try:
+        from src.api.routers.competitive import router as competitive_router
+
+        app.include_router(competitive_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Competitive router not available; skipping.")
+
+    # Pillar 3 Phase 3B: Global Intelligence
+    try:
+        from src.api.routers.global_intelligence import router as global_intel_router
+
+        app.include_router(global_intel_router, prefix="/v3")
+    except ImportError:
+        logger.warning("Global intelligence router not available; skipping.")
+
+    # Pillar 3 Phase 3C: FI Intelligence
+    try:
+        from src.api.routers.fi_intelligence import router as fi_intel_router
+
+        app.include_router(fi_intel_router, prefix="/v3")
+    except ImportError:
+        logger.warning("FI intelligence router not available; skipping.")
+
+    # Pillar 3 Phase 4A: AI Research Layer
+    try:
+        from src.api.routers.research_primers import router as research_primers_router
+
+        app.include_router(research_primers_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research primers router not available; skipping.")
+
+    try:
+        from src.api.routers.research_briefings import router as research_briefings_router
+
+        app.include_router(research_briefings_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research briefings router not available; skipping.")
+
+    try:
+        from src.api.routers.research_anomalies import router as research_anomalies_router
+
+        app.include_router(research_anomalies_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research anomalies router not available; skipping.")
+
+    # Pillar 3 Phase 4B: Semantic Search, Investment Thesis, Analyst Q&A
+    try:
+        from src.api.routers.research_search import router as research_search_router
+
+        app.include_router(research_search_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research search router not available; skipping.")
+
+    try:
+        from src.api.routers.research_thesis import router as research_thesis_router
+
+        app.include_router(research_thesis_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research thesis router not available; skipping.")
+
+    try:
+        from src.api.routers.research_qa import router as research_qa_router
+
+        app.include_router(research_qa_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research Q&A router not available; skipping.")
+
+    # Pillar 3 Phase 4C: Macro Themes, Scenarios, Intelligent Alerts, Earnings Intelligence
+    try:
+        from src.api.routers.research_themes import router as research_themes_router
+
+        app.include_router(research_themes_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research themes router not available; skipping.")
+
+    try:
+        from src.api.routers.research_alerts_p4 import router as research_alerts_p4_router
+
+        app.include_router(research_alerts_p4_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research alerts P4 router not available; skipping.")
+
+    # ------------------------------------------------------------------
+    # Pillar 4 Phase 3: Risk Management
+    # NOTE: Risk router must be registered BEFORE Performance and Portfolios
+    # to avoid /portfolios/risk/scenarios being captured by /portfolios/{portfolio_id}
+    # ------------------------------------------------------------------
+    try:
+        from src.api.routers.portfolio_risk import router as portfolio_risk_router
+
+        app.include_router(portfolio_risk_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Portfolio risk router not available; skipping.")
+
+    # ------------------------------------------------------------------
+    # Pillar 4 Phase 2: Performance & Attribution
+    # NOTE: Performance router must be registered BEFORE Portfolios to avoid
+    # /portfolios/performance/compare being captured by /portfolios/{portfolio_id}
+    # ------------------------------------------------------------------
+    try:
+        from src.api.routers.portfolio_performance import router as perf_router
+
+        app.include_router(perf_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Portfolio performance router not available; skipping.")
+
+    # ------------------------------------------------------------------
+    # Pillar 4 Phase 1: Portfolio Foundation
+    # NOTE: Watchlists router must be registered BEFORE Portfolios to avoid
+    # /portfolios/watchlists being captured by /portfolios/{portfolio_id}
+    # ------------------------------------------------------------------
+    try:
+        from src.api.routers.portfolio_watchlists import router as portfolio_watchlists_router
+
+        app.include_router(portfolio_watchlists_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Portfolio watchlists router not available; skipping.")
+
+    try:
+        from src.api.routers.portfolios import router as portfolios_router
+
+        app.include_router(portfolios_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Portfolios router not available; skipping.")
 
     # ------------------------------------------------------------------
     # Health check

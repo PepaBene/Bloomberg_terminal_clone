@@ -1055,3 +1055,174 @@ class CompositeScoreEngine(BaseEngine):
         )
 
         return outputs
+
+
+# ---------------------------------------------------------------------------
+# Standalone: Credit-Aware Financial Strength (FI Supplement)
+# ---------------------------------------------------------------------------
+
+def _map_o_score(o_score: float) -> float:
+    """Map Ohlson O-Score to a 0-100 component score (inverse: lower O = healthier)."""
+    if o_score < -1.0:
+        return 90.0
+    elif o_score <= 0.0:
+        return 70.0
+    elif o_score <= 0.5:
+        return 50.0
+    elif o_score <= 1.0:
+        return 30.0
+    else:
+        return 10.0
+
+
+def _map_merton_dd(dd: float) -> float:
+    """Map Merton distance-to-default to a 0-100 component score."""
+    if dd > 4.0:
+        return 95.0
+    elif dd >= 3.0:
+        return 80.0
+    elif dd >= 2.0:
+        return 60.0
+    elif dd >= 1.0:
+        return 35.0
+    else:
+        return 10.0
+
+
+def _map_credit_momentum(momentum: float) -> float:
+    """Map credit momentum score [-1, +1] linearly to [10, 90]."""
+    # Clamp to valid range first
+    clamped = max(-1.0, min(1.0, momentum))
+    # Linear: -1 → 10, +1 → 90
+    return 10.0 + (clamped + 1.0) * 40.0
+
+
+def compute_credit_aware_financial_strength(
+    financial_strength_score: float | None,
+    ohlson_o_score: float | None,
+    merton_dd: float | None,
+    credit_momentum_score: float | None,
+) -> dict:
+    """Compute a credit-aware financial strength composite score.
+
+    Combines the existing financial strength score with FI-specific credit
+    risk metrics (Ohlson O-Score, Merton distance-to-default, and credit
+    momentum) into a single 0-100 composite.
+
+    Parameters
+    ----------
+    financial_strength_score:
+        Existing financial strength score (0-100 scale).
+    ohlson_o_score:
+        Ohlson O-Score (lower = healthier).
+    merton_dd:
+        Merton distance-to-default (higher = safer).
+    credit_momentum_score:
+        Credit momentum score in [-1, +1] (positive = improving).
+
+    Returns
+    -------
+    dict
+        Composite result with score, classification, components, and data_quality.
+    """
+    # Base weights
+    base_weights = {
+        "financial_strength": 0.40,
+        "ohlson_o_score": 0.25,
+        "merton_dd": 0.20,
+        "credit_momentum": 0.15,
+    }
+
+    # Map raw inputs to component scores
+    raw_values = {
+        "financial_strength": financial_strength_score,
+        "ohlson_o_score": ohlson_o_score,
+        "merton_dd": merton_dd,
+        "credit_momentum": credit_momentum_score,
+    }
+
+    mapped_scores: dict[str, float | None] = {}
+
+    if financial_strength_score is not None:
+        mapped_scores["financial_strength"] = financial_strength_score
+    else:
+        mapped_scores["financial_strength"] = None
+
+    if ohlson_o_score is not None:
+        mapped_scores["ohlson_o_score"] = _map_o_score(ohlson_o_score)
+    else:
+        mapped_scores["ohlson_o_score"] = None
+
+    if merton_dd is not None:
+        mapped_scores["merton_dd"] = _map_merton_dd(merton_dd)
+    else:
+        mapped_scores["merton_dd"] = None
+
+    if credit_momentum_score is not None:
+        mapped_scores["credit_momentum"] = _map_credit_momentum(credit_momentum_score)
+    else:
+        mapped_scores["credit_momentum"] = None
+
+    # Determine which components are available
+    available = {k for k, v in mapped_scores.items() if v is not None}
+    n_available = len(available)
+
+    # Data quality
+    if n_available == 4:
+        data_quality = "COMPLETE"
+    elif n_available >= 1:
+        data_quality = "PARTIAL"
+    else:
+        data_quality = "INSUFFICIENT"
+
+    # Compute normalized weights and composite score
+    if n_available == 0:
+        composite_score = None
+        classification = None
+        # All weights stay at base (no normalization needed since score is None)
+        normalized_weights = dict(base_weights)
+    else:
+        # Sum of base weights for available components
+        total_available_weight = sum(base_weights[k] for k in available)
+        # Normalize weights so they sum to 1.0
+        normalized_weights = {}
+        for k in base_weights:
+            if k in available:
+                normalized_weights[k] = base_weights[k] / total_available_weight
+            else:
+                normalized_weights[k] = 0.0
+
+        # Weighted sum
+        composite_score = sum(
+            mapped_scores[k] * normalized_weights[k]  # type: ignore[operator]
+            for k in available
+        )
+
+        # Clamp to [0, 100]
+        composite_score = max(0.0, min(100.0, composite_score))
+
+        # Classification
+        if composite_score > 75.0:
+            classification = "STRONG"
+        elif composite_score >= 50.0:
+            classification = "ADEQUATE"
+        elif composite_score >= 25.0:
+            classification = "WEAK"
+        else:
+            classification = "DISTRESSED"
+
+    # Build components dict
+    components = {}
+    for key in base_weights:
+        components[key] = {
+            "raw": raw_values[key],
+            "score": mapped_scores[key],
+            "weight": normalized_weights[key],
+        }
+
+    return {
+        "score": composite_score,
+        "classification": classification,
+        "components": components,
+        "data_quality": data_quality,
+    }

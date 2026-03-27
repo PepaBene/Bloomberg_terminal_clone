@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,6 +58,14 @@ class EarningsSurprise(TimestampMixin, Base):
     # Source
     source_filing_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
+    # Phase 2: Extended surprise metrics
+    ebitda_surprise: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
+    ebitda_surprise_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    beat_and_fell: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    consecutive_beats: Mapped[int | None] = mapped_column(Integer)
+    consecutive_misses: Mapped[int | None] = mapped_column(Integer)
+    avg_surprise_magnitude_4q: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+
     __table_args__ = (
         Index("idx_surprise_entity_period", "entity_id", "fiscal_year", "fiscal_quarter"),
         Index("idx_surprise_announcement", "announcement_date"),
@@ -97,6 +106,12 @@ class GuidanceTracking(TimestampMixin, Base):
 
     # Source
     source_filing_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+    # Phase 2: Guidance credibility metrics
+    credibility_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    historical_accuracy: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    consistency_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    width_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
 
     __table_args__ = (
         Index("idx_guidance_entity_year", "entity_id", "guidance_fiscal_year"),

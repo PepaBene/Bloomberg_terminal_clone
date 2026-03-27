@@ -421,3 +421,128 @@ def compute_breakeven_inflation(
         if nominal_r is not None:
             result[t] = round(nominal_r - real_r, 6)
     return result
+
+
+# ---------------------------------------------------------------------------
+# D11 FI Supplement: Additional spread & curve analytics
+# ---------------------------------------------------------------------------
+
+
+def compute_butterfly_spread(rate_2y: float, rate_5y: float, rate_10y: float) -> float:
+    """Compute butterfly spread: 2 * 5Y - 2Y - 10Y."""
+    return 2.0 * rate_5y - rate_2y - rate_10y
+
+
+def compute_spread_5s30s(rate_5y: float, rate_30y: float) -> float:
+    """Compute 5s30s spread."""
+    return rate_30y - rate_5y
+
+
+def nelson_siegel_svensson_evaluate(t: float, beta0: float, beta1: float, beta2: float,
+                                     beta3: float, lambda1: float, lambda2: float) -> float:
+    """Evaluate the Nelson-Siegel-Svensson model at tenor t."""
+    if t <= 0:
+        return beta0 + beta1
+
+    exp1 = math.exp(-t / lambda1) if lambda1 > 0 else 0.0
+    exp2 = math.exp(-t / lambda2) if lambda2 > 0 else 0.0
+
+    term1 = beta0
+    term2 = beta1 * ((1 - exp1) / (t / lambda1)) if lambda1 > 0 else 0.0
+    term3 = beta2 * ((1 - exp1) / (t / lambda1) - exp1) if lambda1 > 0 else 0.0
+    term4 = beta3 * ((1 - exp2) / (t / lambda2) - exp2) if lambda2 > 0 else 0.0
+
+    return term1 + term2 + term3 + term4
+
+
+def nelson_siegel_svensson_fit(tenors: list[float], rates: list[float]) -> dict:
+    """Fit the 6-parameter Nelson-Siegel-Svensson model via grid search + OLS.
+
+    Returns dict with beta0, beta1, beta2, beta3, lambda1, lambda2, fit_error.
+    """
+    if len(tenors) < 4:
+        return {"beta0": 0, "beta1": 0, "beta2": 0, "beta3": 0, "lambda1": 1.0, "lambda2": 5.0, "fit_error": float("inf")}
+
+    best_params = None
+    best_error = float("inf")
+
+    # Grid search over lambda1 and lambda2
+    lambda1_grid = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+    lambda2_grid = [1.0, 2.0, 3.0, 5.0, 8.0, 10.0]
+
+    for lam1 in lambda1_grid:
+        for lam2 in lambda2_grid:
+            if lam2 <= lam1:
+                continue  # lambda2 should be larger than lambda1
+
+            # Build design matrix for OLS: y = X @ [b0, b1, b2, b3]
+            n = len(tenors)
+            X = []
+            for t in tenors:
+                if t <= 0:
+                    X.append([1.0, 1.0, 0.0, 0.0])
+                    continue
+                exp1 = math.exp(-t / lam1)
+                exp2 = math.exp(-t / lam2)
+                x1 = 1.0
+                x2 = (1 - exp1) / (t / lam1)
+                x3 = x2 - exp1
+                x4 = (1 - exp2) / (t / lam2) - exp2
+                X.append([x1, x2, x3, x4])
+
+            # OLS: beta = (X'X)^-1 X'y using simple implementation
+            # Compute X'X (4x4) and X'y (4x1)
+            XtX = [[0.0]*4 for _ in range(4)]
+            Xty = [0.0]*4
+            for i in range(n):
+                for j in range(4):
+                    Xty[j] += X[i][j] * rates[i]
+                    for k in range(4):
+                        XtX[j][k] += X[i][j] * X[i][k]
+
+            # Solve 4x4 system via Gaussian elimination
+            A = [row[:] + [Xty[i]] for i, row in enumerate(XtX)]
+            size = 4
+            try:
+                for col in range(size):
+                    max_row = col
+                    for row in range(col + 1, size):
+                        if abs(A[row][col]) > abs(A[max_row][col]):
+                            max_row = row
+                    A[col], A[max_row] = A[max_row], A[col]
+                    if abs(A[col][col]) < 1e-12:
+                        raise ValueError("Singular")
+                    for row in range(col + 1, size):
+                        factor = A[row][col] / A[col][col]
+                        for j in range(col, size + 1):
+                            A[row][j] -= factor * A[col][j]
+
+                betas = [0.0] * size
+                for i in range(size - 1, -1, -1):
+                    betas[i] = A[i][size]
+                    for j in range(i + 1, size):
+                        betas[i] -= A[i][j] * betas[j]
+                    betas[i] /= A[i][i]
+            except (ValueError, ZeroDivisionError):
+                continue
+
+            # Compute RMSE
+            sse = 0.0
+            for i, t in enumerate(tenors):
+                fitted = nelson_siegel_svensson_evaluate(t, betas[0], betas[1], betas[2], betas[3], lam1, lam2)
+                sse += (fitted - rates[i]) ** 2
+            rmse = math.sqrt(sse / n)
+
+            if rmse < best_error:
+                best_error = rmse
+                best_params = {
+                    "beta0": round(betas[0], 6),
+                    "beta1": round(betas[1], 6),
+                    "beta2": round(betas[2], 6),
+                    "beta3": round(betas[3], 6),
+                    "lambda1": lam1,
+                    "lambda2": lam2,
+                    "fit_error": round(rmse, 8),
+                }
+
+    return best_params or {"beta0": 0, "beta1": 0, "beta2": 0, "beta3": 0, "lambda1": 1.0, "lambda2": 5.0, "fit_error": float("inf")}

@@ -126,6 +126,78 @@ def run_ols(x: list[float], y: list[float]) -> tuple[float, float, float]:
 
 
 # ---------------------------------------------------------------------------
+# Market Cost of Debt helpers (FI Supplement)
+# ---------------------------------------------------------------------------
+
+def compute_market_cost_of_debt(
+    risk_free_rate: float,
+    credit_spread_bps: float,
+) -> dict[str, float]:
+    """Compute market-implied cost of debt from risk-free rate + credit spread.
+
+    Parameters
+    ----------
+    risk_free_rate : float
+        Risk-free rate as a decimal (e.g. 0.04 for 4%).
+    credit_spread_bps : float
+        Credit spread in basis points (e.g. 200.0 for 200 bps).
+
+    Returns
+    -------
+    dict with keys: cost_of_debt_market, risk_free_rate, credit_spread_bps.
+    """
+    cost_of_debt_market = risk_free_rate + credit_spread_bps / 10_000.0
+    return {
+        "cost_of_debt_market": cost_of_debt_market,
+        "risk_free_rate": risk_free_rate,
+        "credit_spread_bps": credit_spread_bps,
+    }
+
+
+def compute_wacc_with_market_debt_cost(
+    cost_of_equity: float,
+    cost_of_debt_market: float,
+    equity_weight: float,
+    debt_weight: float,
+    tax_rate: float = 0.21,
+) -> dict[str, float]:
+    """Compute WACC using a market-derived (pre-tax) cost of debt.
+
+    Parameters
+    ----------
+    cost_of_equity : float
+        Cost of equity (decimal).
+    cost_of_debt_market : float
+        Pre-tax market cost of debt (decimal).
+    equity_weight : float
+        Equity weight in capital structure (0-1).
+    debt_weight : float
+        Debt weight in capital structure (0-1).
+    tax_rate : float
+        Marginal tax rate for the tax shield (default 0.21 = US statutory).
+
+    Returns
+    -------
+    dict with keys: wacc_market, cost_of_equity, cost_of_debt_market_pretax,
+    cost_of_debt_market_aftertax, equity_weight, debt_weight, tax_rate.
+    """
+    cost_of_debt_market_aftertax = cost_of_debt_market * (1.0 - tax_rate)
+    wacc_market = (
+        equity_weight * cost_of_equity
+        + debt_weight * cost_of_debt_market * (1.0 - tax_rate)
+    )
+    return {
+        "wacc_market": wacc_market,
+        "cost_of_equity": cost_of_equity,
+        "cost_of_debt_market_pretax": cost_of_debt_market,
+        "cost_of_debt_market_aftertax": cost_of_debt_market_aftertax,
+        "equity_weight": equity_weight,
+        "debt_weight": debt_weight,
+        "tax_rate": tax_rate,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Data loaders
 # ---------------------------------------------------------------------------
 

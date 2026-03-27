@@ -5,7 +5,7 @@ domain ownership.  This module is consumed by ``scripts/run_scheduler.py``
 and the SLA monitor.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class BatchJob:
     sla_minutes: int  # max allowed runtime
     domain: str
     description: str = ""
+    depends_on: tuple[str, ...] = ()  # names of jobs that must complete first
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,7 @@ BATCH_JOBS: list[BatchJob] = [
         sla_minutes=60,
         domain="ANALYTICS",
         description="Compute valuation multiples for all active securities.",
+        depends_on=("analytics_ratios",),
     ),
     BatchJob(
         name="analytics_wacc",
@@ -129,6 +131,45 @@ BATCH_JOBS: list[BatchJob] = [
         sla_minutes=60,
         domain="ANALYTICS",
         description="Compute WACC for all active entities.",
+        depends_on=("analytics_ratios",),
+    ),
+    # ── E3 Quality Scoring (after E1 completes) ───────────────────────
+    BatchJob(
+        name="analytics_quality_scoring",
+        cron="0 21 * * 1-5",  # 9 PM ET weekdays
+        script="scripts/run_analytics_batch.py --engine e3",
+        sla_minutes=45,
+        domain="ANALYTICS",
+        description="Compute Piotroski F-Score, Altman Z-Score, Beneish M-Score for all securities.",
+        depends_on=("analytics_ratios",),
+    ),
+    # ── E5 Risk Analytics ─────────────────────────────────────────────
+    BatchJob(
+        name="analytics_risk_var",
+        cron="0 22 * * 1-5",  # 10 PM ET weekdays
+        script="scripts/run_analytics_batch.py --engine e5",
+        sla_minutes=60,
+        domain="ANALYTICS",
+        description="Compute VaR and volatility metrics for all securities.",
+        depends_on=("analytics_ratios",),
+    ),
+    # ── E7 Quantitative (weekly) ──────────────────────────────────────
+    BatchJob(
+        name="analytics_quant_weekly",
+        cron="0 0 * * 0",  # Sunday midnight
+        script="scripts/run_analytics_batch.py --engine e7",
+        sla_minutes=120,
+        domain="ANALYTICS",
+        description="Compute correlation matrices and factor definitions.",
+    ),
+    # ── E6 Institutional Flows (daily check for quarterly filings) ────
+    BatchJob(
+        name="analytics_institutional_flows",
+        cron="0 6 * * 1-5",  # 6 AM ET weekdays (check for new filings)
+        script="scripts/run_analytics_batch.py --engine e6",
+        sla_minutes=90,
+        domain="ANALYTICS",
+        description="Process 13F filings and compute institutional flow analytics.",
     ),
     # ── Quality ───────────────────────────────────────────────────────
     BatchJob(

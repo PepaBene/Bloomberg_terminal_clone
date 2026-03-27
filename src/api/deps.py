@@ -1,9 +1,10 @@
 """FastAPI dependencies for injection."""
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 
-from fastapi import Query, Request
+from fastapi import HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -31,20 +32,27 @@ def get_request_id(request: Request) -> str:
     return request.state.request_id
 
 
-async def get_optional_user(request: Request):
-    """Return the current user payload if a valid Bearer token is present, else None.
+async def get_optional_user(request: Request) -> str | None:
+    """Extract user from JWT if present, otherwise return None.
 
     This dependency allows endpoints to function both with and without
-    authentication — useful during development and for gradual auth rollout.
+    authentication -- useful during development and for gradual auth rollout.
+
+    In production, set ``REQUIRE_AUTH=true`` to enforce authentication on
+    every request.  When not enforced, requests without a Bearer token are
+    silently allowed as anonymous.
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        if os.environ.get("REQUIRE_AUTH", "false").lower() == "true":
+            raise HTTPException(status_code=401, detail="Authentication required")
         return None
     try:
         from src.api.auth.dependencies import get_current_user
 
         token = auth_header.split(" ", 1)[1]
-        return await get_current_user(token)
+        payload = await get_current_user(token)
+        return payload.get("sub", "authenticated_user") if isinstance(payload, dict) else "authenticated_user"
     except Exception:
         logger.debug("Optional auth: token present but invalid; continuing as anonymous.")
         return None

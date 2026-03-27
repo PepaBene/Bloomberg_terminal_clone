@@ -75,6 +75,12 @@ class Entity(TimestampMixin, Base):
     ownership_percentage: Mapped[float | None] = mapped_column(Numeric(5, 2))
     consolidation_type: Mapped[str | None] = mapped_column(String(20))
 
+    # D11 FI Supplement: Issuer linkage
+    is_financing_subsidiary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    financing_parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.entity_id")
+    )
+
     # Metadata
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     confidence_score: Mapped[float | None] = mapped_column(Numeric(3, 2))

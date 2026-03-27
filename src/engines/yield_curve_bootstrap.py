@@ -79,3 +79,50 @@ def compute_spread(rate_short: float | None, rate_long: float | None) -> float |
     if rate_short is None or rate_long is None:
         return None
     return rate_long - rate_short
+
+
+def enhanced_bootstrap(par_rates: dict[str, float]) -> dict:
+    """Full FI bootstrap: par → zero → discount factors → forward rates.
+
+    Args:
+        par_rates: dict mapping tenor strings to par rates, e.g. {"1M": 0.05, "3M": 0.052, ...}
+
+    Returns:
+        dict with keys: "par", "zero", "discount_factors", "forwards"
+    """
+    # Map tenor strings to years
+    TENOR_TO_YEARS = {
+        "1M": 1/12, "3M": 0.25, "6M": 0.5, "1Y": 1.0, "2Y": 2.0,
+        "3Y": 3.0, "5Y": 5.0, "7Y": 7.0, "10Y": 10.0, "20Y": 20.0, "30Y": 30.0,
+    }
+
+    tenors = []
+    rates = []
+    for t_str in ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"]:
+        if t_str in par_rates and par_rates[t_str] is not None:
+            tenors.append(TENOR_TO_YEARS[t_str])
+            rates.append(par_rates[t_str])
+
+    if not tenors:
+        return {"par": {}, "zero": {}, "discount_factors": {}, "forwards": {}}
+
+    # Use existing bootstrap
+    results = bootstrap_zero_curve(tenors, rates)
+
+    par_out = {}
+    zero_out = {}
+    df_out = {}
+    fwd_out = {}
+
+    for r in results:
+        t = r["tenor_years"]
+        # Find tenor string
+        for ts, ty in TENOR_TO_YEARS.items():
+            if abs(ty - t) < 0.001:
+                par_out[ts] = par_rates.get(ts)
+                zero_out[ts] = r.get("zero_rate")
+                df_out[ts] = r.get("discount_factor")
+                fwd_out[ts] = r.get("forward_rate")
+                break
+
+    return {"par": par_out, "zero": zero_out, "discount_factors": df_out, "forwards": fwd_out}

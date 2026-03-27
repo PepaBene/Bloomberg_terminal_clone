@@ -57,6 +57,10 @@ class Security(TimestampMixin, Base):
         String(3), ForeignKey("currencies.currency_code")
     )
 
+    # Fixed income linkage (D11 Supplement)
+    corporate_bond_cusip: Mapped[str | None] = mapped_column(String(9), index=True)
+    treasury_cusip: Mapped[str | None] = mapped_column(String(9), index=True)
+
     # Relationships
     identifiers = relationship("SecurityIdentifier", back_populates="security", lazy="selectin")
     equity_details = relationship("EquityDetails", back_populates="security", uselist=False, lazy="selectin")
@@ -177,6 +181,12 @@ class FixedIncomeDetails(Base):
 
     # Credit
     rated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # D11 Supplement extensions
+    use_of_proceeds: Mapped[str | None] = mapped_column(String(30))
+    liquidity_tier: Mapped[str | None] = mapped_column(String(20))
+    benchmark_treasury_cusip: Mapped[str | None] = mapped_column(String(9))
+    oas_bps: Mapped[float | None] = mapped_column(Numeric(8, 2))
 
     security = relationship("Security", back_populates="fixed_income_details")
 

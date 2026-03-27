@@ -500,6 +500,18 @@ class RatioEngine(BaseEngine):
         out.append(self._out(ctx, "operating_leverage", CAT, op_lev, "RATIO",
                              inputs=_mi([("operating_income", op_inc), ("total_revenue", revenue)])))
 
+        # Earnings yield = net_income / market_cap (inverse P/E)
+        market_cap = ctx.price.market_cap
+        earnings_yield = safe_divide(net_inc, market_cap)
+        mkt_input = make_input("market_cap", "market_data", market_cap, "LATEST")
+        out.append(self._out(ctx, "earnings_yield", CAT, earnings_yield, "PERCENT",
+                             inputs=_mi([("net_income", net_inc)]) + [mkt_input]))
+
+        # EBITDA to interest expense
+        ebitda_to_int = safe_divide(ebitda, interest)
+        out.append(self._out(ctx, "ebitda_to_interest", CAT, ebitda_to_int, "RATIO",
+                             inputs=_mi([("ebitda", ebitda), ("interest_expense", interest)])))
+
         return out
 
     # ==================================================================
@@ -666,6 +678,28 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("total_current_liabilities", cur_liab),
                                          ("total_liabilities", total_liab)])))
 
+        # Fixed charge coverage = (EBITDA + lease_payments) / (interest + lease_payments)
+        lease_payments = s.cv("operating_lease_payments")
+        fcc: float | None = None
+        if ebitda is not None and interest is not None:
+            lp = float(lease_payments) if lease_payments is not None else 0.0
+            numerator = float(ebitda) + lp
+            denominator = float(interest) + lp
+            if denominator != 0:
+                fcc = numerator / denominator
+        out.append(self._out(ctx, "fixed_charge_coverage", CAT, fcc, "RATIO",
+                             inputs=_mi([("ebitda", ebitda), ("interest_expense", interest),
+                                         ("operating_lease_payments", lease_payments)])))
+
+        # Debt growth YoY = (total_debt / prior_total_debt - 1) * 100
+        prior_1y = self._prior(ctx.snapshots, 1)
+        prior_total_debt = prior_1y.bv("total_debt") if prior_1y else None
+        debt_growth = pct_change(total_debt, prior_total_debt)
+        out.append(self._out(ctx, "debt_growth_yoy", CAT,
+                             debt_growth * 100 if debt_growth is not None else None, "PERCENT",
+                             inputs=_mi([("total_debt_current", total_debt),
+                                         ("total_debt_prior", prior_total_debt)])))
+
         return out
 
     # ==================================================================
@@ -778,6 +812,12 @@ class RatioEngine(BaseEngine):
         out.append(self._out(ctx, "invested_capital_turnover", CAT, ic_turn, "RATIO",
                              inputs=_mi([("total_revenue", revenue), ("total_equity", total_equity),
                                          ("total_debt", total_debt), ("cash_and_equivalents", cash)])))
+
+        # Revenue to fixed assets (net PPE) — explicit alias that survives
+        # even if fixed_asset_turnover is filtered out by downstream consumers.
+        rev_to_fa = safe_divide(revenue, ppe)
+        out.append(self._out(ctx, "revenue_to_fixed_assets", CAT, rev_to_fa, "RATIO",
+                             inputs=_mi([("total_revenue", revenue), ("ppe_net", ppe)])))
 
         return out
 
@@ -892,6 +932,31 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("dividends_paid_current", div_curr),
                                          ("dividends_paid_3y_prior", div_3y_prior)])))
 
+        # Tangible BVPS YoY
+        tbvps_curr = s.bv("tangible_book_value")
+        tbvps_prior = prior_1y.bv("tangible_book_value") if prior_1y else None
+        tbvps_yoy = pct_change(tbvps_curr, tbvps_prior)
+        out.append(self._out(ctx, "tangible_bvps_yoy", CAT,
+                             tbvps_yoy * 100 if tbvps_yoy is not None else None, "PERCENT",
+                             inputs=_mi([("tangible_bv_current", tbvps_curr),
+                                         ("tangible_bv_prior", tbvps_prior)])))
+
+        # Debt growth 3Y CAGR
+        debt_curr = s.bv("total_debt")
+        debt_3y_prior = prior_3y.bv("total_debt") if prior_3y else None
+        out.append(self._out(ctx, "debt_growth_3y_cagr", CAT,
+                             cagr(debt_curr, debt_3y_prior, 3), "PERCENT",
+                             inputs=_mi([("total_debt_current", debt_curr),
+                                         ("total_debt_3y_prior", debt_3y_prior)])))
+
+        # Operating income 5Y CAGR
+        oi_curr = s.iv("operating_income")
+        oi_5y_prior = prior_5y.iv("operating_income") if prior_5y else None
+        out.append(self._out(ctx, "operating_income_5y_cagr", CAT,
+                             cagr(oi_curr, oi_5y_prior, 5), "PERCENT",
+                             inputs=_mi([("operating_income_current", oi_curr),
+                                         ("operating_income_5y_prior", oi_5y_prior)])))
+
         return out
 
     # ==================================================================
@@ -982,6 +1047,20 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("cash_from_operations", ocf),
                                          ("diluted_shares", shares_diluted)])))
 
+        # Net income per employee (if employee_count available on entity)
+        net_inc = s.iv("net_income")
+        employee_count = s.iv("employee_count") or s.bv("employee_count")
+        ni_per_emp = safe_divide(net_inc, employee_count)
+        out.append(self._out(ctx, "net_income_per_employee", CAT, ni_per_emp, "CURRENCY",
+                             inputs=_mi([("net_income", net_inc),
+                                         ("employee_count", employee_count)])))
+
+        # Revenue per employee
+        rev_per_emp = safe_divide(revenue, employee_count)
+        out.append(self._out(ctx, "revenue_per_employee", CAT, rev_per_emp, "CURRENCY",
+                             inputs=_mi([("total_revenue", revenue),
+                                         ("employee_count", employee_count)])))
+
         return out
 
     # ==================================================================
@@ -1067,6 +1146,16 @@ class RatioEngine(BaseEngine):
         # Quality of earnings = OCF / net_income (alias of ocf_to_net_income)
         out.append(self._out(ctx, "quality_of_earnings", CAT, ocf_ni, "RATIO",
                              inputs=_mi([("cash_from_operations", ocf), ("net_income", net_inc)])))
+
+        # Operating cash flow to total debt
+        ocf_to_debt = safe_divide(ocf, total_debt)
+        out.append(self._out(ctx, "operating_cf_to_debt", CAT, ocf_to_debt, "RATIO",
+                             inputs=_mi([("cash_from_operations", ocf), ("total_debt", total_debt)])))
+
+        # Free cash flow to total debt
+        fcf_to_debt = safe_divide(fcf, total_debt)
+        out.append(self._out(ctx, "fcf_to_debt", CAT, fcf_to_debt, "RATIO",
+                             inputs=_mi([("free_cash_flow", fcf), ("total_debt", total_debt)])))
 
         return out
 
@@ -1231,6 +1320,27 @@ class RatioEngine(BaseEngine):
         payout_fcf = safe_divide(div_abs, fcf)
         out.append(self._out(ctx, "payout_ratio_fcf", CAT, payout_fcf, "PERCENT",
                              inputs=_mi([("dividends_paid", dividends), ("free_cash_flow", fcf)])))
+
+        # Consecutive dividend years — count how many consecutive periods
+        # (walking backwards) have non-zero dividends paid.
+        consec = 0
+        for snap in ctx.snapshots:
+            d = snap.cv("dividends_paid")
+            if d is not None and float(d) != 0.0:
+                consec += 1
+            else:
+                break
+        out.append(self._out(ctx, "consecutive_dividend_years", CAT, float(consec), "YEARS",
+                             inputs=_mi([("dividends_paid", dividends)])))
+
+        # Dividend growth 10Y CAGR
+        prior_10y = self._prior(ctx.snapshots, 10)
+        div_prior_10 = prior_10y.cv("dividends_paid") if prior_10y else None
+        div_prior_10_abs = abs(float(div_prior_10)) if div_prior_10 is not None else None
+        dg_10y = cagr(div_abs, div_prior_10_abs, 10)
+        out.append(self._out(ctx, "dividend_growth_10y_cagr", CAT, dg_10y, "PERCENT",
+                             inputs=_mi([("dividends_current", dividends),
+                                         ("dividends_10y_prior", div_prior_10)])))
 
         return out
 

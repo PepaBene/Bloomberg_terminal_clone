@@ -1261,3 +1261,78 @@ class SentimentTimeframe(str, Enum):
     ROLLING_7D = "ROLLING_7D"
     ROLLING_30D = "ROLLING_30D"
     ROLLING_90D = "ROLLING_90D"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 1 FI Supplement — D11: US Fixed Income Data Domain
+# ---------------------------------------------------------------------------
+
+class TreasuryType(str, Enum):
+    """US Treasury security type classification."""
+    BILL = "BILL"
+    NOTE = "NOTE"
+    BOND = "BOND"
+    TIPS = "TIPS"
+    FRN = "FRN"
+    STRIP = "STRIP"
+
+
+class BondStatus(str, Enum):
+    """Lifecycle status of a fixed income security."""
+    OUTSTANDING = "OUTSTANDING"
+    MATURED = "MATURED"
+    CALLED = "CALLED"
+    DEFAULTED = "DEFAULTED"
+    DEFEASED = "DEFEASED"
+    EXCHANGED = "EXCHANGED"
+
+
+class TradeReportType(str, Enum):
+    """TRACE trade report type classification."""
+    CUSTOMER_BUY = "CUSTOMER_BUY"
+    CUSTOMER_SELL = "CUSTOMER_SELL"
+    INTERDEALER = "INTERDEALER"
+
+
+class AgencyType(str, Enum):
+    """US government agency / GSE type."""
+    FNMA = "FNMA"
+    FHLMC = "FHLMC"
+    FHLB = "FHLB"
+    FFCB = "FFCB"
+    TVA = "TVA"
+    SBA = "SBA"
+    GNMA = "GNMA"
+
+
+class BackingType(str, Enum):
+    """Government backing classification for agency bonds."""
+    EXPLICIT_GUARANTEE = "EXPLICIT_GUARANTEE"
+    CONSERVATORSHIP = "CONSERVATORSHIP"
+    IMPLICIT_SUPPORT = "IMPLICIT_SUPPORT"
+
+
+class LiquidityTier(str, Enum):
+    """Bond liquidity classification."""
+    ON_THE_RUN = "ON_THE_RUN"
+    OFF_THE_RUN = "OFF_THE_RUN"
+    ILLIQUID = "ILLIQUID"
+
+
+class UseOfProceedsCategory(str, Enum):
+    """Bond issuance use-of-proceeds classification."""
+    GENERAL_CORPORATE = "GENERAL_CORPORATE"
+    REFINANCING = "REFINANCING"
+    ACQUISITION = "ACQUISITION"
+    CAPEX = "CAPEX"
+    GREEN_BOND = "GREEN_BOND"
+    SOCIAL_BOND = "SOCIAL_BOND"
+    WORKING_CAPITAL = "WORKING_CAPITAL"
+
+
+class CreditSpreadRegime(str, Enum):
+    """Credit market spread regime classification."""
+    TIGHT = "TIGHT"
+    NORMAL = "NORMAL"
+    WIDE = "WIDE"
+    CRISIS = "CRISIS"

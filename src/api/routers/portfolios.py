@@ -1,0 +1,930 @@
+"""Portfolio Management API endpoints (Pillar 4 Phase 1)."""
+
+import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.api.deps import get_session
+from src.models.portfolio import Portfolio
+from src.models.position import Position
+from src.models.transaction import Transaction
+from src.models.nav_snapshot import NAVSnapshot, CorporateActionQueue
+from src.schemas.portfolio import (
+    PortfolioCreateRequest,
+    PortfolioListResponse,
+    PortfolioResponse,
+    PortfolioUpdateRequest,
+)
+from src.schemas.position import PositionAddRequest, PositionResponse, PositionUpdateRequest
+from src.schemas.transaction_schema import (
+    TransactionCreateRequest,
+    TransactionListResponse,
+    TransactionResponse,
+)
+from src.schemas.nav import (
+    NAVHistoryEntry,
+    NAVHistoryResponse,
+    NAVResponse,
+    NAVSnapshotResponse,
+)
+from src.schemas.portfolio_upload_schema import (
+    UploadCommitResponse,
+    UploadPreviewResponse,
+    UploadPreviewPosition,
+)
+from src.schemas.corporate_action_schema import CorporateActionApplyRequest, CorporateActionResponse
+
+router = APIRouter(tags=["Portfolio Management"])
+
+DEFAULT_USER = "default_user"
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+async def _get_portfolio(session: AsyncSession, portfolio_id: uuid.UUID) -> Portfolio:
+    result = await session.execute(
+        select(Portfolio).where(Portfolio.id == portfolio_id)
+    )
+    portfolio = result.scalar_one_or_none()
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    return portfolio
+
+
+async def _get_position(session: AsyncSession, position_id: uuid.UUID) -> Position:
+    result = await session.execute(
+        select(Position).where(Position.id == position_id)
+    )
+    position = result.scalar_one_or_none()
+    if not position:
+        raise HTTPException(status_code=404, detail="Position not found")
+    return position
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Upload (STATIC — must be before /{id} routes)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.post("/portfolios/upload/preview", response_model=UploadPreviewResponse)
+async def upload_preview(
+    session: AsyncSession = Depends(get_session),
+):
+    """Preview a portfolio upload before committing."""
+    # Stub: in production this would parse a CSV/Excel file
+    return UploadPreviewResponse(
+        total_rows=0,
+        matched=0,
+        unmatched=0,
+        errors=0,
+        preview_positions=[],
+    )
+
+
+@router.post("/portfolios/upload/commit", response_model=UploadCommitResponse)
+async def upload_commit(
+    session: AsyncSession = Depends(get_session),
+):
+    """Commit a previewed portfolio upload."""
+    # Stub: in production this would process the upload
+    pid = uuid.uuid4()
+    return UploadCommitResponse(
+        portfolio_id=pid,
+        positions_created=0,
+        status="COMMITTED",
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Portfolio CRUD
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.post("/portfolios", response_model=PortfolioResponse, status_code=201)
+async def create_portfolio(
+    body: PortfolioCreateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a new portfolio."""
+    # Check for duplicate name
+    existing = await session.execute(
+        select(Portfolio).where(
+            Portfolio.user_id == DEFAULT_USER,
+            Portfolio.portfolio_name == body.portfolio_name,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Portfolio name already exists")
+
+    portfolio = Portfolio(
+        id=uuid.uuid4(),
+        user_id=DEFAULT_USER,
+        portfolio_name=body.portfolio_name,
+        portfolio_type=body.portfolio_type,
+        benchmark_id=body.benchmark_id,
+        inception_date=body.inception_date,
+        initial_cash=body.initial_cash,
+        current_cash=body.initial_cash,
+        tags=body.tags,
+        notes=body.notes,
+    )
+    session.add(portfolio)
+    await session.flush()
+
+    return PortfolioResponse(
+        id=portfolio.id,
+        user_id=portfolio.user_id,
+        portfolio_name=portfolio.portfolio_name,
+        portfolio_type=portfolio.portfolio_type,
+        benchmark_id=portfolio.benchmark_id,
+        inception_date=portfolio.inception_date,
+        base_currency=portfolio.base_currency,
+        initial_cash=float(portfolio.initial_cash),
+        current_cash=float(portfolio.current_cash),
+        status=portfolio.status,
+        tags=portfolio.tags,
+        notes=portfolio.notes,
+    )
+
+
+@router.get("/portfolios", response_model=list[PortfolioResponse])
+async def list_portfolios(
+    session: AsyncSession = Depends(get_session),
+):
+    """List all active portfolios for the current user."""
+    result = await session.execute(
+        select(Portfolio)
+        .where(Portfolio.user_id == DEFAULT_USER, Portfolio.status != "ARCHIVED")
+        .order_by(Portfolio.portfolio_name)
+    )
+    rows = result.scalars().all()
+    return [
+        PortfolioResponse(
+            id=p.id,
+            user_id=p.user_id,
+            portfolio_name=p.portfolio_name,
+            portfolio_type=p.portfolio_type,
+            benchmark_id=p.benchmark_id,
+            inception_date=p.inception_date,
+            base_currency=p.base_currency,
+            initial_cash=float(p.initial_cash),
+            current_cash=float(p.current_cash),
+            status=p.status,
+            tags=p.tags,
+            notes=p.notes,
+        )
+        for p in rows
+    ]
+
+
+@router.get("/portfolios/{portfolio_id}", response_model=PortfolioResponse)
+async def get_portfolio(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a portfolio by ID."""
+    p = await _get_portfolio(session, portfolio_id)
+    return PortfolioResponse(
+        id=p.id,
+        user_id=p.user_id,
+        portfolio_name=p.portfolio_name,
+        portfolio_type=p.portfolio_type,
+        benchmark_id=p.benchmark_id,
+        inception_date=p.inception_date,
+        base_currency=p.base_currency,
+        initial_cash=float(p.initial_cash),
+        current_cash=float(p.current_cash),
+        status=p.status,
+        tags=p.tags,
+        notes=p.notes,
+    )
+
+
+@router.put("/portfolios/{portfolio_id}", response_model=PortfolioResponse)
+async def update_portfolio(
+    portfolio_id: uuid.UUID,
+    body: PortfolioUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Update portfolio fields."""
+    p = await _get_portfolio(session, portfolio_id)
+
+    if body.portfolio_name is not None:
+        p.portfolio_name = body.portfolio_name
+    if body.benchmark_id is not None:
+        p.benchmark_id = body.benchmark_id
+    if body.status is not None:
+        p.status = body.status
+    if body.tags is not None:
+        p.tags = body.tags
+    if body.notes is not None:
+        p.notes = body.notes
+
+    await session.flush()
+
+    return PortfolioResponse(
+        id=p.id,
+        user_id=p.user_id,
+        portfolio_name=p.portfolio_name,
+        portfolio_type=p.portfolio_type,
+        benchmark_id=p.benchmark_id,
+        inception_date=p.inception_date,
+        base_currency=p.base_currency,
+        initial_cash=float(p.initial_cash),
+        current_cash=float(p.current_cash),
+        status=p.status,
+        tags=p.tags,
+        notes=p.notes,
+    )
+
+
+@router.delete("/portfolios/{portfolio_id}", response_model=PortfolioResponse)
+async def delete_portfolio(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Soft-delete a portfolio (set status=ARCHIVED)."""
+    p = await _get_portfolio(session, portfolio_id)
+    p.status = "ARCHIVED"
+    await session.flush()
+
+    return PortfolioResponse(
+        id=p.id,
+        user_id=p.user_id,
+        portfolio_name=p.portfolio_name,
+        portfolio_type=p.portfolio_type,
+        benchmark_id=p.benchmark_id,
+        inception_date=p.inception_date,
+        base_currency=p.base_currency,
+        initial_cash=float(p.initial_cash),
+        current_cash=float(p.current_cash),
+        status=p.status,
+        tags=p.tags,
+        notes=p.notes,
+    )
+
+
+@router.post("/portfolios/{portfolio_id}/clone", response_model=PortfolioResponse, status_code=201)
+async def clone_portfolio(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Clone a portfolio with its positions."""
+    source = await _get_portfolio(session, portfolio_id)
+
+    clone = Portfolio(
+        id=uuid.uuid4(),
+        user_id=source.user_id,
+        portfolio_name=f"{source.portfolio_name} (Clone)",
+        portfolio_type=source.portfolio_type,
+        benchmark_id=source.benchmark_id,
+        inception_date=date.today(),
+        base_currency=source.base_currency,
+        initial_cash=source.current_cash,
+        current_cash=source.current_cash,
+        tags=source.tags,
+        notes=f"Cloned from {source.portfolio_name}",
+    )
+    session.add(clone)
+    await session.flush()
+
+    # Clone open positions
+    pos_result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == source.id,
+            Position.status == "OPEN",
+        )
+    )
+    for pos in pos_result.scalars().all():
+        new_pos = Position(
+            id=uuid.uuid4(),
+            portfolio_id=clone.id,
+            security_id=pos.security_id,
+            ticker=pos.ticker,
+            status="OPEN",
+            shares=pos.shares,
+            cost_basis_total=pos.cost_basis_total,
+            cost_basis_per_share=pos.cost_basis_per_share,
+            first_acquisition_date=pos.first_acquisition_date,
+        )
+        session.add(new_pos)
+    await session.flush()
+
+    return PortfolioResponse(
+        id=clone.id,
+        user_id=clone.user_id,
+        portfolio_name=clone.portfolio_name,
+        portfolio_type=clone.portfolio_type,
+        benchmark_id=clone.benchmark_id,
+        inception_date=clone.inception_date,
+        base_currency=clone.base_currency,
+        initial_cash=float(clone.initial_cash),
+        current_cash=float(clone.current_cash),
+        status=clone.status,
+        tags=clone.tags,
+        notes=clone.notes,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Positions
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/positions",
+    response_model=list[PositionResponse],
+)
+async def list_positions(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """List all open positions for a portfolio."""
+    await _get_portfolio(session, portfolio_id)
+    result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        ).order_by(Position.ticker)
+    )
+    rows = result.scalars().all()
+    return [
+        PositionResponse(
+            id=pos.id,
+            portfolio_id=pos.portfolio_id,
+            security_id=pos.security_id,
+            ticker=pos.ticker,
+            status=pos.status,
+            shares=float(pos.shares) if pos.shares is not None else None,
+            cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+            cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+            first_acquisition_date=pos.first_acquisition_date,
+            market_value=float(pos.market_value) if pos.market_value is not None else None,
+            unrealized_pnl=float(pos.unrealized_pnl) if pos.unrealized_pnl is not None else None,
+            unrealized_pnl_pct=float(pos.unrealized_pnl_pct) if pos.unrealized_pnl_pct is not None else None,
+            weight=float(pos.weight) if pos.weight is not None else None,
+            closing_price=float(pos.closing_price) if pos.closing_price is not None else None,
+            day_change_pct=float(pos.day_change_pct) if pos.day_change_pct is not None else None,
+            notes=pos.notes,
+        )
+        for pos in rows
+    ]
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/positions",
+    response_model=PositionResponse,
+    status_code=201,
+)
+async def add_position(
+    portfolio_id: uuid.UUID,
+    body: PositionAddRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Add or update a position in the portfolio."""
+    await _get_portfolio(session, portfolio_id)
+
+    # Check for existing open position with same ticker
+    existing_result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.ticker == body.ticker,
+            Position.status == "OPEN",
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    if existing:
+        # Update existing position (average in)
+        old_total = (existing.shares or Decimal("0")) * (existing.cost_basis_per_share or Decimal("0"))
+        new_total = body.shares * body.cost_basis_per_share
+        total_shares = (existing.shares or Decimal("0")) + body.shares
+        avg_cost = (old_total + new_total) / total_shares if total_shares else Decimal("0")
+
+        existing.shares = total_shares
+        existing.cost_basis_per_share = avg_cost
+        existing.cost_basis_total = total_shares * avg_cost
+        await session.flush()
+        pos = existing
+    else:
+        cost_total = body.shares * body.cost_basis_per_share
+        pos = Position(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio_id,
+            ticker=body.ticker,
+            status="OPEN",
+            shares=body.shares,
+            cost_basis_per_share=body.cost_basis_per_share,
+            cost_basis_total=cost_total,
+            first_acquisition_date=body.acquisition_date or date.today(),
+            notes=body.notes,
+        )
+        session.add(pos)
+        await session.flush()
+
+    return PositionResponse(
+        id=pos.id,
+        portfolio_id=pos.portfolio_id,
+        security_id=pos.security_id,
+        ticker=pos.ticker,
+        status=pos.status,
+        shares=float(pos.shares) if pos.shares is not None else None,
+        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        first_acquisition_date=pos.first_acquisition_date,
+        notes=pos.notes,
+    )
+
+
+@router.put(
+    "/portfolios/{portfolio_id}/positions/{position_id}",
+    response_model=PositionResponse,
+)
+async def update_position(
+    portfolio_id: uuid.UUID,
+    position_id: uuid.UUID,
+    body: PositionUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Update a position."""
+    await _get_portfolio(session, portfolio_id)
+    pos = await _get_position(session, position_id)
+
+    if body.shares is not None:
+        pos.shares = body.shares
+    if body.cost_basis_per_share is not None:
+        pos.cost_basis_per_share = body.cost_basis_per_share
+    if body.notes is not None:
+        pos.notes = body.notes
+
+    # Recalculate cost basis total
+    if pos.shares is not None and pos.cost_basis_per_share is not None:
+        pos.cost_basis_total = pos.shares * pos.cost_basis_per_share
+
+    await session.flush()
+
+    return PositionResponse(
+        id=pos.id,
+        portfolio_id=pos.portfolio_id,
+        security_id=pos.security_id,
+        ticker=pos.ticker,
+        status=pos.status,
+        shares=float(pos.shares) if pos.shares is not None else None,
+        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        first_acquisition_date=pos.first_acquisition_date,
+        notes=pos.notes,
+    )
+
+
+@router.delete(
+    "/portfolios/{portfolio_id}/positions/{position_id}",
+    response_model=PositionResponse,
+)
+async def delete_position(
+    portfolio_id: uuid.UUID,
+    position_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Close a position (set status=CLOSED)."""
+    await _get_portfolio(session, portfolio_id)
+    pos = await _get_position(session, position_id)
+    pos.status = "CLOSED"
+    await session.flush()
+
+    return PositionResponse(
+        id=pos.id,
+        portfolio_id=pos.portfolio_id,
+        security_id=pos.security_id,
+        ticker=pos.ticker,
+        status=pos.status,
+        shares=float(pos.shares) if pos.shares is not None else None,
+        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        first_acquisition_date=pos.first_acquisition_date,
+        notes=pos.notes,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Transactions
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/transactions",
+    response_model=TransactionResponse,
+    status_code=201,
+)
+async def create_transaction(
+    portfolio_id: uuid.UUID,
+    body: TransactionCreateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Record a BUY or SELL transaction with position + cash effects."""
+    portfolio = await _get_portfolio(session, portfolio_id)
+
+    gross = body.shares * body.price_per_share
+    commission = body.commission or Decimal("0")
+
+    if body.transaction_type == "BUY":
+        net_amount = gross + commission
+        cash_impact = -net_amount
+    elif body.transaction_type == "SELL":
+        net_amount = gross - commission
+        cash_impact = net_amount
+    else:
+        net_amount = gross
+        cash_impact = Decimal("0")
+
+    # Validate cash for BUY
+    if body.transaction_type == "BUY":
+        if portfolio.current_cash + cash_impact < 0:
+            raise HTTPException(status_code=400, detail="Insufficient cash")
+
+    # Validate shares for SELL
+    if body.transaction_type == "SELL":
+        pos_result = await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio_id,
+                Position.ticker == body.ticker,
+                Position.status == "OPEN",
+            )
+        )
+        pos = pos_result.scalar_one_or_none()
+        if not pos or (pos.shares or Decimal("0")) < body.shares:
+            raise HTTPException(status_code=400, detail="Insufficient shares to sell")
+
+    txn = Transaction(
+        id=uuid.uuid4(),
+        portfolio_id=portfolio_id,
+        ticker=body.ticker,
+        transaction_type=body.transaction_type,
+        transaction_date=body.transaction_date,
+        shares=body.shares,
+        price_per_share=body.price_per_share,
+        gross_amount=gross,
+        commission=commission,
+        net_amount=net_amount,
+        cash_impact=cash_impact,
+        notes=body.notes,
+    )
+    session.add(txn)
+
+    # Update portfolio cash
+    portfolio.current_cash = portfolio.current_cash + cash_impact
+
+    # Update position
+    if body.transaction_type == "BUY":
+        pos_result = await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio_id,
+                Position.ticker == body.ticker,
+                Position.status == "OPEN",
+            )
+        )
+        existing = pos_result.scalar_one_or_none()
+        if existing:
+            old_total = (existing.shares or Decimal("0")) * (existing.cost_basis_per_share or Decimal("0"))
+            new_total = body.shares * body.price_per_share
+            total_shares = (existing.shares or Decimal("0")) + body.shares
+            avg_cost = (old_total + new_total) / total_shares if total_shares else Decimal("0")
+            existing.shares = total_shares
+            existing.cost_basis_per_share = avg_cost
+            existing.cost_basis_total = total_shares * avg_cost
+        else:
+            new_pos = Position(
+                id=uuid.uuid4(),
+                portfolio_id=portfolio_id,
+                ticker=body.ticker,
+                status="OPEN",
+                shares=body.shares,
+                cost_basis_per_share=body.price_per_share,
+                cost_basis_total=gross,
+                first_acquisition_date=body.transaction_date,
+            )
+            session.add(new_pos)
+
+    elif body.transaction_type == "SELL":
+        pos_result = await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio_id,
+                Position.ticker == body.ticker,
+                Position.status == "OPEN",
+            )
+        )
+        pos = pos_result.scalar_one_or_none()
+        if pos:
+            pos.shares = (pos.shares or Decimal("0")) - body.shares
+            if pos.shares <= 0:
+                pos.status = "CLOSED"
+                pos.shares = Decimal("0")
+
+    await session.flush()
+
+    return TransactionResponse(
+        id=txn.id,
+        portfolio_id=txn.portfolio_id,
+        security_id=txn.security_id,
+        ticker=txn.ticker,
+        transaction_type=txn.transaction_type,
+        transaction_date=txn.transaction_date,
+        settlement_date=txn.settlement_date,
+        shares=float(txn.shares) if txn.shares is not None else None,
+        price_per_share=float(txn.price_per_share) if txn.price_per_share is not None else None,
+        gross_amount=float(txn.gross_amount) if txn.gross_amount is not None else None,
+        commission=float(txn.commission) if txn.commission is not None else None,
+        net_amount=float(txn.net_amount) if txn.net_amount is not None else None,
+        cash_impact=float(txn.cash_impact) if txn.cash_impact is not None else None,
+        source=txn.source,
+        source_reference=txn.source_reference,
+        notes=txn.notes,
+    )
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/transactions",
+    response_model=list[TransactionResponse],
+)
+async def list_transactions(
+    portfolio_id: uuid.UUID,
+    type: str | None = Query(default=None, alias="type"),
+    session: AsyncSession = Depends(get_session),
+):
+    """List transactions with optional type filter."""
+    await _get_portfolio(session, portfolio_id)
+    stmt = select(Transaction).where(Transaction.portfolio_id == portfolio_id)
+    if type:
+        stmt = stmt.where(Transaction.transaction_type == type)
+    stmt = stmt.order_by(Transaction.transaction_date.desc())
+
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+    return [
+        TransactionResponse(
+            id=t.id,
+            portfolio_id=t.portfolio_id,
+            security_id=t.security_id,
+            ticker=t.ticker,
+            transaction_type=t.transaction_type,
+            transaction_date=t.transaction_date,
+            settlement_date=t.settlement_date,
+            shares=float(t.shares) if t.shares is not None else None,
+            price_per_share=float(t.price_per_share) if t.price_per_share is not None else None,
+            gross_amount=float(t.gross_amount) if t.gross_amount is not None else None,
+            commission=float(t.commission) if t.commission is not None else None,
+            net_amount=float(t.net_amount) if t.net_amount is not None else None,
+            cash_impact=float(t.cash_impact) if t.cash_impact is not None else None,
+            source=t.source,
+            source_reference=t.source_reference,
+            notes=t.notes,
+        )
+        for t in rows
+    ]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# NAV
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get("/portfolios/{portfolio_id}/nav", response_model=NAVResponse)
+async def get_nav(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get current NAV summary for a portfolio."""
+    portfolio = await _get_portfolio(session, portfolio_id)
+
+    # Count open positions
+    pos_count_result = await session.execute(
+        select(func.count(Position.id)).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    position_count = pos_count_result.scalar() or 0
+
+    # Sum market values of open positions
+    mv_result = await session.execute(
+        select(func.sum(Position.market_value)).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    market_value = mv_result.scalar() or Decimal("0")
+
+    # Sum unrealized P&L
+    pnl_result = await session.execute(
+        select(func.sum(Position.unrealized_pnl)).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    unrealized_pnl = pnl_result.scalar() or Decimal("0")
+
+    cash = portfolio.current_cash
+    nav = float(market_value) + float(cash)
+    cash_weight = (float(cash) / nav * 100) if nav > 0 else 100.0
+
+    return NAVResponse(
+        nav=nav,
+        market_value=float(market_value),
+        cash_balance=float(cash),
+        unrealized_pnl=float(unrealized_pnl),
+        cash_weight=round(cash_weight, 2),
+        position_count=position_count,
+    )
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/nav/history",
+    response_model=NAVHistoryResponse,
+)
+async def get_nav_history(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get NAV history for a portfolio."""
+    await _get_portfolio(session, portfolio_id)
+
+    result = await session.execute(
+        select(NAVSnapshot)
+        .where(NAVSnapshot.portfolio_id == portfolio_id)
+        .order_by(NAVSnapshot.snapshot_date.desc())
+        .limit(365)
+    )
+    rows = result.scalars().all()
+    return NAVHistoryResponse(
+        history=[
+            NAVHistoryEntry(
+                date=snap.snapshot_date,
+                nav=float(snap.nav),
+                daily_return=float(snap.daily_return) if snap.daily_return is not None else None,
+                cumulative_return=float(snap.cumulative_return) if snap.cumulative_return is not None else None,
+            )
+            for snap in rows
+        ]
+    )
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/nav/snapshot",
+    response_model=NAVSnapshotResponse | None,
+)
+async def get_nav_snapshot(
+    portfolio_id: uuid.UUID,
+    date: date | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a specific NAV snapshot by date."""
+    await _get_portfolio(session, portfolio_id)
+
+    stmt = select(NAVSnapshot).where(NAVSnapshot.portfolio_id == portfolio_id)
+    if date:
+        stmt = stmt.where(NAVSnapshot.snapshot_date == date)
+    stmt = stmt.order_by(NAVSnapshot.snapshot_date.desc()).limit(1)
+
+    result = await session.execute(stmt)
+    snap = result.scalar_one_or_none()
+    if not snap:
+        return None
+
+    return NAVSnapshotResponse(
+        id=snap.id,
+        portfolio_id=snap.portfolio_id,
+        snapshot_date=snap.snapshot_date,
+        nav=float(snap.nav),
+        market_value=float(snap.market_value) if snap.market_value is not None else None,
+        cash_balance=float(snap.cash_balance) if snap.cash_balance is not None else None,
+        unrealized_pnl=float(snap.unrealized_pnl) if snap.unrealized_pnl is not None else None,
+        daily_return=float(snap.daily_return) if snap.daily_return is not None else None,
+        cumulative_return=float(snap.cumulative_return) if snap.cumulative_return is not None else None,
+        benchmark_daily_return=float(snap.benchmark_daily_return) if snap.benchmark_daily_return is not None else None,
+        benchmark_cumulative_return=float(snap.benchmark_cumulative_return) if snap.benchmark_cumulative_return is not None else None,
+        positions_snapshot=snap.positions_snapshot,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Corporate Actions
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/corporate-actions",
+    response_model=list[CorporateActionResponse],
+)
+async def list_corporate_actions(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """List pending corporate actions for a portfolio."""
+    await _get_portfolio(session, portfolio_id)
+
+    result = await session.execute(
+        select(CorporateActionQueue)
+        .where(
+            CorporateActionQueue.portfolio_id == portfolio_id,
+            CorporateActionQueue.status == "PENDING",
+        )
+        .order_by(CorporateActionQueue.created_at.desc())
+    )
+    rows = result.scalars().all()
+    return [
+        CorporateActionResponse(
+            id=ca.id,
+            portfolio_id=ca.portfolio_id,
+            position_id=ca.position_id,
+            action_type=ca.action_type,
+            security_id=ca.security_id,
+            ticker=ca.ticker,
+            ex_date=ca.ex_date,
+            payment_date=ca.payment_date,
+            details=ca.details,
+            status=ca.status,
+            applied_at=ca.applied_at,
+        )
+        for ca in rows
+    ]
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/corporate-actions/{queue_id}/apply",
+    response_model=CorporateActionResponse,
+)
+async def apply_corporate_action(
+    portfolio_id: uuid.UUID,
+    queue_id: uuid.UUID,
+    body: CorporateActionApplyRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Apply a pending corporate action."""
+    await _get_portfolio(session, portfolio_id)
+
+    result = await session.execute(
+        select(CorporateActionQueue).where(CorporateActionQueue.id == queue_id)
+    )
+    ca = result.scalar_one_or_none()
+    if not ca:
+        raise HTTPException(status_code=404, detail="Corporate action not found")
+
+    ca.status = "APPLIED"
+    ca.applied_at = datetime.now(timezone.utc)
+    await session.flush()
+
+    return CorporateActionResponse(
+        id=ca.id,
+        portfolio_id=ca.portfolio_id,
+        position_id=ca.position_id,
+        action_type=ca.action_type,
+        security_id=ca.security_id,
+        ticker=ca.ticker,
+        ex_date=ca.ex_date,
+        payment_date=ca.payment_date,
+        details=ca.details,
+        status=ca.status,
+        applied_at=ca.applied_at,
+    )
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/corporate-actions/{queue_id}/dismiss",
+    response_model=CorporateActionResponse,
+)
+async def dismiss_corporate_action(
+    portfolio_id: uuid.UUID,
+    queue_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Dismiss a pending corporate action."""
+    await _get_portfolio(session, portfolio_id)
+
+    result = await session.execute(
+        select(CorporateActionQueue).where(CorporateActionQueue.id == queue_id)
+    )
+    ca = result.scalar_one_or_none()
+    if not ca:
+        raise HTTPException(status_code=404, detail="Corporate action not found")
+
+    ca.status = "DISMISSED"
+    await session.flush()
+
+    return CorporateActionResponse(
+        id=ca.id,
+        portfolio_id=ca.portfolio_id,
+        position_id=ca.position_id,
+        action_type=ca.action_type,
+        security_id=ca.security_id,
+        ticker=ca.ticker,
+        ex_date=ca.ex_date,
+        payment_date=ca.payment_date,
+        details=ca.details,
+        status=ca.status,
+        applied_at=ca.applied_at,
+    )
