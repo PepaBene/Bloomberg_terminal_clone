@@ -1,6 +1,10 @@
 // Base hook utilities
 export { useApiQuery, useApiMutation, useApiUpdate, useApiDelete } from './useApi';
 
+// Keyboard shortcuts
+export { useKeyboardShortcuts } from './useKeyboardShortcuts';
+export type { ShortcutDef, ShortcutEntry } from './useKeyboardShortcuts';
+
 // Pillar 1: Data Foundation — Entities, Securities, Fundamentals
 export {
   useEntitySearch,

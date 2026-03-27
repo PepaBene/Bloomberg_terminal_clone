@@ -27,3 +27,9 @@ export type { FilterBarProps, FilterChip } from './FilterBar';
 
 export { Tooltip } from './Tooltip';
 export type { TooltipProps, TooltipRow } from './Tooltip';
+
+export { ShortcutReference } from './ShortcutReference';
+export type { ShortcutReferenceProps } from './ShortcutReference';
+
+export { ExportMenu } from './ExportMenu';
+export type { ExportMenuProps } from './ExportMenu';

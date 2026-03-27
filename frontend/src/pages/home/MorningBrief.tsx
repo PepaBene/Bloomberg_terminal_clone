@@ -3,9 +3,10 @@
 // React Query integration with graceful fallback to mock data
 // ---------------------------------------------------------------------------
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { TimeSeriesChart } from '@/components/charts';
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -152,6 +153,36 @@ const MOCK_SECTOR_PERF: SectorPerf[] = [
   { sector: 'Materials',              d1:  0.06, w1: -0.31, m1:  0.44 },
 ];
 
+// --- S&P 500 Intraday Chart (30-min intervals 9:30–16:00) --------------------
+
+function generateSPXIntraday(): { date: string; value: number }[] {
+  const points: { date: string; value: number }[] = [];
+  let price = 5248.72;
+  for (let h = 9; h <= 16; h++) {
+    const starts = h === 9 ? [30] : h === 16 ? [0] : [0, 30];
+    for (const m of starts) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      price += (Math.random() - 0.48) * 8;
+      points.push({ date: `${hh}:${mm}`, value: Math.round(price * 100) / 100 });
+    }
+  }
+  return points;
+}
+
+function SPXIntradayChart() {
+  const data = useMemo(() => generateSPXIntraday(), []);
+  return (
+    <TimeSeriesChart
+      data={data}
+      height={200}
+      showGrid
+      series={[{ key: 'value', color: '#3B82F6', name: 'S&P 500', type: 'area' }]}
+      yAxisFormat={(v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+    />
+  );
+}
+
 // --- Component ---------------------------------------------------------------
 
 export default function MorningBrief() {
@@ -286,6 +317,12 @@ export default function MorningBrief() {
                   </tbody>
                 </table>
               )}
+            </div>
+
+            {/* S&P 500 Intraday Chart */}
+            <div className="terminal-panel animate-in" style={{ animationDelay: '30ms' }}>
+              <h2 className="terminal-section-title">S&P 500 Intraday</h2>
+              <SPXIntradayChart />
             </div>
 
             {/* Top Movers */}

@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
 // Global Intelligence Dashboard
 // ---------------------------------------------------------------------------
+import { BarChartComponent } from '@/components/charts';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -127,6 +128,19 @@ function trendColor(trend: string): string {
   }
 }
 
+// --- GDP Growth Mock Data ----------------------------------------------------
+
+const GDP_DATA = [
+  { country: 'India',   gdp2024: 6.8, gdp2025: 6.5 },
+  { country: 'China',   gdp2024: 5.2, gdp2025: 4.6 },
+  { country: 'US',      gdp2024: 2.5, gdp2025: 2.1 },
+  { country: 'Japan',   gdp2024: 1.9, gdp2025: 1.0 },
+  { country: 'EU',      gdp2024: 0.8, gdp2025: 1.2 },
+  { country: 'Brazil',  gdp2024: 2.9, gdp2025: 1.8 },
+  { country: 'UK',      gdp2024: 0.5, gdp2025: 1.1 },
+  { country: 'Germany', gdp2024: -0.1, gdp2025: 0.8 },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function GlobalDashboard() {
@@ -143,19 +157,20 @@ export default function GlobalDashboard() {
         </p>
       </div>
 
-      {/* World Risk Heatmap Placeholder */}
-      <div style={{
-        ...panelStyle,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '160px',
-        borderStyle: 'dashed',
-        marginBottom: 'var(--panel-gap)',
-      }}>
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', color: 'var(--color-text-tertiary)' }}>
-          World Risk Heatmap &mdash; Coming Soon
-        </span>
+      {/* GDP Growth Comparison */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>GDP Growth Comparison (%)</h2>
+        <BarChartComponent
+          data={GDP_DATA}
+          xKey="country"
+          bars={[
+            { key: 'gdp2024', color: '#3B82F6', name: '2024 (Actual)' },
+            { key: 'gdp2025', color: '#2DB87D', name: '2025 (Forecast)' },
+          ]}
+          height={260}
+          showLegend
+          yAxisFormat={(v: number) => `${v.toFixed(1)}%`}
+        />
       </div>
 
       {/* 2-column layout */}

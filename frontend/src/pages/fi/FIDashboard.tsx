@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { YieldCurveChart } from '@/components/charts';
+import type { YieldCurvePoint } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -92,6 +94,22 @@ const MOCK_ISSUANCE: RecentIssuance[] = [
   { issuer: 'JPMorgan Chase',        coupon: '5.000%', maturity: '2031-03-01', size: '$3.0B', rating: 'A+',  spread: 'T+95' },
 ];
 
+// --- Yield Curve Chart Data --------------------------------------------------
+
+const CURRENT_CURVE: YieldCurvePoint[] = [
+  { tenor: '1M', rate: 5.38 }, { tenor: '3M', rate: 5.36 }, { tenor: '6M', rate: 5.27 },
+  { tenor: '1Y', rate: 5.02 }, { tenor: '2Y', rate: 4.62 }, { tenor: '3Y', rate: 4.42 },
+  { tenor: '5Y', rate: 4.28 }, { tenor: '7Y', rate: 4.30 }, { tenor: '10Y', rate: 4.28 },
+  { tenor: '20Y', rate: 4.52 }, { tenor: '30Y', rate: 4.42 },
+];
+
+const PRIOR_CURVE: YieldCurvePoint[] = [
+  { tenor: '1M', rate: 5.40 }, { tenor: '3M', rate: 5.39 }, { tenor: '6M', rate: 5.32 },
+  { tenor: '1Y', rate: 5.10 }, { tenor: '2Y', rate: 4.74 }, { tenor: '3Y', rate: 4.52 },
+  { tenor: '5Y', rate: 4.36 }, { tenor: '7Y', rate: 4.36 }, { tenor: '10Y', rate: 4.35 },
+  { tenor: '20Y', rate: 4.56 }, { tenor: '30Y', rate: 4.47 },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function FIDashboard() {
@@ -137,6 +155,17 @@ export default function FIDashboard() {
 
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
+
+          {/* Yield Curve Chart */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Yield Curve (Current vs 1W Ago)</h2>
+            <YieldCurveChart
+              current={CURRENT_CURVE}
+              prior={PRIOR_CURVE}
+              priorLabel="1 Week Ago"
+              height={250}
+            />
+          </div>
 
           {/* Yield Curve Table */}
           <div className="terminal-panel">

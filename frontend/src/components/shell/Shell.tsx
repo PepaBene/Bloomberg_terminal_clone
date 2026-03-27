@@ -1,13 +1,180 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { TopBar } from './TopBar';
 import { NavRail } from './NavRail';
 import { StatusBar } from './StatusBar';
+import { ShortcutReference } from '../ui/ShortcutReference';
+import { ExportMenu } from '../ui/ExportMenu';
+import { useKeyboardShortcuts, type ShortcutDef } from '@/hooks/useKeyboardShortcuts';
+import { useNavigationStore } from '@/stores/navigationHistory';
 
 interface ShellProps {
   children: ReactNode;
 }
 
 export function Shell({ children }: ShellProps) {
+  const navigate = useNavigate();
+  const navBack = useNavigationStore((s) => s.back);
+  const navForward = useNavigationStore((s) => s.forward);
+
+  /* ── Modal / menu state ───────────────────────────────────── */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  /* ── Shortcut actions (stable refs) ───────────────────────── */
+  const openCommandBar = useCallback(() => {
+    // Dispatch a synthetic Ctrl+K so TopBar's existing handler opens the CommandBar
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+    );
+  }, []);
+
+  const toggleShortcuts = useCallback(() => {
+    setShortcutsOpen((prev) => !prev);
+  }, []);
+
+  const closeModals = useCallback(() => {
+    if (shortcutsOpen) {
+      setShortcutsOpen(false);
+      return;
+    }
+    if (exportOpen) {
+      setExportOpen(false);
+      return;
+    }
+  }, [shortcutsOpen, exportOpen]);
+
+  const goBackSecurity = useCallback(() => {
+    const sec = navBack();
+    if (sec) navigate(`/company?ticker=${sec.ticker}`);
+  }, [navBack, navigate]);
+
+  const goForwardSecurity = useCallback(() => {
+    const sec = navForward();
+    if (sec) navigate(`/company?ticker=${sec.ticker}`);
+  }, [navForward, navigate]);
+
+  const toggleExport = useCallback(() => {
+    setExportOpen((prev) => !prev);
+  }, []);
+
+  /* ── Shortcut definitions ─────────────────────────────────── */
+  const shortcutDefs: ShortcutDef[] = useMemo(
+    () => [
+      // ── Navigation ──
+      {
+        key: '/',
+        description: 'Open command bar',
+        action: openCommandBar,
+        category: 'Navigation',
+      },
+      {
+        key: 'k',
+        ctrl: true,
+        description: 'Open command bar',
+        action: openCommandBar,
+        category: 'Navigation',
+      },
+      {
+        key: 'ArrowRight',
+        ctrl: true,
+        description: 'Next security in history',
+        action: goForwardSecurity,
+        category: 'Navigation',
+      },
+      {
+        key: 'ArrowLeft',
+        ctrl: true,
+        description: 'Previous security in history',
+        action: goBackSecurity,
+        category: 'Navigation',
+      },
+
+      // ── Panel ──
+      {
+        key: 'f',
+        description: 'Fullscreen current panel',
+        action: () => {
+          // Dispatch a custom event that Panel components can listen for
+          window.dispatchEvent(new CustomEvent('terminal:panel-fullscreen'));
+        },
+        category: 'Panel',
+      },
+      {
+        key: 'Escape',
+        description: 'Close modal / collapse panel',
+        action: closeModals,
+        category: 'Panel',
+      },
+      {
+        key: 'z',
+        ctrl: true,
+        description: 'Collapse all to overview',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('terminal:collapse-all'));
+        },
+        category: 'Panel',
+      },
+
+      // ── Data ──
+      {
+        key: 'd',
+        ctrl: true,
+        description: 'Add to watchlist',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('terminal:add-to-watchlist'));
+        },
+        category: 'Data',
+      },
+      {
+        key: 'e',
+        ctrl: true,
+        description: 'Export panel data',
+        action: toggleExport,
+        category: 'Data',
+      },
+      {
+        key: 'l',
+        ctrl: true,
+        description: 'Link / unlink panel from global context',
+        action: () => {
+          window.dispatchEvent(new CustomEvent('terminal:toggle-panel-link'));
+        },
+        category: 'Data',
+      },
+
+      // ── Search ──
+      {
+        key: '?',
+        shift: true,
+        description: 'Keyboard shortcuts reference',
+        action: toggleShortcuts,
+        category: 'Search',
+      },
+    ],
+    [openCommandBar, goBackSecurity, goForwardSecurity, closeModals, toggleExport, toggleShortcuts],
+  );
+
+  /* ── Register shortcuts ───────────────────────────────────── */
+  const shortcutEntries = useKeyboardShortcuts(shortcutDefs);
+
+  /* ── Export handlers (placeholder implementations) ─────────── */
+  const handleExportCSV = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('terminal:export', { detail: { format: 'csv' } }));
+  }, []);
+
+  const handleExportJSON = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('terminal:export', { detail: { format: 'json' } }));
+  }, []);
+
+  const handleExportPNG = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('terminal:export', { detail: { format: 'png' } }));
+  }, []);
+
+  const handleExportSVG = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('terminal:export', { detail: { format: 'svg' } }));
+  }, []);
+
   return (
     <div
       className="grid h-screen overflow-hidden"
@@ -52,6 +219,23 @@ export function Shell({ children }: ShellProps) {
       <div style={{ gridArea: 'status' }}>
         <StatusBar />
       </div>
+
+      {/* ── Shortcut Reference Modal ── */}
+      <ShortcutReference
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        shortcuts={shortcutEntries}
+      />
+
+      {/* ── Export Menu ── */}
+      <ExportMenu
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExportCSV={handleExportCSV}
+        onExportJSON={handleExportJSON}
+        onExportPNG={handleExportPNG}
+        onExportSVG={handleExportSVG}
+      />
     </div>
   );
 }

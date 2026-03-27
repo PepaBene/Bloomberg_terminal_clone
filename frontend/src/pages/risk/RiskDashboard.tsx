@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Risk Dashboard — VaR, Stress Tests, Factor Exposure
 // ---------------------------------------------------------------------------
+import { BarChartComponent, DonutChart } from '@/components/charts';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -32,6 +34,33 @@ const factorExposure = [
   { factor: 'Low Volatility', exposure: -0.18, contribution: -4.2 },
 ];
 
+// --- VaR Decomposition Data --------------------------------------------------
+
+const VAR_DECOMPOSITION = [
+  { position: 'NVDA',  var95: 420 },
+  { position: 'MSFT',  var95: 310 },
+  { position: 'JPM',   var95: 280 },
+  { position: 'META',  var95: 260 },
+  { position: 'AAPL',  var95: 240 },
+  { position: 'LLY',   var95: 220 },
+  { position: 'V',     var95: 180 },
+  { position: 'AMZN',  var95: 170 },
+  { position: 'GOOGL', var95: 160 },
+  { position: 'UNH',   var95: 150 },
+];
+
+// --- Sector Concentration Data -----------------------------------------------
+
+const SECTOR_CONCENTRATION = [
+  { name: 'Technology', value: 38.2 },
+  { name: 'Healthcare', value: 14.5 },
+  { name: 'Financials', value: 12.8 },
+  { name: 'Consumer Disc.', value: 10.4 },
+  { name: 'Communication', value: 9.2 },
+  { name: 'Industrials', value: 7.8 },
+  { name: 'Other', value: 7.1 },
+];
+
 export default function RiskDashboard() {
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -46,6 +75,29 @@ export default function RiskDashboard() {
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{k.value}</div>
           </div>
         ))}
+      </div>
+      {/* VaR Decomposition + Sector Concentration Charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)', alignItems: 'start' }}>
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>VaR Decomposition by Position ($K)</h2>
+          <BarChartComponent
+            data={VAR_DECOMPOSITION}
+            xKey="position"
+            bars={[{ key: 'var95', color: '#E05252', name: 'VaR 95% ($K)' }]}
+            height={250}
+            yAxisFormat={(v: number) => `$${v}K`}
+          />
+        </div>
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Concentration by Sector</h2>
+          <DonutChart
+            data={SECTOR_CONCENTRATION}
+            height={250}
+            centerLabel="Sectors"
+            centerValue="7"
+            showLegend
+          />
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         <div style={panelStyle}>

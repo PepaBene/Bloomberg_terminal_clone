@@ -1,6 +1,10 @@
 // ---------------------------------------------------------------------------
 // Performance Page — Returns Chart, Calendar Returns, Risk Metrics
 // ---------------------------------------------------------------------------
+import { useMemo } from 'react';
+import { TimeSeriesChart, HeatmapChart } from '@/components/charts';
+import type { HeatmapDataPoint } from '@/components/charts';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -32,6 +36,70 @@ const riskMetrics = [
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'YTD'];
 
+// --- Cumulative Return Mock Data (1 year) ------------------------------------
+
+function generateCumulativeReturns(): { date: string; value: number; portfolio: number; benchmark: number }[] {
+  const data: { date: string; value: number; portfolio: number; benchmark: number }[] = [];
+  let pCum = 0;
+  let bCum = 0;
+  const start = new Date('2025-03-27');
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    pCum += (Math.random() - 0.46) * 0.8;
+    bCum += (Math.random() - 0.47) * 0.7;
+    const pRound = Math.round(pCum * 100) / 100;
+    data.push({
+      date: d.toISOString().slice(0, 10),
+      value: pRound,
+      portfolio: pRound,
+      benchmark: Math.round(bCum * 100) / 100,
+    });
+  }
+  return data;
+}
+
+// --- Calendar Heatmap Data ---------------------------------------------------
+
+const HEATMAP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const HEATMAP_YEARS = ['2024', '2025'];
+
+const HEATMAP_DATA: HeatmapDataPoint[] = [
+  // 2025
+  { row: '2025', col: 'Jan', value: 2.1 },  { row: '2025', col: 'Feb', value: -0.8 },
+  { row: '2025', col: 'Mar', value: 3.2 },  { row: '2025', col: 'Apr', value: -1.5 },
+  { row: '2025', col: 'May', value: 1.8 },  { row: '2025', col: 'Jun', value: 2.4 },
+  { row: '2025', col: 'Jul', value: -0.3 }, { row: '2025', col: 'Aug', value: 1.2 },
+  { row: '2025', col: 'Sep', value: -2.8 }, { row: '2025', col: 'Oct', value: 3.5 },
+  { row: '2025', col: 'Nov', value: 2.1 },  { row: '2025', col: 'Dec', value: 1.5 },
+  // 2024
+  { row: '2024', col: 'Jan', value: 1.5 },  { row: '2024', col: 'Feb', value: 3.2 },
+  { row: '2024', col: 'Mar', value: -0.5 }, { row: '2024', col: 'Apr', value: -2.1 },
+  { row: '2024', col: 'May', value: 4.2 },  { row: '2024', col: 'Jun', value: 1.8 },
+  { row: '2024', col: 'Jul', value: 2.5 },  { row: '2024', col: 'Aug', value: -1.2 },
+  { row: '2024', col: 'Sep', value: 0.8 },  { row: '2024', col: 'Oct', value: -0.5 },
+  { row: '2024', col: 'Nov', value: 5.2 },  { row: '2024', col: 'Dec', value: 2.8 },
+];
+
+function CumulativeReturnChart() {
+  const data = useMemo(() => generateCumulativeReturns(), []);
+  return (
+    <TimeSeriesChart
+      data={data}
+      height={280}
+      showGrid
+      showLegend
+      series={[
+        { key: 'portfolio', color: '#3B82F6', name: 'Portfolio', type: 'line' },
+        { key: 'benchmark', color: '#8A96A3', name: 'S&P 500', type: 'line' },
+      ]}
+      yAxisFormat={(v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`}
+    />
+  );
+}
+
 export default function PerformancePage() {
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -47,12 +115,24 @@ export default function PerformancePage() {
           </div>
         ))}
       </div>
-      {/* Chart Placeholder */}
-      <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px', borderStyle: 'dashed', marginBottom: 'var(--panel-gap)' }}>
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', color: 'var(--color-text-tertiary)' }}>Cumulative Returns Chart &mdash; Coming Soon</span>
+      {/* Cumulative Returns Chart */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Cumulative Returns vs Benchmark (1Y)</h2>
+        <CumulativeReturnChart />
+      </div>
+      {/* Calendar Returns Heatmap */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Monthly Returns Heatmap (%)</h2>
+        <HeatmapChart
+          data={HEATMAP_DATA}
+          rows={HEATMAP_YEARS}
+          cols={HEATMAP_MONTHS}
+          colorScale="diverging"
+          valueFormat={(v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`}
+        />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* Calendar Returns */}
+        {/* Calendar Returns Table */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Calendar Returns (%)</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

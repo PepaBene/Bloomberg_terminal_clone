@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Portfolio Detail — Single Portfolio View
 // ---------------------------------------------------------------------------
+import { useMemo } from 'react';
+import { DonutChart, TimeSeriesChart } from '@/components/charts';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -92,6 +94,47 @@ const perfMetrics: PerformanceMetric[] = [
   { label: 'Beta (vs SPX)',  value: '1.12' },
 ];
 
+// --- Sector Allocation Data --------------------------------------------------
+
+const SECTOR_ALLOCATION = [
+  { name: 'Technology', value: 32.4 },
+  { name: 'Healthcare', value: 14.8 },
+  { name: 'Financials', value: 12.6 },
+  { name: 'Consumer Disc.', value: 11.2 },
+  { name: 'Communication', value: 9.8 },
+  { name: 'Industrials', value: 7.4 },
+  { name: 'Other', value: 11.8 },
+];
+
+// --- NAV History (30 days) ---------------------------------------------------
+
+function generateNavHistory(): { date: string; value: number }[] {
+  const data: { date: string; value: number }[] = [];
+  let nav = 10_000_000;
+  const start = new Date('2026-02-25');
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const dailyReturn = (Math.random() - 0.47) * 0.012;
+    nav *= 1 + dailyReturn;
+    data.push({ date: d.toISOString().slice(0, 10), value: Math.round(nav) });
+  }
+  return data;
+}
+
+function NavHistoryChart() {
+  const data = useMemo(() => generateNavHistory(), []);
+  return (
+    <TimeSeriesChart
+      data={data}
+      height={200}
+      showGrid
+      series={[{ key: 'value', color: '#3B82F6', name: 'NAV', type: 'area' }]}
+      yAxisFormat={(v: number) => `$${(v / 1_000_000).toFixed(2)}M`}
+    />
+  );
+}
+
 // --- Component ---------------------------------------------------------------
 
 export default function PortfolioDetail() {
@@ -171,18 +214,22 @@ export default function PortfolioDetail() {
         {/* Right — Allocation + Summary */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
-          {/* Allocation Pie Chart Placeholder */}
-          <div style={{
-            ...panelStyle,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '200px',
-            borderStyle: 'dashed',
-          }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', color: 'var(--color-text-tertiary)' }}>
-              Allocation Chart &mdash; Coming Soon
-            </span>
+          {/* Sector Allocation Donut */}
+          <div style={panelStyle}>
+            <h2 style={sectionTitle}>Sector Allocation</h2>
+            <DonutChart
+              data={SECTOR_ALLOCATION}
+              height={240}
+              centerLabel="Sectors"
+              centerValue="7"
+              showLegend
+            />
+          </div>
+
+          {/* NAV History (30 days) */}
+          <div style={panelStyle}>
+            <h2 style={sectionTitle}>NAV History (30D)</h2>
+            <NavHistoryChart />
           </div>
 
           {/* Portfolio Summary */}

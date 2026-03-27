@@ -1,10 +1,13 @@
 // ---------------------------------------------------------------------------
 // Company Overview — Main Company Analysis Page
 // ---------------------------------------------------------------------------
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
+import { CandlestickChart, BarChartComponent } from '@/components/charts';
+import type { CandlestickDataPoint } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -120,6 +123,42 @@ const MOCK_NEWS: NewsItem[] = [
   { id: '4', headline: 'Apple Car project timeline pushed to 2028',        source: 'WSJ',       time: '1d ago' },
   { id: '5', headline: 'App Store antitrust ruling appeal filed',          source: 'FT',        time: '1d ago' },
 ];
+
+// --- OHLC Mock Data (6 months daily) -----------------------------------------
+
+function generateOHLC(): CandlestickDataPoint[] {
+  const data: CandlestickDataPoint[] = [];
+  let close = 175;
+  const start = new Date('2025-09-27');
+  for (let i = 0; i < 130; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    const change = (Math.random() - 0.48) * 3.5;
+    const open = close;
+    close = Math.round((open + change) * 100) / 100;
+    const high = Math.round((Math.max(open, close) + Math.random() * 2) * 100) / 100;
+    const low = Math.round((Math.min(open, close) - Math.random() * 2) * 100) / 100;
+    const volume = Math.round(40_000_000 + Math.random() * 30_000_000);
+    data.push({ time: d.toISOString().slice(0, 10), open, high, low, close, volume });
+  }
+  return data;
+}
+
+// --- Quarterly Revenue/NI bar data -------------------------------------------
+
+const QUARTERLY_BAR_DATA = [
+  { period: 'Q2 2025', revenue: 81797, netIncome: 21448 },
+  { period: 'Q3 2025', revenue: 85777, netIncome: 22956 },
+  { period: 'Q4 2025', revenue: 94930, netIncome: 24780 },
+  { period: 'Q1 2026', revenue: 119500, netIncome: 33916 },
+];
+
+function StockCandlestick() {
+  const ohlcData = useMemo(() => generateOHLC(), []);
+  return <CandlestickChart data={ohlcData} height={300} showVolume />;
+}
 
 // --- Component ---------------------------------------------------------------
 
@@ -244,17 +283,26 @@ export default function CompanyOverview() {
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
-          {/* Price Chart Placeholder */}
-          <div className="terminal-panel" style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '200px',
-            borderStyle: 'dashed',
-          }}>
-            <span className="terminal-label" style={{ fontSize: 'var(--text-md)' }}>
-              Price Chart &mdash; Coming Soon
-            </span>
+          {/* Price Chart (OHLC Candlestick) */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Price Chart (6M)</h2>
+            <StockCandlestick />
+          </div>
+
+          {/* Quarterly Revenue vs Net Income */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Quarterly Revenue vs Net Income</h2>
+            <BarChartComponent
+              data={QUARTERLY_BAR_DATA}
+              xKey="period"
+              bars={[
+                { key: 'revenue', color: '#3B82F6', name: 'Revenue ($M)' },
+                { key: 'netIncome', color: '#2DB87D', name: 'Net Income ($M)' },
+              ]}
+              height={220}
+              showLegend
+              yAxisFormat={(v: number) => `$${(v / 1000).toFixed(0)}B`}
+            />
           </div>
 
           {/* Financial Summary */}
