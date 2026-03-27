@@ -1,41 +1,43 @@
 // ---------------------------------------------------------------------------
 // Fixed Income Dashboard
 // ---------------------------------------------------------------------------
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 
-const panelStyle: React.CSSProperties = {
-  background: 'var(--color-surface-base)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: '4px',
-  padding: 'var(--panel-padding)',
-  overflow: 'auto',
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-lg)',
-  fontWeight: 600,
-  color: 'var(--color-text-primary)',
-  margin: '0 0 12px 0',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-sm)',
-  color: 'var(--color-text-secondary)',
-};
-
-const dataStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-data)',
-  fontVariantNumeric: 'tabular-nums',
-  fontSize: 'var(--text-base)',
-  color: 'var(--color-text-primary)',
-};
+// --- Helpers -----------------------------------------------------------------
 
 function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
 }
 
-// --- Mock Data ---------------------------------------------------------------
+function regimeColor(regime: string): string {
+  switch (regime) {
+    case 'Tight':   return 'var(--color-signal-positive)';
+    case 'Normal':  return 'var(--color-signal-neutral)';
+    case 'Wide':    return 'var(--color-signal-warning)';
+    case 'Stress':  return 'var(--color-signal-negative)';
+    default:        return 'var(--color-text-secondary)';
+  }
+}
+
+// --- Skeleton ----------------------------------------------------------------
+
+function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?: string }) {
+  return (
+    <div
+      style={{
+        width,
+        height,
+        background: 'linear-gradient(90deg, var(--color-surface-raised) 25%, var(--color-surface-overlay) 50%, var(--color-surface-raised) 75%)',
+        backgroundSize: '200% 100%',
+        animation: 'shimmer 1.5s infinite',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    />
+  );
+}
+
+// --- Mock Data (fallback) ----------------------------------------------------
 
 interface YieldTenor {
   tenor: string;
@@ -44,7 +46,7 @@ interface YieldTenor {
   change1w: number;
 }
 
-const yieldCurve: YieldTenor[] = [
+const MOCK_YIELD_CURVE: YieldTenor[] = [
   { tenor: '1M',  rate: 5.38, change1d: 0.00,  change1w: -0.02 },
   { tenor: '3M',  rate: 5.36, change1d: -0.01, change1w: -0.03 },
   { tenor: '6M',  rate: 5.27, change1d: -0.01, change1w: -0.05 },
@@ -65,22 +67,12 @@ interface CreditIndex {
   regime: string;
 }
 
-const creditMarket: CreditIndex[] = [
+const MOCK_CREDIT: CreditIndex[] = [
   { name: 'IG Corporate OAS',  oas: 92,  change1d: -2, regime: 'Tight' },
   { name: 'HY Corporate OAS',  oas: 328, change1d: 4,  regime: 'Normal' },
   { name: 'IG Financial OAS',  oas: 78,  change1d: -1, regime: 'Tight' },
   { name: 'EM Sovereign OAS',  oas: 248, change1d: 3,  regime: 'Normal' },
 ];
-
-function regimeColor(regime: string): string {
-  switch (regime) {
-    case 'Tight':   return 'var(--color-signal-positive)';
-    case 'Normal':  return 'var(--color-signal-neutral)';
-    case 'Wide':    return 'var(--color-signal-warning)';
-    case 'Stress':  return 'var(--color-signal-negative)';
-    default:        return 'var(--color-text-secondary)';
-  }
-}
 
 interface RecentIssuance {
   issuer: string;
@@ -91,7 +83,7 @@ interface RecentIssuance {
   spread: string;
 }
 
-const recentIssuance: RecentIssuance[] = [
+const MOCK_ISSUANCE: RecentIssuance[] = [
   { issuer: 'Apple Inc.',            coupon: '4.250%', maturity: '2034-03-15', size: '$3.0B', rating: 'AA+', spread: 'T+62' },
   { issuer: 'Goldman Sachs',         coupon: '5.125%', maturity: '2029-09-01', size: '$2.5B', rating: 'A-',  spread: 'T+108' },
   { issuer: 'Microsoft Corp.',       coupon: '4.000%', maturity: '2054-03-01', size: '$2.0B', rating: 'AAA', spread: 'T+55' },
@@ -103,15 +95,39 @@ const recentIssuance: RecentIssuance[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function FIDashboard() {
+  // Fetch yield curve
+  const { data: yieldData, isLoading: loadingYield } = useQuery<YieldTenor[]>({
+    queryKey: ['fi', 'yield-curve'],
+    queryFn: () => api.get('/v4/fi/yield-curve'),
+    retry: 0,
+  });
+  const yieldCurve = yieldData ?? MOCK_YIELD_CURVE;
+
+  // Fetch credit spreads
+  const { data: creditData, isLoading: loadingCredit } = useQuery<CreditIndex[]>({
+    queryKey: ['fi', 'credit-spreads'],
+    queryFn: () => api.get('/v4/fi/credit-spreads'),
+    retry: 0,
+  });
+  const creditMarket = creditData ?? MOCK_CREDIT;
+
+  // Fetch recent issuance
+  const { data: issuanceData, isLoading: loadingIssuance } = useQuery<RecentIssuance[]>({
+    queryKey: ['fi', 'issuance'],
+    queryFn: () => api.get('/v4/fi/issuance/recent'),
+    retry: 0,
+  });
+  const recentIssuance = issuanceData ?? MOCK_ISSUANCE;
+
   return (
-    <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
+    <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
       {/* Header */}
       <div style={{ marginBottom: '16px' }}>
-        <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
+        <h1 className="terminal-section-title" style={{ fontSize: 'var(--text-xl)', margin: 0 }}>
           Fixed Income Dashboard
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>
+        <p className="terminal-label" style={{ marginTop: '4px' }}>
           Yield curves, credit spreads, and new issuance
         </p>
       </div>
@@ -123,72 +139,86 @@ export default function FIDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
           {/* Yield Curve Table */}
-          <div style={panelStyle}>
-            <h2 style={sectionTitle}>US Treasury Yield Curve</h2>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Tenor', 'Yield', '1D Chg', '1W Chg'].map((h) => (
-                    <th key={h} style={{ ...labelStyle, textAlign: h === 'Tenor' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {yieldCurve.map((y) => (
-                  <tr key={y.tenor} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{y.tenor}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{y.rate.toFixed(2)}%</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(y.change1d) }}>
-                      {y.change1d >= 0 ? '+' : ''}{y.change1d.toFixed(2)}
-                    </td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(y.change1w) }}>
-                      {y.change1w >= 0 ? '+' : ''}{y.change1w.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {/* Key spreads */}
-            <div style={{ display: 'flex', gap: '24px', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-surface-border)' }}>
-              <div>
-                <span style={labelStyle}>2s10s Spread: </span>
-                <span style={{ ...dataStyle, color: signalColor(-0.34) }}>-34 bps</span>
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">US Treasury Yield Curve</h2>
+            {loadingYield ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {Array.from({ length: 11 }).map((_, i) => <Skeleton key={i} height="28px" />)}
               </div>
-              <div>
-                <span style={labelStyle}>3m10y Spread: </span>
-                <span style={{ ...dataStyle, color: signalColor(-1.08) }}>-108 bps</span>
-              </div>
-            </div>
+            ) : (
+              <>
+                <table className="terminal-table">
+                  <thead>
+                    <tr>
+                      <th>Tenor</th>
+                      <th className="right">Yield</th>
+                      <th className="right">1D Chg</th>
+                      <th className="right">1W Chg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yieldCurve.map((y) => (
+                      <tr key={y.tenor}>
+                        <td style={{ fontWeight: 500 }}>{y.tenor}</td>
+                        <td className="right">{y.rate.toFixed(2)}%</td>
+                        <td className="right" style={{ color: signalColor(y.change1d) }}>
+                          {y.change1d >= 0 ? '+' : ''}{y.change1d.toFixed(2)}
+                        </td>
+                        <td className="right" style={{ color: signalColor(y.change1w) }}>
+                          {y.change1w >= 0 ? '+' : ''}{y.change1w.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* Key spreads */}
+                <div style={{ display: 'flex', gap: '24px', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-surface-border)' }}>
+                  <div>
+                    <span className="terminal-label">2s10s Spread: </span>
+                    <span className="terminal-data" style={{ color: signalColor(-0.34) }}>-34 bps</span>
+                  </div>
+                  <div>
+                    <span className="terminal-label">3m10y Spread: </span>
+                    <span className="terminal-data" style={{ color: signalColor(-1.08) }}>-108 bps</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Recent Issuance */}
-          <div style={panelStyle}>
-            <h2 style={sectionTitle}>Recent Issuance</h2>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Issuer', 'Coupon', 'Maturity', 'Size', 'Rating', 'Spread'].map((h) => (
-                    <th key={h} style={{ ...labelStyle, textAlign: h === 'Issuer' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)', whiteSpace: 'nowrap' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recentIssuance.map((bond, i) => (
-                  <tr key={i} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', whiteSpace: 'nowrap' }}>{bond.issuer}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{bond.coupon}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{bond.maturity}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{bond.size}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{bond.rating}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-neutral)' }}>{bond.spread}</td>
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Recent Issuance</h2>
+            {loadingIssuance ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} height="28px" />)}
+              </div>
+            ) : (
+              <table className="terminal-table">
+                <thead>
+                  <tr>
+                    <th>Issuer</th>
+                    <th className="right">Coupon</th>
+                    <th className="right">Maturity</th>
+                    <th className="right">Size</th>
+                    <th className="right">Rating</th>
+                    <th className="right">Spread</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recentIssuance.map((bond, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap' }}>{bond.issuer}</td>
+                      <td className="right">{bond.coupon}</td>
+                      <td className="right" style={{ fontSize: 'var(--text-sm)' }}>{bond.maturity}</td>
+                      <td className="right">{bond.size}</td>
+                      <td className="right">{bond.rating}</td>
+                      <td className="right" style={{ color: 'var(--color-signal-neutral)' }}>{bond.spread}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -196,38 +226,44 @@ export default function FIDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
           {/* Credit Market */}
-          <div style={panelStyle}>
-            <h2 style={sectionTitle}>Credit Market</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {creditMarket.map((c) => (
-                <div key={c.name} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>{c.name}</span>
-                    <span style={{ ...dataStyle, fontWeight: 600 }}>{c.oas} bps</span>
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Credit Market</h2>
+            {loadingCredit ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height="48px" />)}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {creditMarket.map((c) => (
+                  <div key={c.name} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>{c.name}</span>
+                      <span className="terminal-data" style={{ fontWeight: 600 }}>{c.oas} bps</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: signalColor(-c.change1d) }}>
+                        {c.change1d >= 0 ? '+' : ''}{c.change1d} bps 1d
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: 'var(--text-xs)',
+                        padding: '1px 6px',
+                        borderRadius: '2px',
+                        color: regimeColor(c.regime),
+                        background: `color-mix(in srgb, ${regimeColor(c.regime)} 15%, transparent)`,
+                      }}>
+                        {c.regime}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: signalColor(-c.change1d) }}>
-                      {c.change1d >= 0 ? '+' : ''}{c.change1d} bps 1d
-                    </span>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: regimeColor(c.regime),
-                      background: `color-mix(in srgb, ${regimeColor(c.regime)} 15%, transparent)`,
-                    }}>
-                      {c.regime}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick Links */}
-          <div style={panelStyle}>
-            <h2 style={sectionTitle}>Quick Links</h2>
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Quick Links</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {['Treasury Dashboard', 'Credit Market Deep Dive', 'Bond Screener', 'Issuance Monitor'].map((label) => (
                 <div

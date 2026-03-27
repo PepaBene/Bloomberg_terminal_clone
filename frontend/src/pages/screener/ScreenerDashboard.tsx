@@ -1,45 +1,11 @@
 // ---------------------------------------------------------------------------
 // Equity Screener Dashboard
 // ---------------------------------------------------------------------------
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 
-const panelStyle: React.CSSProperties = {
-  background: 'var(--color-surface-base)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: '4px',
-  padding: 'var(--panel-padding)',
-  overflow: 'auto',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-sm)',
-  color: 'var(--color-text-secondary)',
-};
-
-const dataStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-data)',
-  fontVariantNumeric: 'tabular-nums',
-  fontSize: 'var(--text-base)',
-  color: 'var(--color-text-primary)',
-};
-
-const selectStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-sm)',
-  background: 'var(--color-surface-raised)',
-  color: 'var(--color-text-primary)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: '4px',
-  padding: '4px 8px',
-  outline: 'none',
-};
-
-const inputStyle: React.CSSProperties = {
-  ...selectStyle,
-  width: '72px',
-  fontFamily: 'var(--font-data)',
-};
+// --- Helpers -----------------------------------------------------------------
 
 function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
@@ -59,7 +25,24 @@ function formatCap(b: number): string {
   return `$${(b * 1000).toFixed(0)}M`;
 }
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Skeleton ----------------------------------------------------------------
+
+function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?: string }) {
+  return (
+    <div
+      style={{
+        width,
+        height,
+        background: 'linear-gradient(90deg, var(--color-surface-raised) 25%, var(--color-surface-overlay) 50%, var(--color-surface-raised) 75%)',
+        backgroundSize: '200% 100%',
+        animation: 'shimmer 1.5s infinite',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    />
+  );
+}
+
+// --- Mock Data (fallback) ----------------------------------------------------
 
 interface ScreenerRow {
   ticker: string;
@@ -72,7 +55,7 @@ interface ScreenerRow {
   piotroski: number;
 }
 
-const mockStocks: ScreenerRow[] = [
+const MOCK_STOCKS: ScreenerRow[] = [
   { ticker: 'AAPL',  name: 'Apple Inc.',           sector: 'Technology',      marketCapB: 2780, pe: 28.6,  roe: 156.8, revGrowth: 5.2,  piotroski: 7 },
   { ticker: 'MSFT',  name: 'Microsoft Corp.',      sector: 'Technology',      marketCapB: 3120, pe: 35.2,  roe: 39.4,  revGrowth: 12.8, piotroski: 8 },
   { ticker: 'NVDA',  name: 'NVIDIA Corp.',         sector: 'Technology',      marketCapB: 2180, pe: 62.4,  roe: 92.3,  revGrowth: 122.4, piotroski: 8 },
@@ -95,43 +78,93 @@ const mockStocks: ScreenerRow[] = [
   { ticker: 'CAT',   name: 'Caterpillar Inc.',     sector: 'Industrials',     marketCapB: 178,  pe: 16.2,  roe: 54.8,  revGrowth: -2.4, piotroski: 6 },
 ];
 
-const sectors = ['All Sectors', 'Technology', 'Financials', 'Healthcare', 'Consumer Disc.', 'Consumer Stap.', 'Energy', 'Industrials'];
+const SECTORS = ['All Sectors', 'Technology', 'Financials', 'Healthcare', 'Consumer Disc.', 'Consumer Stap.', 'Energy', 'Industrials'];
+
+// --- Filter styles -----------------------------------------------------------
+
+const selectStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-ui)',
+  fontSize: 'var(--text-sm)',
+  background: 'var(--color-surface-raised)',
+  color: 'var(--color-text-primary)',
+  border: '1px solid var(--color-surface-border)',
+  borderRadius: '4px',
+  padding: '4px 8px',
+  outline: 'none',
+};
+
+const inputStyle: React.CSSProperties = {
+  ...selectStyle,
+  width: '72px',
+  fontFamily: 'var(--font-data)',
+};
 
 // --- Component ---------------------------------------------------------------
 
-export default function ScreenerDashboard() {
-  const [sector, setSector] = useState('All Sectors');
-  const [peMin, setPeMin] = useState('');
-  const [peMax, setPeMax] = useState('');
-  const [roeMin, setRoeMin] = useState('');
-  const [capFilter, setCapFilter] = useState('All');
+interface ScreenerFilters {
+  sector: string;
+  capFilter: string;
+  peMin: string;
+  peMax: string;
+  roeMin: string;
+}
 
-  const filtered = mockStocks.filter((s) => {
-    if (sector !== 'All Sectors' && s.sector !== sector) return false;
-    if (peMin && s.pe < Number(peMin)) return false;
-    if (peMax && s.pe > Number(peMax)) return false;
-    if (roeMin && s.roe < Number(roeMin)) return false;
-    if (capFilter === 'Large' && s.marketCapB < 100) return false;
-    if (capFilter === 'Mega' && s.marketCapB < 500) return false;
-    return true;
+export default function ScreenerDashboard() {
+  const [filters, setFilters] = useState<ScreenerFilters>({
+    sector: 'All Sectors',
+    capFilter: 'All',
+    peMin: '',
+    peMax: '',
+    roeMin: '',
   });
 
+  // Fetch screener results from API
+  const { data: apiStocks, isLoading } = useQuery<ScreenerRow[]>({
+    queryKey: ['screener', 'results', filters],
+    queryFn: () => api.get('/v4/screener/equity', {
+      sector: filters.sector !== 'All Sectors' ? filters.sector : undefined,
+      cap_filter: filters.capFilter !== 'All' ? filters.capFilter : undefined,
+      pe_min: filters.peMin || undefined,
+      pe_max: filters.peMax || undefined,
+      roe_min: filters.roeMin || undefined,
+    }),
+    retry: 0,
+  });
+  const stocks = apiStocks ?? MOCK_STOCKS;
+
+  // Apply client-side filters to fallback data (API should already filter, but mock needs it)
+  const filtered = useMemo(() => {
+    if (apiStocks) return apiStocks; // API already filtered
+    return stocks.filter((s) => {
+      if (filters.sector !== 'All Sectors' && s.sector !== filters.sector) return false;
+      if (filters.peMin && s.pe < Number(filters.peMin)) return false;
+      if (filters.peMax && s.pe > Number(filters.peMax)) return false;
+      if (filters.roeMin && s.roe < Number(filters.roeMin)) return false;
+      if (filters.capFilter === 'Large' && s.marketCapB < 100) return false;
+      if (filters.capFilter === 'Mega' && s.marketCapB < 500) return false;
+      return true;
+    });
+  }, [apiStocks, stocks, filters]);
+
+  const updateFilter = <K extends keyof ScreenerFilters>(key: K, value: ScreenerFilters[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
   return (
-    <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
+    <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
       {/* Header */}
       <div style={{ marginBottom: '16px' }}>
-        <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
+        <h1 className="terminal-section-title" style={{ fontSize: 'var(--text-xl)', margin: 0 }}>
           Equity Screener
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>
+        <p className="terminal-label" style={{ marginTop: '4px' }}>
           {filtered.length} results matching filters
         </p>
       </div>
 
       {/* Filter Bar */}
-      <div style={{
-        ...panelStyle,
+      <div className="terminal-panel" style={{
         display: 'flex',
         alignItems: 'center',
         gap: '16px',
@@ -140,71 +173,71 @@ export default function ScreenerDashboard() {
         padding: '8px 12px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={labelStyle}>Sector</span>
-          <select style={selectStyle} value={sector} onChange={(e) => setSector(e.target.value)}>
-            {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
+          <span className="terminal-label">Sector</span>
+          <select style={selectStyle} value={filters.sector} onChange={(e) => updateFilter('sector', e.target.value)}>
+            {SECTORS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={labelStyle}>Market Cap</span>
-          <select style={selectStyle} value={capFilter} onChange={(e) => setCapFilter(e.target.value)}>
+          <span className="terminal-label">Market Cap</span>
+          <select style={selectStyle} value={filters.capFilter} onChange={(e) => updateFilter('capFilter', e.target.value)}>
             <option value="All">All</option>
             <option value="Mega">Mega (&gt;$500B)</option>
             <option value="Large">Large (&gt;$100B)</option>
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={labelStyle}>P/E</span>
-          <input style={inputStyle} placeholder="Min" value={peMin} onChange={(e) => setPeMin(e.target.value)} />
+          <span className="terminal-label">P/E</span>
+          <input style={inputStyle} placeholder="Min" value={filters.peMin} onChange={(e) => updateFilter('peMin', e.target.value)} />
           <span style={{ color: 'var(--color-text-tertiary)' }}>&ndash;</span>
-          <input style={inputStyle} placeholder="Max" value={peMax} onChange={(e) => setPeMax(e.target.value)} />
+          <input style={inputStyle} placeholder="Max" value={filters.peMax} onChange={(e) => updateFilter('peMax', e.target.value)} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={labelStyle}>ROE Min</span>
-          <input style={inputStyle} placeholder="%" value={roeMin} onChange={(e) => setRoeMin(e.target.value)} />
+          <span className="terminal-label">ROE Min</span>
+          <input style={inputStyle} placeholder="%" value={filters.roeMin} onChange={(e) => updateFilter('roeMin', e.target.value)} />
         </div>
       </div>
 
       {/* Results Table */}
-      <div style={panelStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {['Ticker', 'Name', 'Sector', 'Market Cap', 'P/E', 'ROE', 'Rev Growth', 'Piotroski'].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    ...labelStyle,
-                    textAlign: h === 'Ticker' || h === 'Name' || h === 'Sector' ? 'left' : 'right',
-                    padding: 'var(--table-cell-py) var(--table-cell-px)',
-                    borderBottom: '1px solid var(--color-surface-border)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((s) => (
-              <tr key={s.ticker} style={{ height: 'var(--table-row-height)' }}>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)', whiteSpace: 'nowrap' }}>{s.name}</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.sector}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{formatCap(s.marketCapB)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.pe.toFixed(1)}x</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.roe) }}>{s.roe.toFixed(1)}%</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.revGrowth) }}>
-                  {s.revGrowth >= 0 ? '+' : ''}{s.revGrowth.toFixed(1)}%
-                </td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: qualityColor(s.piotroski), fontWeight: 600 }}>
-                  {s.piotroski}/9
-                </td>
+      <div className="terminal-panel">
+        {isLoading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} height="28px" />)}
+          </div>
+        ) : (
+          <table className="terminal-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Name</th>
+                <th>Sector</th>
+                <th className="right">Market Cap</th>
+                <th className="right">P/E</th>
+                <th className="right">ROE</th>
+                <th className="right">Rev Growth</th>
+                <th className="right">Piotroski</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr key={s.ticker}>
+                  <td style={{ fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>{s.name}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{s.sector}</td>
+                  <td className="right">{formatCap(s.marketCapB)}</td>
+                  <td className="right">{s.pe.toFixed(1)}x</td>
+                  <td className="right" style={{ color: signalColor(s.roe) }}>{s.roe.toFixed(1)}%</td>
+                  <td className="right" style={{ color: signalColor(s.revGrowth) }}>
+                    {s.revGrowth >= 0 ? '+' : ''}{s.revGrowth.toFixed(1)}%
+                  </td>
+                  <td className="right" style={{ color: qualityColor(s.piotroski), fontWeight: 600 }}>
+                    {s.piotroski}/9
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
