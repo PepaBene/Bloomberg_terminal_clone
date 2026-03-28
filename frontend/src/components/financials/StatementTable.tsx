@@ -17,6 +17,8 @@ export interface StatementTableProps {
   onRowClick?: (row: StatementRowData) => void;
   formatValue?: (value: number | null) => ReactNode;
   className?: string;
+  /** YoY change threshold (0-1) above which a cell is highlighted as anomalous. */
+  anomalyThreshold?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -66,6 +68,7 @@ export function StatementTable({
   onRowClick,
   formatValue,
   className,
+  anomalyThreshold,
 }: StatementTableProps) {
   /* Start with top-level parent rows expanded */
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -158,6 +161,7 @@ export function StatementTable({
               commonSizeBase={commonSizeBase}
               showDelta={showDelta}
               formatValue={formatValue}
+              anomalyThreshold={anomalyThreshold}
             />
           ))}
         </tbody>

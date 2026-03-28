@@ -6,6 +6,17 @@
 // Shared theme
 export { CHART_THEME, seriesColor } from './chartTheme';
 
+// Rich tooltip — shared across all chart types
+export { ChartTooltip } from './ChartTooltip';
+export type {
+  ChartTooltipProps,
+  ChartTooltipChange,
+  ChartTooltipPercentile,
+  ChartTooltipBenchmark,
+  ChartTooltipSource,
+  ChartTooltipSeriesItem,
+} from './ChartTooltip';
+
 // Time-series line / area chart (Recharts)
 export { TimeSeriesChart } from './TimeSeriesChart';
 export type {

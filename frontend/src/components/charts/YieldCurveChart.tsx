@@ -11,6 +11,8 @@ import {
   Legend,
 } from 'recharts';
 import { CHART_THEME } from './chartTheme';
+import { ChartTooltip } from './ChartTooltip';
+import type { ChartTooltipChange, ChartTooltipSeriesItem } from './ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -43,13 +45,13 @@ function ActiveDot({ cx = 0, cy = 0, stroke = CHART_THEME.colors.accent }: Activ
   return (
     <g>
       <circle cx={cx} cy={cy} r={7} fill={stroke} opacity={0.15} />
-      <circle cx={cx} cy={cy} r={3.5} fill={stroke} stroke="#0C0F12" strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={3} fill={stroke} stroke="#0C0F12" strokeWidth={1.5} />
     </g>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom tooltip                                                     */
+/*  Rich tooltip using ChartTooltip                                    */
 /* ------------------------------------------------------------------ */
 
 interface TooltipPayloadEntry {
@@ -59,69 +61,71 @@ interface TooltipPayloadEntry {
   dataKey?: string;
 }
 
-interface CustomTooltipProps {
+interface RichYieldTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
   label?: string;
+  priorLabel?: string;
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+function RichYieldTooltip({ active, payload, label, priorLabel }: RichYieldTooltipProps) {
   if (!active || !payload?.length) return null;
 
+  // Extract current and prior rates from the payload
+  const currentEntry = payload.find((e) => e.dataKey === 'current');
+  const priorEntry = payload.find((e) => e.dataKey === 'prior');
+
+  const currentRate = currentEntry?.value;
+  const priorRate = priorEntry?.value;
+
+  const primaryValue = currentRate != null ? `${currentRate.toFixed(2)}%` : '\u2014';
+
+  // Compute change between current and prior
+  let change: ChartTooltipChange | undefined;
+  if (currentRate != null && priorRate != null) {
+    const diff = currentRate - priorRate;
+    change = {
+      value: `${Math.abs(diff).toFixed(2)}%`,
+      direction: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
+      period: 'vs ' + (priorLabel ?? 'Prior'),
+    };
+  }
+
+  // Build series items showing both curves
+  const seriesItems: ChartTooltipSeriesItem[] = [];
+  if (currentEntry) {
+    seriesItems.push({
+      name: 'Current',
+      value: currentRate != null ? `${currentRate.toFixed(2)}%` : '\u2014',
+      color: CHART_THEME.colors.accent,
+    });
+  }
+  if (priorEntry) {
+    seriesItems.push({
+      name: priorLabel ?? 'Prior',
+      value: priorRate != null ? `${priorRate.toFixed(2)}%` : '\u2014',
+      color: CHART_THEME.colors.textTertiary,
+    });
+  }
+
+  // Show spread if both curves present
+  let benchmark: { label: string; value: string } | undefined;
+  if (currentRate != null && priorRate != null) {
+    const spread = currentRate - priorRate;
+    benchmark = {
+      label: 'Spread',
+      value: `${spread >= 0 ? '+' : ''}${spread.toFixed(2)}%`,
+    };
+  }
+
   return (
-    <div
-      style={{
-        background: CHART_THEME.colors.tooltip.bg,
-        border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-        boxShadow: CHART_THEME.shadowFloat,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: CHART_THEME.fonts.ui,
-          fontSize: 11,
-          color: CHART_THEME.colors.tooltip.label,
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      {payload.map((entry) => {
-        if (entry.dataKey === 'spread' || entry.dataKey === 'inversionFill') return null;
-        return (
-          <div
-            key={entry.dataKey ?? entry.name}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 12,
-              color: CHART_THEME.colors.tooltip.text,
-              lineHeight: 1.6,
-            }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 2,
-                background: entry.color,
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ fontFamily: CHART_THEME.fonts.ui, color: CHART_THEME.colors.tooltip.label }}>
-              {entry.name}
-            </span>
-            <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-              {entry.value != null ? `${entry.value.toFixed(2)}%` : '—'}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+    <ChartTooltip
+      title={`Tenor: ${label ?? ''}`}
+      value={primaryValue}
+      change={change}
+      series={seriesItems.length > 1 ? seriesItems : undefined}
+      benchmark={benchmark}
+    />
   );
 }
 
@@ -152,8 +156,6 @@ export function YieldCurveChart({
       const priorRate = priorMap.get(c.tenor);
       const spread = priorRate != null ? c.rate - priorRate : undefined;
 
-      // For inversion: check if current curve inverts by comparing to the
-      // previous tenor. We mark segments where yield drops.
       return {
         tenor: c.tenor,
         current: c.rate,
@@ -165,7 +167,7 @@ export function YieldCurveChart({
 
   /*
    * Detect inversion regions: where a higher-tenor has a lower rate than
-   * a shorter-tenor. We shade these red.
+   * a shorter-tenor. We shade these signal-negative at 15% opacity.
    */
   const inversionData = useMemo(() => {
     return mergedData.map((d, i) => {
@@ -201,7 +203,7 @@ export function YieldCurveChart({
         />
 
         <RechartsTooltip
-          content={<CustomTooltip />}
+          content={<RichYieldTooltip priorLabel={priorLabel} />}
           cursor={{ stroke: CHART_THEME.colors.accent, strokeWidth: 1, strokeDasharray: '3 3' }}
         />
 
@@ -215,22 +217,18 @@ export function YieldCurveChart({
 
         {/* Shaded spread area between curves (when prior exists) */}
         {prior && showSpread && (
-          <>
-            {/* The area between the two lines: fill the current line's area and
-                layer the prior line's area to create a visual spread band. */}
-            <Area
-              type="monotone"
-              dataKey="current"
-              name="Current"
-              stroke="none"
-              fill={CHART_THEME.colors.accent}
-              fillOpacity={0.08}
-              legendType="none"
-            />
-          </>
+          <Area
+            type="monotone"
+            dataKey="current"
+            name="Current"
+            stroke="none"
+            fill={CHART_THEME.colors.accent}
+            fillOpacity={0.08}
+            legendType="none"
+          />
         )}
 
-        {/* Inversion shading: red tinted area where curve inverts */}
+        {/* Inversion shading: signal-negative at 15% opacity */}
         <Area
           type="monotone"
           dataKey="inversionFill"
@@ -256,7 +254,7 @@ export function YieldCurveChart({
           />
         )}
 
-        {/* Current curve — solid accent with dots */}
+        {/* Current curve — solid accent with dots on hover only */}
         <Line
           type="monotone"
           dataKey="current"

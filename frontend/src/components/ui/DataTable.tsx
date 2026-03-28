@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from 'react';
 import clsx from 'clsx';
+import { QualityScoreCell } from './QualityScoreCell';
 
 /* ── Public types ─────────────────────────────────────────── */
 
@@ -26,6 +27,18 @@ export interface Column<T> {
   width?: string;
   /** Minimum width for resizable columns (px) */
   minWidth?: number;
+  /**
+   * Column type hint. When set to 'quality-score', the cell renders
+   * a block-bar quality score using QualityScoreCell automatically.
+   * The cell value should be a number (0-100 scale by default).
+   */
+  type?: 'quality-score' | 'text' | 'number';
+  /**
+   * Conditional formatting function. Returns a CSS class name
+   * or an inline background-color string (prefixed with '#' or 'rgb')
+   * to apply to the cell.
+   */
+  conditionalFormat?: (value: unknown, row: T) => string | undefined;
 }
 
 export interface DataTableProps<T> {
@@ -67,13 +80,27 @@ export interface DataTableProps<T> {
   expandable?: boolean;
   /** Render the expanded content for a given row */
   renderExpanded?: (row: T, index: number) => ReactNode;
+
+  /* ── Pinned / frozen columns ───────────────────────────── */
+  /** Column keys to pin (freeze) on the left during horizontal scroll */
+  pinnedColumns?: string[];
+
+  /* ── Row grouping ──────────────────────────────────────── */
+  /** Group rows by this column key. Inserts group header rows. */
+  groupBy?: string;
 }
 
-type SortDir = 'asc' | 'desc' | null;
+interface SortEntry {
+  key: string;
+  dir: 'asc' | 'desc';
+}
 
 /* ── Constants ────────────────────────────────────────────── */
 const ROW_HEIGHT_PX = 28;
 const ROW_HEIGHT_SM_PX = 22;
+
+/* ── Sort order number indicators ────────────────────────── */
+const SORT_ORDER_GLYPHS = ['\u2460', '\u2461', '\u2462', '\u2463', '\u2464']; // ①②③④⑤
 
 /* ── Component ────────────────────────────────────────────── */
 
@@ -93,24 +120,37 @@ export function DataTable<T extends Record<string, unknown>>({
   onSelectionChange,
   expandable = false,
   renderExpanded,
+  pinnedColumns,
+  groupBy,
 }: DataTableProps<T>) {
-  /* ── Sorting state ──────────────────────────────────────── */
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>(null);
+  /* ── Multi-sort state ────────────────────────────────────── */
+  const [sorts, setSorts] = useState<SortEntry[]>([]);
 
   const handleSort = useCallback(
-    (key: string) => {
-      if (sortCol === key) {
-        setSortDir((prev) =>
-          prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc',
-        );
-        if (sortDir === 'desc') setSortCol(null);
-      } else {
-        setSortCol(key);
-        setSortDir('asc');
-      }
+    (key: string, shiftKey: boolean) => {
+      setSorts((prev) => {
+        const idx = prev.findIndex((s) => s.key === key);
+        if (idx >= 0) {
+          // Already sorting by this column — cycle direction
+          const entry = prev[idx]!;
+          if (entry.dir === 'asc') {
+            const next = [...prev];
+            next[idx] = { key, dir: 'desc' };
+            return next;
+          }
+          // desc -> remove
+          return prev.filter((_, i) => i !== idx);
+        }
+        // New column
+        if (shiftKey && prev.length > 0) {
+          // Add as secondary sort
+          return [...prev, { key, dir: 'asc' }];
+        }
+        // Replace all sorts with this single column
+        return [{ key, dir: 'asc' }];
+      });
     },
-    [sortCol, sortDir],
+    [],
   );
 
   /* ── Column resizing state ──────────────────────────────── */
@@ -187,22 +227,49 @@ export function DataTable<T extends Record<string, unknown>>({
 
   /* ── Sorted data ────────────────────────────────────────── */
   const sorted = useMemo(() => {
-    if (!sortCol || !sortDir) return data;
+    if (sorts.length === 0) return data;
     const copy = [...data];
     copy.sort((a, b) => {
-      const av = a[sortCol];
-      const bv = b[sortCol];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === 'number' && typeof bv === 'number')
-        return sortDir === 'asc' ? av - bv : bv - av;
-      const sa = String(av);
-      const sb = String(bv);
-      return sortDir === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa);
+      for (const { key, dir } of sorts) {
+        const av = a[key];
+        const bv = b[key];
+        if (av == null && bv == null) continue;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        let cmp = 0;
+        if (typeof av === 'number' && typeof bv === 'number') {
+          cmp = av - bv;
+        } else {
+          cmp = String(av).localeCompare(String(bv));
+        }
+        if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
+      }
+      return 0;
     });
     return copy;
-  }, [data, sortCol, sortDir]);
+  }, [data, sorts]);
+
+  /* ── Row grouping ────────────────────────────────────────── */
+  type GroupedItem = { type: 'group'; groupValue: string } | { type: 'row'; row: T; originalIdx: number };
+
+  const groupedItems = useMemo<GroupedItem[]>(() => {
+    if (!groupBy) return sorted.map((row, i) => ({ type: 'row' as const, row, originalIdx: i }));
+
+    const groups = new Map<string, { row: T; originalIdx: number }[]>();
+    for (let i = 0; i < sorted.length; i++) {
+      const item = sorted[i] as T;
+      const key = String(item[groupBy] ?? 'Unknown');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push({ row: item, originalIdx: i });
+    }
+
+    const items: GroupedItem[] = [];
+    for (const [groupValue, rows] of groups) {
+      items.push({ type: 'group', groupValue });
+      for (const r of rows) items.push({ type: 'row', ...r });
+    }
+    return items;
+  }, [sorted, groupBy]);
 
   /* ── Row sizing ─────────────────────────────────────────── */
   const rowHeightNum = compact ? ROW_HEIGHT_SM_PX : ROW_HEIGHT_PX;
@@ -229,6 +296,32 @@ export function DataTable<T extends Record<string, unknown>>({
       )
     : sorted.length;
   const visibleRows = sorted.slice(startIdx, endIdx);
+
+  /* ── Pinned column lookup ────────────────────────────────── */
+  const pinnedSet = useMemo(
+    () => new Set(pinnedColumns ?? []),
+    [pinnedColumns],
+  );
+
+  /**
+   * Compute the cumulative left offset for each pinned column.
+   * This is needed for position: sticky on each pinned <td>/<th>.
+   */
+  const pinnedLeftOffsets = useMemo(() => {
+    if (!pinnedColumns || pinnedColumns.length === 0) return {};
+    const offsets: Record<string, number> = {};
+    let accum = 0;
+    // Include leading system columns (select, expand) in offset calc
+    if (selectable) accum += 32; // width of __select__ col
+    if (expandable) accum += 28; // width of __expand__ col
+    for (const pk of pinnedColumns) {
+      offsets[pk] = accum;
+      const col = columns.find((c) => c.key === pk);
+      const w = colWidths[pk] ?? (col?.width ? parseInt(col.width, 10) || 120 : 120);
+      accum += w;
+    }
+    return offsets;
+  }, [pinnedColumns, columns, colWidths, selectable, expandable]);
 
   /* ── Effective column list (with selection + expand cols) ── */
   const effectiveColumns = useMemo(() => {
@@ -279,6 +372,32 @@ export function DataTable<T extends Record<string, unknown>>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resizable, columns]);
 
+  /* ── Helper: is the column the last pinned column? ──────── */
+  const isLastPinned = useCallback(
+    (colKey: string) => {
+      if (!pinnedColumns || pinnedColumns.length === 0) return false;
+      return pinnedColumns[pinnedColumns.length - 1] === colKey;
+    },
+    [pinnedColumns],
+  );
+
+  /* ── Pinned cell style builder ──────────────────────────── */
+  const pinnedCellStyle = useCallback(
+    (colKey: string): CSSProperties => {
+      if (!pinnedSet.has(colKey)) return {};
+      return {
+        position: 'sticky',
+        left: pinnedLeftOffsets[colKey] ?? 0,
+        zIndex: 2,
+        background: 'var(--color-surface-base)',
+        ...(isLastPinned(colKey)
+          ? { boxShadow: '4px 0 8px -2px rgba(0,0,0,0.4)' }
+          : {}),
+      };
+    },
+    [pinnedSet, pinnedLeftOffsets, isLastPinned],
+  );
+
   /* ── Render header cell ─────────────────────────────────── */
   const renderHeaderCell = (col: Column<T>) => {
     /* Selection checkbox header */
@@ -325,7 +444,9 @@ export function DataTable<T extends Record<string, unknown>>({
 
     /* Standard header */
     const isSortable = col.sortable !== undefined ? col.sortable : sortable;
-    const isActive = sortCol === col.key && sortDir !== null;
+    const sortIdx = sorts.findIndex((s) => s.key === col.key);
+    const isActive = sortIdx >= 0;
+    const sortEntry = isActive ? sorts[sortIdx] : null;
 
     return (
       <th
@@ -348,16 +469,26 @@ export function DataTable<T extends Record<string, unknown>>({
           textTransform: 'uppercase',
           letterSpacing: '0.05em',
           width: getColWidth(col),
-          position: 'relative',
+          position: pinnedSet.has(col.key) ? 'sticky' : undefined,
+          left: pinnedSet.has(col.key) ? (pinnedLeftOffsets[col.key] ?? 0) : undefined,
+          zIndex: pinnedSet.has(col.key) ? 12 : 10,
+          ...(isLastPinned(col.key)
+            ? { boxShadow: '4px 0 8px -2px rgba(0,0,0,0.4)' }
+            : {}),
         }}
-        onClick={isSortable ? () => handleSort(col.key) : undefined}
+        onClick={
+          isSortable
+            ? (e: React.MouseEvent) => handleSort(col.key, e.shiftKey)
+            : undefined
+        }
       >
         <span className="inline-flex items-center gap-1">
           {col.name}
           {isSortable && (
             <SortIndicator
               active={isActive}
-              direction={isActive ? sortDir : null}
+              direction={sortEntry?.dir ?? null}
+              orderIndex={sorts.length > 1 && isActive ? sortIdx : undefined}
             />
           )}
         </span>
@@ -384,6 +515,49 @@ export function DataTable<T extends Record<string, unknown>>({
         )}
       </th>
     );
+  };
+
+  /* ── Render quality-score cell ──────────────────────────── */
+  const renderQualityScoreCell = (value: unknown) => {
+    const score = typeof value === 'number' ? value : 0;
+    return <QualityScoreCell score={score} max={100} />;
+  };
+
+  /* ── Render data cell content ──────────────────────────── */
+  const renderCellContent = (col: Column<T>, row: T) => {
+    const raw = row[col.key];
+    // Quality-score type takes priority over custom format
+    if (col.type === 'quality-score') {
+      return renderQualityScoreCell(raw);
+    }
+    if (col.format) return col.format(raw, row);
+    return raw as ReactNode;
+  };
+
+  /* ── Resolve conditional format to style ───────────────── */
+  const getConditionalStyle = (
+    col: Column<T>,
+    row: T,
+  ): CSSProperties => {
+    if (!col.conditionalFormat) return {};
+    const raw = row[col.key];
+    const result = col.conditionalFormat(raw, row);
+    if (!result) return {};
+    // If it looks like a color value, apply as background
+    if (result.startsWith('#') || result.startsWith('rgb')) {
+      return { backgroundColor: result };
+    }
+    // Otherwise it's a class name — we'll handle it via className instead
+    return {};
+  };
+
+  const getConditionalClass = (col: Column<T>, row: T): string | undefined => {
+    if (!col.conditionalFormat) return undefined;
+    const raw = row[col.key];
+    const result = col.conditionalFormat(raw, row);
+    if (!result) return undefined;
+    if (result.startsWith('#') || result.startsWith('rgb')) return undefined;
+    return result;
   };
 
   /* ── Render data row ────────────────────────────────────── */
@@ -490,23 +664,28 @@ export function DataTable<T extends Record<string, unknown>>({
 
           /* Standard data cell */
           const raw = row[col.key];
-          const formatted = col.format ? col.format(raw, row) : raw;
+          const content = renderCellContent(col, row);
           const isNumber = typeof raw === 'number';
+          const condStyle = getConditionalStyle(col, row);
+          const condClass = getConditionalClass(col, row);
 
           return (
             <td
               key={col.key}
+              className={condClass}
               style={{
                 padding: `var(--table-cell-py) var(--table-cell-px)`,
                 textAlign: col.align ?? (isNumber ? 'right' : 'left'),
-                color: getCellColor(raw),
+                color: col.type === 'quality-score' ? undefined : getCellColor(raw),
                 fontVariantNumeric: isNumber ? 'tabular-nums' : undefined,
                 borderBottom: '1px solid var(--color-surface-border)',
                 whiteSpace: 'nowrap',
                 width: getColWidth(col),
+                ...pinnedCellStyle(col.key),
+                ...condStyle,
               }}
             >
-              {formatted as ReactNode}
+              {content as ReactNode}
             </td>
           );
         })}
@@ -545,6 +724,32 @@ export function DataTable<T extends Record<string, unknown>>({
     return rowEl;
   };
 
+  /* ── Render group header row ─────────────────────────────── */
+  const renderGroupRow = (groupValue: string, colSpan: number) => {
+    return (
+      <tr key={`group-${groupValue}`}>
+        <td
+          colSpan={colSpan}
+          className="group-row"
+          style={{
+            height: rowHeight,
+            lineHeight: rowHeight,
+            borderBottom: '1px solid var(--color-surface-border)',
+          }}
+        >
+          {groupValue}
+        </td>
+      </tr>
+    );
+  };
+
+  /* ── Table style shared by both modes ──────────────────── */
+  const tableStyle: CSSProperties = {
+    fontFamily: 'var(--font-data)',
+    fontSize: 'var(--text-sm)',
+    tableLayout: resizable ? 'fixed' : undefined,
+  };
+
   /* ── Virtualized table ──────────────────────────────────── */
   if (virtualized) {
     return (
@@ -554,27 +759,13 @@ export function DataTable<T extends Record<string, unknown>>({
         style={{ height: virtualHeight, position: 'relative' }}
         onScroll={handleScroll}
       >
-        <table
-          className="w-full border-collapse"
-          style={{
-            fontFamily: 'var(--font-data)',
-            fontSize: 'var(--text-sm)',
-            tableLayout: resizable ? 'fixed' : undefined,
-          }}
-        >
+        <table className="w-full border-collapse" style={tableStyle}>
           <thead>
             <tr>{effectiveColumns.map(renderHeaderCell)}</tr>
           </thead>
         </table>
         <div style={{ height: totalHeight, position: 'relative' }}>
-          <table
-            className="w-full border-collapse"
-            style={{
-              fontFamily: 'var(--font-data)',
-              fontSize: 'var(--text-sm)',
-              tableLayout: resizable ? 'fixed' : undefined,
-            }}
-          >
+          <table className="w-full border-collapse" style={tableStyle}>
             <tbody>
               {visibleRows.map((row, i) => {
                 const absoluteIdx = startIdx + i;
@@ -587,23 +778,23 @@ export function DataTable<T extends Record<string, unknown>>({
     );
   }
 
-  /* ── Standard table ─────────────────────────────────────── */
+  /* ── Standard table (with optional grouping) ───────────── */
   return (
     <div className={clsx('overflow-auto', className)}>
       <style>{expandKeyframes}</style>
-      <table
-        className="w-full border-collapse"
-        style={{
-          fontFamily: 'var(--font-data)',
-          fontSize: 'var(--text-sm)',
-          tableLayout: resizable ? 'fixed' : undefined,
-        }}
-      >
+      <table className="w-full border-collapse" style={tableStyle}>
         <thead>
           <tr>{effectiveColumns.map(renderHeaderCell)}</tr>
         </thead>
         <tbody>
-          {sorted.map((row, idx) => renderRow(row, idx, idx))}
+          {groupBy
+            ? groupedItems.map((item) => {
+                if (item.type === 'group') {
+                  return renderGroupRow(item.groupValue, effectiveColumns.length);
+                }
+                return renderRow(item.row, item.originalIdx, item.originalIdx);
+              })
+            : sorted.map((row, idx) => renderRow(row, idx, idx))}
         </tbody>
       </table>
     </div>
@@ -637,9 +828,11 @@ function getCellColor(value: unknown): string {
 function SortIndicator({
   active,
   direction,
+  orderIndex,
 }: {
   active: boolean;
-  direction: SortDir;
+  direction: 'asc' | 'desc' | null;
+  orderIndex?: number;
 }) {
   return (
     <span
@@ -652,10 +845,25 @@ function SortIndicator({
         display: 'inline-flex',
         flexDirection: 'column',
         gap: '0px',
+        position: 'relative',
       }}
     >
       <span style={{ opacity: direction === 'asc' ? 1 : 0.3 }}>{'\u25B2'}</span>
       <span style={{ opacity: direction === 'desc' ? 1 : 0.3 }}>{'\u25BC'}</span>
+      {orderIndex != null && orderIndex >= 0 && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '-6px',
+            right: '-8px',
+            fontSize: '9px',
+            color: 'var(--color-accent-primary)',
+            lineHeight: 1,
+          }}
+        >
+          {SORT_ORDER_GLYPHS[orderIndex] ?? `${orderIndex + 1}`}
+        </span>
+      )}
     </span>
   );
 }

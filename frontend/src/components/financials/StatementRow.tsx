@@ -26,6 +26,8 @@ export interface StatementRowProps {
   commonSizeBase?: number;
   showDelta?: boolean;
   formatValue?: (value: number | null) => ReactNode;
+  /** YoY change threshold (0-1) above which a cell is highlighted as anomalous. Default 0.3 = 30%. */
+  anomalyThreshold?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -73,6 +75,7 @@ export function StatementRow({
   commonSizeBase,
   showDelta = false,
   formatValue,
+  anomalyThreshold,
 }: StatementRowProps) {
   const fmt = formatValue ?? defaultFormat;
 
@@ -158,6 +161,16 @@ export function StatementRow({
           ? deltaValue(val, row.values[i + 1] ?? null)
           : null;
 
+        // Anomaly detection: check if YoY change exceeds threshold
+        const yoyChange = i < row.values.length - 1
+          ? deltaValue(val, row.values[i + 1] ?? null)
+          : null;
+        const isAnomaly =
+          anomalyThreshold != null &&
+          yoyChange != null &&
+          Math.abs(yoyChange) > anomalyThreshold * 100;
+        const anomalyPositive = isAnomaly && yoyChange != null && yoyChange > 0;
+
         return (
           <td
             key={i}
@@ -171,9 +184,24 @@ export function StatementRow({
               fontWeight: isBold ? 600 : 400,
               color: valueColor(val),
               whiteSpace: 'nowrap',
+              background: isAnomaly
+                ? anomalyPositive
+                  ? 'rgba(45, 184, 125, 0.10)'
+                  : 'rgba(224, 82, 82, 0.10)'
+                : undefined,
             }}
           >
-            <span>{fmt(val)}</span>
+            <span>
+              {fmt(val)}
+              {isAnomaly && (
+                <span
+                  style={{ marginLeft: '4px', fontSize: 'var(--text-xs)' }}
+                  title={`YoY change: ${yoyChange != null && yoyChange > 0 ? '+' : ''}${yoyChange?.toFixed(1)}%`}
+                >
+                  &#9888;
+                </span>
+              )}
+            </span>
             {commonSizePct && (
               <span
                 style={{

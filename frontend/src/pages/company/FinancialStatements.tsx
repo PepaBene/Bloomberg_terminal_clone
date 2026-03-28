@@ -211,6 +211,7 @@ export default function FinancialStatements() {
             showCommonSize={commonSizeEnabled}
             commonSizeBase={revenueBase}
             onRowClick={handleRowClick}
+            anomalyThreshold={0.3}
           />
         </div>
 
@@ -221,6 +222,7 @@ export default function FinancialStatements() {
             rows={bsRows}
             periods={periods}
             onRowClick={handleRowClick}
+            anomalyThreshold={0.3}
           />
         </div>
 
@@ -231,6 +233,7 @@ export default function FinancialStatements() {
             rows={cfRows}
             periods={periods}
             onRowClick={handleRowClick}
+            anomalyThreshold={0.3}
           />
         </div>
       </div>

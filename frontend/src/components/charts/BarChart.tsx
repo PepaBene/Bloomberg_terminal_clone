@@ -9,8 +9,11 @@ import {
   Tooltip as RechartsTooltip,
   Legend,
   Cell,
+  ReferenceLine,
 } from 'recharts';
 import { CHART_THEME } from './chartTheme';
+import { ChartTooltip } from './ChartTooltip';
+import type { ChartTooltipSeriesItem, ChartTooltipChange } from './ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -33,10 +36,12 @@ export interface BarChartComponentProps {
   showTooltip?: boolean;
   showLegend?: boolean;
   yAxisFormat?: (v: number) => string;
+  /** Show a thin horizontal reference line at the period mean */
+  showMeanLine?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom tooltip                                                     */
+/*  Rich tooltip using ChartTooltip                                    */
 /* ------------------------------------------------------------------ */
 
 interface TooltipPayloadEntry {
@@ -44,71 +49,57 @@ interface TooltipPayloadEntry {
   value?: number;
   color?: string;
   dataKey?: string;
+  payload?: Record<string, unknown>;
 }
 
-interface CustomTooltipProps {
+interface RichBarTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
   label?: string;
   yAxisFormat?: (v: number) => string;
+  allData?: Record<string, unknown>[];
 }
 
-function CustomTooltip({ active, payload, label, yAxisFormat }: CustomTooltipProps) {
+function RichBarTooltip({ active, payload, label, yAxisFormat, allData }: RichBarTooltipProps) {
   if (!active || !payload?.length) return null;
 
   const fmt = yAxisFormat ?? ((v: number) => v.toLocaleString());
 
+  const firstEntry = payload[0];
+  const primaryValue = firstEntry?.value != null ? fmt(firstEntry.value) : '\u2014';
+
+  // Compute period-over-period change if data supports it
+  let change: ChartTooltipChange | undefined;
+  if (allData && label && firstEntry?.dataKey) {
+    const currentIdx = allData.findIndex((d) => d[Object.keys(d)[0] ?? ''] === label);
+    if (currentIdx > 0) {
+      const priorRow = allData[currentIdx - 1];
+      const priorVal = priorRow?.[firstEntry.dataKey as string];
+      if (firstEntry.value != null && typeof priorVal === 'number' && priorVal !== 0) {
+        const pctChange = ((firstEntry.value - priorVal) / Math.abs(priorVal)) * 100;
+        change = {
+          value: `${Math.abs(pctChange).toFixed(1)}%`,
+          direction: pctChange > 0 ? 'up' : pctChange < 0 ? 'down' : 'flat',
+          period: 'PoP',
+        };
+      }
+    }
+  }
+
+  // Build series list for multi-bar display
+  const seriesItems: ChartTooltipSeriesItem[] = payload.map((entry) => ({
+    name: entry.name ?? String(entry.dataKey ?? ''),
+    value: entry.value != null ? fmt(entry.value) : '\u2014',
+    color: entry.color ?? CHART_THEME.colors.accent,
+  }));
+
   return (
-    <div
-      style={{
-        background: CHART_THEME.colors.tooltip.bg,
-        border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-        boxShadow: CHART_THEME.shadowFloat,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: CHART_THEME.fonts.ui,
-          fontSize: 11,
-          color: CHART_THEME.colors.tooltip.label,
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      {payload.map((entry) => (
-        <div
-          key={entry.dataKey ?? entry.name}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: CHART_THEME.fonts.data,
-            fontSize: 12,
-            color: CHART_THEME.colors.tooltip.text,
-            lineHeight: 1.6,
-          }}
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 2,
-              background: entry.color,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontFamily: CHART_THEME.fonts.ui, color: CHART_THEME.colors.tooltip.label }}>
-            {entry.name}
-          </span>
-          <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-            {entry.value != null ? fmt(entry.value) : '—'}
-          </span>
-        </div>
-      ))}
-    </div>
+    <ChartTooltip
+      title={String(label ?? '')}
+      value={primaryValue}
+      change={change}
+      series={seriesItems.length > 1 ? seriesItems : undefined}
+    />
   );
 }
 
@@ -126,6 +117,7 @@ export function BarChartComponent({
   showTooltip = true,
   showLegend = false,
   yAxisFormat,
+  showMeanLine = true,
 }: BarChartComponentProps) {
   const isVertical = layout === 'vertical';
 
@@ -152,6 +144,33 @@ export function BarChartComponent({
     }),
     [yAxisFormat],
   );
+
+  /**
+   * Compute the mean of the first bar's values for the reference line.
+   */
+  const meanValue = useMemo(() => {
+    if (!showMeanLine || bars.length === 0) return undefined;
+    const key = bars[0]!.key;
+    const values = data
+      .map((d) => d[key])
+      .filter((v): v is number => typeof v === 'number');
+    if (values.length === 0) return undefined;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }, [data, bars, showMeanLine]);
+
+  /**
+   * Check if any value is negative for zero baseline emphasis.
+   */
+  const hasNegativeValues = useMemo(() => {
+    return bars.some((b) =>
+      data.some((d) => {
+        const v = d[b.key];
+        return typeof v === 'number' && v < 0;
+      }),
+    );
+  }, [data, bars]);
+
+  const fmt = yAxisFormat ?? ((v: number) => v.toLocaleString());
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -183,7 +202,7 @@ export function BarChartComponent({
 
         {showTooltip && (
           <RechartsTooltip
-            content={<CustomTooltip yAxisFormat={yAxisFormat} />}
+            content={<RichBarTooltip yAxisFormat={yAxisFormat} allData={data} />}
             cursor={{ fill: CHART_THEME.colors.accentGlow }}
           />
         )}
@@ -194,6 +213,39 @@ export function BarChartComponent({
               fontFamily: CHART_THEME.fonts.ui,
               fontSize: 11,
               color: CHART_THEME.colors.textSecondary,
+            }}
+          />
+        )}
+
+        {/* Zero baseline emphasis for negative values */}
+        {hasNegativeValues && !isVertical && (
+          <ReferenceLine
+            y={0}
+            stroke={CHART_THEME.colors.surfaceBorderStrong}
+            strokeWidth={1.5}
+          />
+        )}
+        {hasNegativeValues && isVertical && (
+          <ReferenceLine
+            x={0}
+            stroke={CHART_THEME.colors.surfaceBorderStrong}
+            strokeWidth={1.5}
+          />
+        )}
+
+        {/* Mean reference line — thin horizontal line at period mean */}
+        {meanValue != null && !isVertical && (
+          <ReferenceLine
+            y={meanValue}
+            stroke={CHART_THEME.colors.textSecondary}
+            strokeDasharray="4 3"
+            strokeWidth={1}
+            label={{
+              value: `Mean: ${fmt(meanValue)}`,
+              fill: CHART_THEME.colors.textSecondary,
+              fontFamily: CHART_THEME.fonts.ui,
+              fontSize: 9,
+              position: 'insideTopRight',
             }}
           />
         )}

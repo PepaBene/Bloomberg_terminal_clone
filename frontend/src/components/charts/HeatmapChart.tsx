@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import * as d3 from 'd3';
 import { CHART_THEME } from './chartTheme';
+import { ChartTooltip } from './ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -223,43 +224,22 @@ export function HeatmapChart({
         })}
       </svg>
 
-      {/* Floating tooltip */}
+      {/* Floating tooltip using ChartTooltip */}
       {tooltip && (
         <div
           style={{
             position: 'absolute',
             left: tooltip.x,
-            top: tooltip.y - 44,
+            top: tooltip.y - 54,
             transform: 'translateX(-50%)',
-            background: CHART_THEME.colors.tooltip.bg,
-            border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-            borderRadius: 4,
-            padding: '6px 10px',
-            boxShadow: CHART_THEME.shadowFloat,
             pointerEvents: 'none',
-            whiteSpace: 'nowrap',
             zIndex: 10,
           }}
         >
-          <div
-            style={{
-              fontFamily: CHART_THEME.fonts.ui,
-              fontSize: 10,
-              color: CHART_THEME.colors.tooltip.label,
-            }}
-          >
-            {tooltip.row} / {tooltip.col}
-          </div>
-          <div
-            style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 12,
-              color: CHART_THEME.colors.tooltip.text,
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {fmt(tooltip.value)}
-          </div>
+          <ChartTooltip
+            title={`${tooltip.row} / ${tooltip.col}`}
+            value={fmt(tooltip.value)}
+          />
         </div>
       )}
     </div>

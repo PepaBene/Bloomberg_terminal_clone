@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
 import { CHART_THEME, seriesColor } from './chartTheme';
+import { ChartTooltip } from './ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -32,7 +33,7 @@ export interface DonutChartProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Active sector shape — slight expansion + glow                     */
+/*  Active sector shape — expansion + accent glow                     */
 /* ------------------------------------------------------------------ */
 
 interface ActiveShapeProps extends PieSectorDataItem {
@@ -52,7 +53,7 @@ function renderActiveShape(props: ActiveShapeProps) {
 
   return (
     <g>
-      {/* Glow ring */}
+      {/* Accent glow ring */}
       <Sector
         cx={cx}
         cy={cy}
@@ -63,7 +64,7 @@ function renderActiveShape(props: ActiveShapeProps) {
         fill={fill}
         opacity={0.2}
       />
-      {/* Expanded sector */}
+      {/* Expanded sector (+4px outerRadius) */}
       <Sector
         cx={cx}
         cy={cy}
@@ -78,57 +79,45 @@ function renderActiveShape(props: ActiveShapeProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom tooltip                                                     */
+/*  Rich tooltip using ChartTooltip                                    */
 /* ------------------------------------------------------------------ */
 
-interface TooltipPayloadEntry {
+interface DonutTooltipPayloadEntry {
   name?: string;
   value?: number;
-  payload?: DonutDataPoint;
+  payload?: DonutDataPoint & { _fill?: string };
 }
 
-interface CustomTooltipProps {
+interface RichDonutTooltipProps {
   active?: boolean;
-  payload?: TooltipPayloadEntry[];
+  payload?: DonutTooltipPayloadEntry[];
+  totalValue?: number;
 }
 
-function CustomTooltip({ active, payload }: CustomTooltipProps) {
+function RichDonutTooltip({ active, payload, totalValue }: RichDonutTooltipProps) {
   if (!active || !payload?.length) return null;
 
   const item = payload[0];
   if (!item) return null;
 
+  const segmentValue = item.value ?? 0;
+  const percentage = totalValue && totalValue > 0
+    ? ((segmentValue / totalValue) * 100).toFixed(1)
+    : null;
+  const segmentColor = item.payload?._fill ?? item.payload?.color ?? CHART_THEME.colors.accent;
+
   return (
-    <div
-      style={{
-        background: CHART_THEME.colors.tooltip.bg,
-        border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-        boxShadow: CHART_THEME.shadowFloat,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: CHART_THEME.fonts.ui,
-          fontSize: 11,
-          color: CHART_THEME.colors.tooltip.label,
-          marginBottom: 2,
-        }}
-      >
-        {item.name}
-      </div>
-      <div
-        style={{
-          fontFamily: CHART_THEME.fonts.data,
-          fontSize: 13,
-          color: CHART_THEME.colors.tooltip.text,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {item.value?.toLocaleString()}
-      </div>
-    </div>
+    <ChartTooltip
+      title={item.name ?? ''}
+      value={segmentValue.toLocaleString()}
+      series={[
+        {
+          name: item.name ?? '',
+          value: percentage ? `${segmentValue.toLocaleString()} (${percentage}%)` : segmentValue.toLocaleString(),
+          color: segmentColor,
+        },
+      ]}
+    />
   );
 }
 
@@ -165,6 +154,12 @@ export function DonutChart({
     [data],
   );
 
+  /* Total for percentage calculation */
+  const totalValue = useMemo(
+    () => data.reduce((sum, d) => sum + d.value, 0),
+    [data],
+  );
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <PieChart>
@@ -189,7 +184,7 @@ export function DonutChart({
           ))}
         </Pie>
 
-        <RechartsTooltip content={<CustomTooltip />} />
+        <RechartsTooltip content={<RichDonutTooltip totalValue={totalValue} />} />
 
         {showLegend && (
           <Legend

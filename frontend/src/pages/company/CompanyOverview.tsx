@@ -74,14 +74,16 @@ interface QuarterlyFinancial {
   period: string;
   revenue: number;
   netIncome: number;
+  ebitda: number;
+  fcf: number;
   eps: number;
 }
 
 const MOCK_QUARTERLY: QuarterlyFinancial[] = [
-  { period: 'Q1 2026', revenue: 119500, netIncome: 33916, eps: 2.18 },
-  { period: 'Q4 2025', revenue: 94930,  netIncome: 24780, eps: 1.64 },
-  { period: 'Q3 2025', revenue: 85777,  netIncome: 22956, eps: 1.46 },
-  { period: 'Q2 2025', revenue: 81797,  netIncome: 21448, eps: 1.40 },
+  { period: 'Q1 2026', revenue: 119500, netIncome: 33916, ebitda: 43200, fcf: 32000, eps: 2.18 },
+  { period: 'Q4 2025', revenue: 94930,  netIncome: 24780, ebitda: 32500, fcf: 25700, eps: 1.64 },
+  { period: 'Q3 2025', revenue: 85777,  netIncome: 22956, ebitda: 28900, fcf: 24300, eps: 1.46 },
+  { period: 'Q2 2025', revenue: 81797,  netIncome: 21448, ebitda: 27100, fcf: 24100, eps: 1.40 },
 ];
 
 interface QualityScoreItem {
@@ -144,6 +146,41 @@ const MOCK_NEWS: NewsItem[] = [
   { id: '5', headline: 'App Store antitrust ruling appeal filed',          source: 'FT',        time: '1d ago' },
 ];
 
+interface FilingItem {
+  id: string;
+  date: string;
+  type: '10-K' | '10-Q' | '8-K';
+  title: string;
+}
+
+const MOCK_FILINGS: FilingItem[] = [
+  { id: 'f1', date: '2026-02-14', type: '10-K', title: 'Annual Report FY2025' },
+  { id: 'f2', date: '2026-01-30', type: '8-K', title: 'Q1 2026 Earnings Release' },
+  { id: 'f3', date: '2025-11-01', type: '10-Q', title: 'Quarterly Report Q4 2025' },
+  { id: 'f4', date: '2025-10-15', type: '8-K', title: 'Executive Leadership Change' },
+  { id: 'f5', date: '2025-08-02', type: '10-Q', title: 'Quarterly Report Q3 2025' },
+];
+
+const FILING_TYPE_COLORS: Record<string, string> = {
+  '10-K': 'var(--color-accent-primary)',
+  '10-Q': 'var(--color-text-secondary)',
+  '8-K': 'var(--color-signal-warning)',
+};
+
+interface HolderItem {
+  name: string;
+  shares: string;
+  pctOwnership: string;
+}
+
+const MOCK_HOLDERS: HolderItem[] = [
+  { name: 'Vanguard Group', shares: '1.31B', pctOwnership: '8.51%' },
+  { name: 'BlackRock Inc.', shares: '1.02B', pctOwnership: '6.63%' },
+  { name: 'Berkshire Hathaway', shares: '905M', pctOwnership: '5.88%' },
+  { name: 'State Street Corp.', shares: '591M', pctOwnership: '3.84%' },
+  { name: 'FMR LLC (Fidelity)', shares: '350M', pctOwnership: '2.27%' },
+];
+
 // --- OHLC Mock Data (6 months daily) -----------------------------------------
 
 function generateOHLC(): CandlestickDataPoint[] {
@@ -169,10 +206,10 @@ function generateOHLC(): CandlestickDataPoint[] {
 // --- Quarterly Revenue/NI bar data -------------------------------------------
 
 const QUARTERLY_BAR_DATA = [
-  { period: 'Q2 2025', revenue: 81797, netIncome: 21448 },
-  { period: 'Q3 2025', revenue: 85777, netIncome: 22956 },
-  { period: 'Q4 2025', revenue: 94930, netIncome: 24780 },
-  { period: 'Q1 2026', revenue: 119500, netIncome: 33916 },
+  { period: 'Q2 2025', revenue: 81797, ebitda: 27100, fcf: 24100 },
+  { period: 'Q3 2025', revenue: 85777, ebitda: 28900, fcf: 24300 },
+  { period: 'Q4 2025', revenue: 94930, ebitda: 32500, fcf: 25700 },
+  { period: 'Q1 2026', revenue: 119500, ebitda: 43200, fcf: 32000 },
 ];
 
 function StockCandlestick() {
@@ -288,15 +325,16 @@ export default function CompanyOverview() {
             <StockCandlestick />
           </div>
 
-          {/* Quarterly Revenue vs Net Income */}
+          {/* Quarterly Revenue / EBITDA / FCF */}
           <div className="terminal-panel">
-            <h2 className="terminal-section-title">Quarterly Revenue vs Net Income</h2>
+            <h2 className="terminal-section-title">Quarterly Revenue / EBITDA / FCF</h2>
             <BarChartComponent
               data={QUARTERLY_BAR_DATA}
               xKey="period"
               bars={[
                 { key: 'revenue', color: '#3B82F6', name: 'Revenue ($M)' },
-                { key: 'netIncome', color: '#2DB87D', name: 'Net Income ($M)' },
+                { key: 'ebitda', color: '#D4A843', name: 'EBITDA ($M)' },
+                { key: 'fcf', color: '#2DB87D', name: 'FCF ($M)' },
               ]}
               height={220}
               showLegend
@@ -399,6 +437,95 @@ export default function CompanyOverview() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Recent Filings */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Recent Filings</h2>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Date', 'Type', 'Title'].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: 'var(--text-xs)',
+                        fontWeight: 500,
+                        color: 'var(--color-text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        textAlign: 'left',
+                        padding: '4px 8px',
+                        borderBottom: '1px solid var(--color-surface-border)',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {MOCK_FILINGS.map((f) => (
+                  <tr key={f.id} style={{ height: '32px' }}>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)', whiteSpace: 'nowrap' }}>
+                      {f.date}
+                    </td>
+                    <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)' }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          padding: '1px 6px',
+                          borderRadius: '3px',
+                          fontFamily: 'var(--font-data)',
+                          fontSize: 'var(--text-xs)',
+                          fontWeight: 600,
+                          color: FILING_TYPE_COLORS[f.type] ?? 'var(--color-text-secondary)',
+                          background: `color-mix(in srgb, ${FILING_TYPE_COLORS[f.type] ?? 'var(--color-text-secondary)'} 15%, transparent)`,
+                        }}
+                      >
+                        {f.type}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)' }}>
+                      {f.title}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: '8px', textAlign: 'right' }}>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}>
+                View All &rarr;
+              </span>
+            </div>
+          </div>
+
+          {/* Top Holders */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Top Holders</h2>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {MOCK_HOLDERS.map((h) => (
+                  <tr key={h.name} style={{ height: '30px' }}>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)' }}>
+                      {h.name}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {h.shares}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                      {h.pctOwnership}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: '8px', textAlign: 'right' }}>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}>
+                View All &rarr;
+              </span>
             </div>
           </div>
         </div>

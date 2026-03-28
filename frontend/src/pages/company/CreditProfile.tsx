@@ -5,6 +5,7 @@ import { CreditRatioPanel } from '@/components/company/CreditRatioPanel';
 import { BondInventoryTable } from '@/components/company/BondInventoryTable';
 import { MaturityWallChart } from '@/components/company/MaturityWallChart';
 import { EquityCreditDivergence } from '@/components/company/EquityCreditDivergence';
+import { TimeSeriesChart } from '@/components/charts';
 import type { CreditRatio } from '@/components/company/CreditRatioPanel';
 import type { BondRecord } from '@/components/company/BondInventoryTable';
 import type { MaturityBucket } from '@/components/company/MaturityWallChart';
@@ -135,6 +136,18 @@ const equityCreditData: EquityCreditPoint[] = [
   { date: '2026-03', price: 178.72, spread: 42 },
 ];
 
+// Leverage trajectory data (8 quarters)
+const leverageTrajectory: { date: string; value: number; debtToEbitda: number; interestCoverage: number; [key: string]: unknown }[] = [
+  { date: 'Q2 2024', value: 0.95, debtToEbitda: 0.95, interestCoverage: 25.1 },
+  { date: 'Q3 2024', value: 0.92, debtToEbitda: 0.92, interestCoverage: 26.0 },
+  { date: 'Q4 2024', value: 0.88, debtToEbitda: 0.88, interestCoverage: 27.2 },
+  { date: 'Q1 2025', value: 0.85, debtToEbitda: 0.85, interestCoverage: 27.8 },
+  { date: 'Q2 2025', value: 0.84, debtToEbitda: 0.84, interestCoverage: 28.5 },
+  { date: 'Q3 2025', value: 0.82, debtToEbitda: 0.82, interestCoverage: 28.9 },
+  { date: 'Q4 2025', value: 0.81, debtToEbitda: 0.81, interestCoverage: 29.0 },
+  { date: 'Q1 2026', value: 0.80, debtToEbitda: 0.80, interestCoverage: 29.3 },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function CreditProfile() {
@@ -162,6 +175,24 @@ export default function CreditProfile() {
         <CreditRatioPanel ratios={leverageRatios} category="leverage" />
         <CreditRatioPanel ratios={coverageRatios} category="coverage" />
         <CreditRatioPanel ratios={liquidityRatios} category="liquidity" />
+      </div>
+
+      {/* Leverage Trajectory */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Leverage Trajectory</h2>
+        <TimeSeriesChart
+          data={leverageTrajectory}
+          series={[
+            { key: 'debtToEbitda', color: '#3B82F6', name: 'Debt/EBITDA', type: 'line' },
+            { key: 'interestCoverage', color: '#2DB87D', name: 'Interest Coverage', type: 'line' },
+          ]}
+          height={280}
+          showGrid
+          showTooltip
+          showLegend
+          yAxisFormat={(v: number) => `${v.toFixed(1)}x`}
+          benchmarkLine={{ value: 3.0, label: 'IG Threshold (3.0x)', color: '#E05252' }}
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start', marginBottom: 'var(--panel-gap)' }}>

@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import {
   ResponsiveContainer,
   ComposedChart,
-  Line,
   Area,
   XAxis,
   YAxis,
@@ -13,6 +12,8 @@ import {
 } from 'recharts';
 import type { CategoricalChartState } from 'recharts/types/chart/types';
 import { CHART_THEME, seriesColor } from './chartTheme';
+import { ChartTooltip } from './ChartTooltip';
+import type { ChartTooltipSeriesItem } from './ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -46,7 +47,7 @@ export interface TimeSeriesChartProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom active-dot with accent glow                                */
+/*  Custom active-dot with accent glow (3px, only on hover)           */
 /* ------------------------------------------------------------------ */
 
 interface ActiveDotProps {
@@ -59,13 +60,13 @@ function ActiveDot({ cx = 0, cy = 0, stroke = CHART_THEME.colors.accent }: Activ
   return (
     <g>
       <circle cx={cx} cy={cy} r={8} fill={stroke} opacity={0.15} />
-      <circle cx={cx} cy={cy} r={4} fill={stroke} stroke="#0C0F12" strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={3} fill={stroke} stroke="#0C0F12" strokeWidth={1.5} />
     </g>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom tooltip                                                     */
+/*  Rich tooltip using ChartTooltip                                    */
 /* ------------------------------------------------------------------ */
 
 interface TooltipPayloadEntry {
@@ -73,71 +74,70 @@ interface TooltipPayloadEntry {
   value?: number;
   color?: string;
   dataKey?: string;
+  payload?: Record<string, unknown>;
 }
 
-interface CustomTooltipProps {
+interface RichTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
   label?: string;
   yAxisFormat?: (v: number) => string;
+  benchmarkLine?: { value: number; label: string; color?: string };
+  allData?: { date: string; value: number; [key: string]: unknown }[];
 }
 
-function CustomTooltip({ active, payload, label, yAxisFormat }: CustomTooltipProps) {
+function RichTooltip({ active, payload, label, yAxisFormat, benchmarkLine, allData }: RichTooltipProps) {
   if (!active || !payload?.length) return null;
 
   const fmt = yAxisFormat ?? ((v: number) => v.toLocaleString());
 
+  // Build primary value from first entry
+  const firstEntry = payload[0];
+  const primaryValue = firstEntry?.value != null ? fmt(firstEntry.value) : '\u2014';
+
+  // Compute YoY change if prior data exists
+  let change: { value: string; direction: 'up' | 'down' | 'flat'; period: string } | undefined;
+  if (allData && label && firstEntry?.dataKey) {
+    const currentIdx = allData.findIndex((d) => d.date === label);
+    if (currentIdx > 0) {
+      const currentVal = firstEntry.value;
+      const priorPoint = allData[currentIdx - 1];
+      const priorVal = priorPoint?.[firstEntry.dataKey as string];
+      if (currentVal != null && typeof priorVal === 'number' && priorVal !== 0) {
+        const pctChange = ((currentVal - priorVal) / Math.abs(priorVal)) * 100;
+        const dir = pctChange > 0 ? 'up' : pctChange < 0 ? 'down' : 'flat';
+        change = {
+          value: `${Math.abs(pctChange).toFixed(1)}%`,
+          direction: dir as 'up' | 'down' | 'flat',
+          period: 'YoY',
+        };
+      }
+    }
+  }
+
+  // Build benchmark prop
+  const benchmark = benchmarkLine
+    ? { label: benchmarkLine.label, value: fmt(benchmarkLine.value) }
+    : undefined;
+
+  // Build series list for multi-series
+  let seriesItems: ChartTooltipSeriesItem[] | undefined;
+  if (payload.length > 1) {
+    seriesItems = payload.map((entry) => ({
+      name: entry.name ?? String(entry.dataKey ?? ''),
+      value: entry.value != null ? fmt(entry.value) : '\u2014',
+      color: entry.color ?? CHART_THEME.colors.accent,
+    }));
+  }
+
   return (
-    <div
-      style={{
-        background: CHART_THEME.colors.tooltip.bg,
-        border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-        boxShadow: CHART_THEME.shadowFloat,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: CHART_THEME.fonts.ui,
-          fontSize: 11,
-          color: CHART_THEME.colors.tooltip.label,
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      {payload.map((entry) => (
-        <div
-          key={entry.dataKey ?? entry.name}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: CHART_THEME.fonts.data,
-            fontSize: 12,
-            color: CHART_THEME.colors.tooltip.text,
-            lineHeight: 1.6,
-          }}
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 2,
-              background: entry.color,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontFamily: CHART_THEME.fonts.ui, color: CHART_THEME.colors.tooltip.label }}>
-            {entry.name}
-          </span>
-          <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-            {entry.value != null ? fmt(entry.value) : '—'}
-          </span>
-        </div>
-      ))}
-    </div>
+    <ChartTooltip
+      title={label ?? ''}
+      value={primaryValue}
+      change={change}
+      benchmark={benchmark}
+      series={seriesItems}
+    />
   );
 }
 
@@ -202,7 +202,7 @@ export function TimeSeriesChart({
     () =>
       series && series.length > 0
         ? series
-        : [{ key: 'value', color: seriesColor(0), name: 'Value', type: 'line' as const }],
+        : [{ key: 'value', color: seriesColor(0), name: 'Value', type: 'area' as const }],
     [series],
   );
 
@@ -249,6 +249,7 @@ export function TimeSeriesChart({
           />
         )}
 
+        {/* Y-axis on the right side — analyst convention (spec 5.1.2) */}
         <YAxis
           orientation="right"
           tick={{ fill: CHART_THEME.colors.axis, fontFamily: CHART_THEME.fonts.data, fontSize: 10 }}
@@ -260,7 +261,13 @@ export function TimeSeriesChart({
 
         {showTooltip && (
           <RechartsTooltip
-            content={<CustomTooltip yAxisFormat={yAxisFormat} />}
+            content={
+              <RichTooltip
+                yAxisFormat={yAxisFormat}
+                benchmarkLine={benchmarkLine}
+                allData={data}
+              />
+            }
             cursor={{ stroke: CHART_THEME.colors.accent, strokeWidth: 1, strokeDasharray: '3 3' }}
           />
         )}
@@ -306,13 +313,16 @@ export function TimeSeriesChart({
               activeDot={<ActiveDot stroke={s.color} />}
             />
           ) : (
-            <Line
+            /* Line series: render as area with 15% fill for gradient effect */
+            <Area
               key={s.key}
               type="monotone"
               dataKey={s.key}
               name={s.name}
               stroke={s.color}
               strokeWidth={1.5}
+              fill={s.color}
+              fillOpacity={0.15}
               dot={false}
               activeDot={<ActiveDot stroke={s.color} />}
             />
