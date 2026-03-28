@@ -5,6 +5,13 @@ export { useApiQuery, useApiMutation, useApiUpdate, useApiDelete } from './useAp
 export { useKeyboardShortcuts } from './useKeyboardShortcuts';
 export type { ShortcutDef, ShortcutEntry } from './useKeyboardShortcuts';
 
+// Keyboard navigation for tables and lists
+export { useKeyboardNavigation } from './useKeyboardNavigation';
+export type {
+  UseKeyboardNavigationOptions,
+  UseKeyboardNavigationReturn,
+} from './useKeyboardNavigation';
+
 // Pillar 1: Data Foundation — Entities, Securities, Fundamentals
 export {
   useEntitySearch,

@@ -48,3 +48,28 @@ export type {
   YieldCurveChartProps,
   YieldCurvePoint,
 } from './YieldCurveChart';
+
+// Range selector — time range toggle for time-series charts
+export { RangeSelector } from './RangeSelector';
+export type { RangeSelectorProps } from './RangeSelector';
+
+// Event overlay — markers for earnings, filings, dividends, etc.
+export { EventOverlay } from './EventOverlay';
+export type { EventOverlayProps, ChartEvent } from './EventOverlay';
+
+// Comparison legend — toggleable multi-series legend
+export { ComparisonLegend } from './ComparisonLegend';
+export type { ComparisonLegendProps, ComparisonSeries } from './ComparisonLegend';
+
+// Linked crosshairs — synchronized crosshair across multiple charts
+export {
+  CrosshairProvider,
+  useLinkedCrosshair,
+  CrosshairLine,
+  useCrosshairMouseHandler,
+} from './LinkedCrosshairs';
+export type {
+  CrosshairContextValue,
+  CrosshairProviderProps,
+  CrosshairLineProps,
+} from './LinkedCrosshairs';

@@ -33,3 +33,9 @@ export type { ShortcutReferenceProps } from './ShortcutReference';
 
 export { ExportMenu } from './ExportMenu';
 export type { ExportMenuProps } from './ExportMenu';
+
+export { QualityScoreCell } from './QualityScoreCell';
+export type { QualityScoreCellProps } from './QualityScoreCell';
+
+export { SparklineCell } from './SparklineCell';
+export type { SparklineCellProps } from './SparklineCell';
