@@ -12,6 +12,18 @@ export type {
   UseKeyboardNavigationReturn,
 } from './useKeyboardNavigation';
 
+// Command bar state (Zustand store)
+export { useCommandBar } from './useCommandBar';
+export type { CommandBarResult } from './useCommandBar';
+
+// Table configuration persistence
+export { useTableConfig } from './useTableConfig';
+export type { TableConfig, UseTableConfigReturn } from './useTableConfig';
+
+// Price chart (lightweight-charts) setup hook
+export { usePriceChart } from './usePriceChart';
+export type { UsePriceChartOptions, UsePriceChartReturn } from './usePriceChart';
+
 // Pillar 1: Data Foundation — Entities, Securities, Fundamentals
 export {
   useEntitySearch,

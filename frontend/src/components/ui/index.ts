@@ -39,3 +39,9 @@ export type { QualityScoreCellProps } from './QualityScoreCell';
 
 export { SparklineCell } from './SparklineCell';
 export type { SparklineCellProps } from './SparklineCell';
+
+export { ColumnChooser } from './ColumnChooser';
+export type { ColumnChooserProps, ColumnChooserColumn } from './ColumnChooser';
+
+export { FilterRow } from './FilterRow';
+export type { FilterRowProps, FilterRowColumn } from './FilterRow';
