@@ -6,21 +6,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
-import { CandlestickChart, BarChartComponent } from '@/components/charts';
-import type { CandlestickDataPoint } from '@/components/charts';
+import { CandlestickChart, BarChartComponent, GaugeChart, ScoreBreakdown } from '@/components/charts';
+import type { CandlestickDataPoint, ScoreItem } from '@/components/charts';
+import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
+import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 
 // --- Helpers -----------------------------------------------------------------
 
 function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
-function qualityColor(score: number): string {
-  if (score >= 8) return 'var(--color-quality-5)';
-  if (score >= 6) return 'var(--color-quality-4)';
-  if (score >= 4) return 'var(--color-quality-3)';
-  if (score >= 2) return 'var(--color-quality-2)';
-  return 'var(--color-quality-1)';
 }
 
 function formatM(n: number): string {
@@ -67,17 +61,11 @@ const MOCK_COMPANY: CompanyInfo = {
   changePct: -0.34,
 };
 
-interface KPI {
-  label: string;
-  value: string;
-  subValue?: string;
-}
-
-const MOCK_KPIS: KPI[] = [
+const MOCK_METRICS: MetricItem[] = [
   { label: 'Market Cap',    value: '$2.78T' },
   { label: 'P/E (TTM)',     value: '28.6x' },
   { label: 'EV/EBITDA',     value: '22.1x' },
-  { label: 'Rev Growth',    value: '+5.2%', subValue: 'YoY' },
+  { label: 'Rev Growth',    value: '+5.2%', subValue: 'YoY', change: 5.2 },
   { label: 'ROE',           value: '156.8%' },
   { label: 'Div Yield',     value: '0.55%' },
 ];
@@ -107,6 +95,38 @@ const MOCK_QUALITY: QualityScoreItem[] = [
   { name: 'Piotroski F-Score', value: 7, maxValue: 9, classification: 'Strong' },
   { name: 'Altman Z-Score',    value: 5.82, maxValue: 10, classification: 'Safe' },
   { name: 'Composite Quality', value: 82, maxValue: 100, classification: 'Excellent' },
+];
+
+// Piotroski sub-score breakdown
+const PIOTROSKI_BREAKDOWN: ScoreItem[] = [
+  { name: 'Positive Net Income', score: 1, max: 1 },
+  { name: 'Positive Operating CF', score: 1, max: 1 },
+  { name: 'ROA Increasing', score: 1, max: 1 },
+  { name: 'CF > Net Income', score: 1, max: 1 },
+  { name: 'Lower Leverage', score: 0, max: 1 },
+  { name: 'Higher Current Ratio', score: 1, max: 1 },
+  { name: 'No Dilution', score: 0, max: 1 },
+  { name: 'Higher Gross Margin', score: 1, max: 1 },
+  { name: 'Higher Asset Turnover', score: 1, max: 1 },
+];
+
+const ALTMAN_BREAKDOWN: ScoreItem[] = [
+  { name: 'Working Capital / Assets', score: 1, max: 1, description: '0.12' },
+  { name: 'Retained Earnings / Assets', score: 1, max: 1, description: '0.85' },
+  { name: 'EBIT / Assets', score: 1, max: 1, description: '0.34' },
+  { name: 'Mkt Cap / Total Liabilities', score: 1, max: 1, description: '9.82' },
+  { name: 'Revenue / Assets', score: 1, max: 1, description: '1.11' },
+];
+
+const BENEISH_BREAKDOWN: ScoreItem[] = [
+  { name: 'Days Sales in Receivables', score: 1, max: 1, description: '1.02' },
+  { name: 'Gross Margin Index', score: 1, max: 1, description: '0.98' },
+  { name: 'Asset Quality Index', score: 1, max: 1, description: '1.01' },
+  { name: 'Sales Growth Index', score: 1, max: 1, description: '1.05' },
+  { name: 'Depreciation Index', score: 0, max: 1, description: '1.15' },
+  { name: 'SGA Index', score: 1, max: 1, description: '0.97' },
+  { name: 'Leverage Index', score: 1, max: 1, description: '1.02' },
+  { name: 'Total Accruals', score: 1, max: 1, description: '-0.04' },
 ];
 
 interface NewsItem {
@@ -177,13 +197,13 @@ export default function CompanyOverview() {
   const company = companyData ?? MOCK_COMPANY;
 
   // Fetch KPIs / ratios
-  const { data: kpiData, isLoading: loadingKpis } = useQuery<KPI[]>({
+  const { data: kpiData, isLoading: loadingKpis } = useQuery<MetricItem[]>({
     queryKey: ['company', 'kpis', resolvedId],
     queryFn: () => api.get(`/v4/entities/${resolvedId}/ratios`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const kpis = kpiData ?? MOCK_KPIS;
+  const kpis = kpiData ?? MOCK_METRICS;
 
   // Fetch quarterly financials
   const { data: quarterlyRaw, isLoading: loadingQuarterly } = useQuery<QuarterlyFinancial[]>({
@@ -251,30 +271,9 @@ export default function CompanyOverview() {
         </div>
       )}
 
-      {/* KPI Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {loadingKpis ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="terminal-panel" style={{ textAlign: 'center', padding: '10px' }}>
-              <Skeleton width="60%" height="12px" />
-              <div style={{ marginTop: '6px' }}><Skeleton width="50%" height="18px" /></div>
-            </div>
-          ))
-        ) : (
-          kpis.map((kpi) => (
-            <div key={kpi.label} className="terminal-panel" style={{ textAlign: 'center', padding: '10px' }}>
-              <div className="terminal-label" style={{ marginBottom: '4px' }}>{kpi.label}</div>
-              <div className="terminal-data" style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>
-                {kpi.value}
-              </div>
-              {kpi.subValue && (
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
-                  {kpi.subValue}
-                </div>
-              )}
-            </div>
-          ))
-        )}
+      {/* KPI Row — replaced inline metric cards with KeyMetricsGrid */}
+      <div style={{ marginBottom: 'var(--panel-gap)' }}>
+        <KeyMetricsGrid metrics={kpis} />
       </div>
 
       {/* 2-column body */}
@@ -336,7 +335,7 @@ export default function CompanyOverview() {
             )}
           </div>
 
-          {/* Quality Scores */}
+          {/* Quality Scores — replaced inline progress bars with GaugeChart */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Quality Scores</h2>
             {loadingQuality ? (
@@ -349,27 +348,36 @@ export default function CompanyOverview() {
                 ))}
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                {qualityScores.map((s) => {
-                  const pct = (s.value / s.maxValue) * 100;
-                  return (
-                    <div key={s.name} style={{ textAlign: 'center' }}>
-                      <div className="terminal-label" style={{ marginBottom: '6px' }}>{s.name}</div>
-                      <div className="terminal-hero" style={{ color: qualityColor(s.value) }}>
-                        {s.value}
-                      </div>
-                      {/* Bar */}
-                      <div style={{ height: '4px', background: 'var(--color-surface-border)', borderRadius: '2px', marginTop: '6px' }}>
-                        <div style={{ height: '100%', width: `${pct}%`, background: qualityColor(s.value), borderRadius: '2px' }} />
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: '4px' }}>
-                        {s.classification}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', justifyItems: 'center' }}>
+                {qualityScores.map((s) => (
+                  <GaugeChart
+                    key={s.name}
+                    value={s.value}
+                    max={s.maxValue}
+                    label={s.name}
+                  />
+                ))}
               </div>
             )}
+          </div>
+
+          {/* Score Breakdowns — Piotroski / Altman / Beneish sub-scores */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--panel-gap)' }}>
+            <ScoreBreakdown
+              title="Piotroski F-Score"
+              overallScore={7}
+              scores={PIOTROSKI_BREAKDOWN}
+            />
+            <ScoreBreakdown
+              title="Altman Z-Score"
+              overallScore={5}
+              scores={ALTMAN_BREAKDOWN}
+            />
+            <ScoreBreakdown
+              title="Beneish M-Score"
+              overallScore={7}
+              scores={BENEISH_BREAKDOWN}
+            />
           </div>
         </div>
 

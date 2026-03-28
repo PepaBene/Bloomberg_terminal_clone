@@ -73,3 +73,11 @@ export type {
   CrosshairProviderProps,
   CrosshairLineProps,
 } from './LinkedCrosshairs';
+
+// Gauge chart — semi-circle gauge for quality scores
+export { GaugeChart } from './GaugeChart';
+export type { GaugeChartProps, GaugeThreshold } from './GaugeChart';
+
+// Score breakdown — detailed sub-score panel
+export { ScoreBreakdown } from './ScoreBreakdown';
+export type { ScoreBreakdownProps, ScoreItem } from './ScoreBreakdown';

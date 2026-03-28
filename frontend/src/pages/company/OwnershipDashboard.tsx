@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Ownership Dashboard — Institutional Holders, Insider Ownership, Short Interest
 // ---------------------------------------------------------------------------
+import { OwnershipSummary } from '@/components/company/OwnershipSummary';
+import type { Holder } from '@/components/company/OwnershipSummary';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -35,12 +37,16 @@ const dataStyle: React.CSSProperties = {
 
 const company = { name: 'Apple Inc.', ticker: 'AAPL' };
 
-const institutionalHolders = [
-  { holder: 'Vanguard Group', shares: 1310000000, pctOut: 8.51, change: 12400000 },
-  { holder: 'BlackRock Inc.', shares: 1010000000, pctOut: 6.56, change: -8200000 },
-  { holder: 'Berkshire Hathaway', shares: 905000000, pctOut: 5.88, change: 0 },
-  { holder: 'State Street Corp', shares: 622000000, pctOut: 4.04, change: 3100000 },
-  { holder: 'FMR LLC (Fidelity)', shares: 358000000, pctOut: 2.33, change: -15600000 },
+// OwnershipSummary component data
+const topHolders: Holder[] = [
+  { name: 'Vanguard Group', shares: 1310000000, pctOwned: 8.51, change: 12400000, value: 234100000000 },
+  { name: 'BlackRock Inc.', shares: 1010000000, pctOwned: 6.56, change: -8200000, value: 180500000000 },
+  { name: 'Berkshire Hathaway', shares: 905000000, pctOwned: 5.88, change: 0, value: 161700000000 },
+  { name: 'State Street Corp', shares: 622000000, pctOwned: 4.04, change: 3100000, value: 111200000000 },
+  { name: 'FMR LLC (Fidelity)', shares: 358000000, pctOwned: 2.33, change: -15600000, value: 64000000000 },
+  { name: 'Geode Capital Mgmt', shares: 312000000, pctOwned: 2.03, change: 5800000, value: 55800000000 },
+  { name: 'Northern Trust', shares: 198000000, pctOwned: 1.29, change: -2100000, value: 35400000000 },
+  { name: 'T. Rowe Price', shares: 175000000, pctOwned: 1.14, change: 8900000, value: 31300000000 },
 ];
 
 const ownershipSummary = [
@@ -88,31 +94,12 @@ export default function OwnershipDashboard() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* Top Institutional Holders */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Top Institutional Holders</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Holder', 'Shares', '% Outstanding', 'Qtr Change'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Holder' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {institutionalHolders.map((h) => (
-                <tr key={h.holder} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{h.holder}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{fmtShares(h.shares)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{h.pctOut.toFixed(2)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: h.change > 0 ? 'var(--color-signal-positive)' : h.change < 0 ? 'var(--color-signal-negative)' : 'var(--color-text-secondary)' }}>
-                    {h.change === 0 ? 'Unch' : `${h.change > 0 ? '+' : ''}${fmtShares(h.change)}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {/* OwnershipSummary Component — replaces the inline institutional holders table */}
+        <OwnershipSummary
+          holders={topHolders}
+          insiderPct={0.07}
+          institutionalPct={60.8}
+        />
 
         {/* Short Interest */}
         <div style={panelStyle}>

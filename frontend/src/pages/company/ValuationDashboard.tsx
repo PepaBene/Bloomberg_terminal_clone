@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Valuation Dashboard — DCF Inputs, Multiples, Peer Valuation
 // ---------------------------------------------------------------------------
+import { RatioDashboard } from '@/components/company/RatioDashboard';
+import type { DuPontData, MultiplesPoint } from '@/components/company/RatioDashboard';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -54,20 +56,31 @@ const dcfOutputs = [
   { scenario: 'Bull Case', evTarget: 3420, impliedPrice: 222.08, upside: 24.2 },
 ];
 
-const multiples = [
-  { metric: 'P/E (TTM)', current: 28.6, fiveYrAvg: 26.8, sectorMedian: 24.2 },
-  { metric: 'EV/EBITDA', current: 22.1, fiveYrAvg: 20.5, sectorMedian: 18.7 },
-  { metric: 'P/FCF', current: 25.7, fiveYrAvg: 23.9, sectorMedian: 21.4 },
-  { metric: 'EV/Revenue', current: 7.4, fiveYrAvg: 6.9, sectorMedian: 5.2 },
-  { metric: 'P/B', current: 45.2, fiveYrAvg: 38.6, sectorMedian: 8.4 },
-];
-
 const peerValuation = [
   { ticker: 'AAPL', name: 'Apple', pe: 28.6, evEbitda: 22.1, pfcf: 25.7, evRev: 7.4, mktCap: '2.78T' },
   { ticker: 'MSFT', name: 'Microsoft', pe: 34.2, evEbitda: 24.8, pfcf: 33.1, evRev: 12.8, mktCap: '3.12T' },
   { ticker: 'GOOGL', name: 'Alphabet', pe: 24.5, evEbitda: 16.2, pfcf: 28.4, evRev: 6.1, mktCap: '2.05T' },
   { ticker: 'AMZN', name: 'Amazon', pe: 58.3, evEbitda: 18.9, pfcf: 42.7, evRev: 3.2, mktCap: '1.92T' },
   { ticker: 'META', name: 'Meta', pe: 22.8, evEbitda: 14.5, pfcf: 20.1, evRev: 8.7, mktCap: '1.28T' },
+];
+
+// RatioDashboard mock data
+const dupontData: DuPontData = {
+  roe: 1.37,
+  profitMargin: 0.26,
+  assetTurnover: 1.11,
+  equityMultiplier: 4.76,
+};
+
+const multiplesHistory: MultiplesPoint[] = [
+  { period: '2018', pe: 14.5, evEbitda: 10.8, pbv: 8.2 },
+  { period: '2019', pe: 20.3, evEbitda: 15.2, pbv: 13.5 },
+  { period: '2020', pe: 35.2, evEbitda: 26.4, pbv: 28.7 },
+  { period: '2021', pe: 28.8, evEbitda: 22.1, pbv: 35.6 },
+  { period: '2022', pe: 22.4, evEbitda: 18.5, pbv: 42.1 },
+  { period: '2023', pe: 26.1, evEbitda: 20.2, pbv: 48.3 },
+  { period: '2024', pe: 27.5, evEbitda: 21.0, pbv: 44.8 },
+  { period: '2025', pe: 28.6, evEbitda: 22.1, pbv: 45.2 },
 ];
 
 // --- Component ---------------------------------------------------------------
@@ -80,6 +93,11 @@ export default function ValuationDashboard() {
           Valuation Dashboard
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name} &mdash; ${company.price.toFixed(2)}</p>
+      </div>
+
+      {/* DuPont Decomposition + Multiples History via RatioDashboard */}
+      <div style={{ marginBottom: 'var(--panel-gap)' }}>
+        <RatioDashboard dupont={dupontData} multiplesHistory={multiplesHistory} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
@@ -124,32 +142,8 @@ export default function ValuationDashboard() {
           </table>
         </div>
 
-        {/* Multiples */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Multiples Comparison</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Multiple', 'Current', '5Y Avg', 'Sector Median'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Multiple' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {multiples.map((m) => (
-                <tr key={m.metric} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.metric}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{m.current.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{m.fiveYrAvg.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{m.sectorMedian.toFixed(1)}x</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
         {/* Peer Valuation */}
-        <div style={panelStyle}>
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Peer Valuation</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
