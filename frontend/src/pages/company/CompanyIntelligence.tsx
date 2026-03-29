@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Company Intelligence — Business Model, Capital Allocation, Management Quality
 // ---------------------------------------------------------------------------
+import { CompanyIntelCard, SentimentGauge } from '@/components/intelligence';
+import type { IntelModule } from '@/components/intelligence';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -44,6 +46,15 @@ function riskColor(level: string): string {
   if (level === 'Medium') return 'var(--color-signal-warning)';
   return 'var(--color-signal-negative)';
 }
+
+// --- Intelligence Module Data ------------------------------------------------
+
+const intelModules: IntelModule[] = [
+  { name: 'Business Model', score: 85, classification: 'Strong' },
+  { name: 'Capital Allocation', score: 91, classification: 'Excellent' },
+  { name: 'Management Quality', score: 82, classification: 'Strong' },
+  { name: 'Balance Sheet Risk', score: 78, classification: 'Moderate' },
+];
 
 // --- Mock Data ---------------------------------------------------------------
 
@@ -89,6 +100,15 @@ export default function CompanyIntelligence() {
           Company Intelligence
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name}</p>
+      </div>
+
+      {/* Intelligence Summary + Sentiment */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)', alignItems: 'start' }}>
+        <CompanyIntelCard modules={intelModules} />
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Entity Sentiment</h2>
+          <SentimentGauge value={0.42} momentum="IMPROVING" label={`${company.ticker} Sentiment`} />
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>

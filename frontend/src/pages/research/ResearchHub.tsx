@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
+import { CompanyIntelCard } from '@/components/intelligence';
+import type { IntelModule } from '@/components/intelligence';
 
 // --- Skeleton ----------------------------------------------------------------
 
@@ -83,6 +85,14 @@ const MOCK_CARDS: ResearchCard[] = [
   },
 ];
 
+// Quick Intelligence mock data for active security
+const quickIntelModules: IntelModule[] = [
+  { name: 'Business Model', score: 85, classification: 'Strong' },
+  { name: 'Capital Allocation', score: 91, classification: 'Excellent' },
+  { name: 'Management Quality', score: 82, classification: 'Strong' },
+  { name: 'Balance Sheet Risk', score: 78, classification: 'Moderate' },
+];
+
 function statusBadgeClass(status: ResearchCard['status']): string {
   switch (status) {
     case 'Available':   return 'terminal-badge terminal-badge-positive';
@@ -113,6 +123,16 @@ export default function ResearchHub() {
         <p className="terminal-label" style={{ marginTop: '4px' }}>
           AI-powered research tools for fundamental analysis and intelligence gathering
         </p>
+      </div>
+
+      {/* Quick Intelligence — active security intel card */}
+      <div style={{ marginBottom: 'var(--panel-gap, 8px)' }}>
+        <h2 className="terminal-section-title" style={{ fontSize: 'var(--text-md)', margin: '0 0 8px 0' }}>
+          Quick Intelligence &mdash; AAPL
+        </h2>
+        <div style={{ maxWidth: 400 }}>
+          <CompanyIntelCard modules={quickIntelModules} />
+        </div>
       </div>
 
       {/* Cards Grid */}

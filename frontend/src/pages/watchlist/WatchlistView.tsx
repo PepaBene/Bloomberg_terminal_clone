@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Watchlist View — Watchlist Management, Monitoring Alerts, Earnings Calendar
 // ---------------------------------------------------------------------------
-const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
-const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
+import { useState, useCallback } from 'react';
+import { WatchlistManager, EarningsCalendarWidget } from '@/components/alerts';
+import type { WatchlistEntity, EarningsEvent } from '@/components/alerts';
+
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
-const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
-function signalColor(v: number): string { return v >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)'; }
 
 const watchlistItems = [
   { ticker: 'AAPL', name: 'Apple Inc.', price: 178.72, chg: -0.34, pe: 28.6, mktCap: '2.78T', alert: 'Earnings 4/25' },
@@ -25,58 +25,77 @@ const earningsCalendar = [
   { date: '2026-04-30', ticker: 'AMZN', name: 'Amazon', time: 'AMC', epsEst: '$1.05', impliedMove: '6.2%' },
 ];
 
+// --- Component Data ----------------------------------------------------------
+
+const initialEntities: WatchlistEntity[] = watchlistItems.map((w, i) => ({
+  id: `w-${i}`,
+  ticker: w.ticker,
+  name: w.name,
+  alertsEnabled: {
+    price: true,
+    filing: w.ticker === 'AAPL' || w.ticker === 'MSFT',
+    earnings: !!w.alert?.includes('Earnings'),
+    score: false,
+  },
+}));
+
+const earningsEvents: EarningsEvent[] = earningsCalendar.map((e, i) => ({
+  id: `ec-${i}`,
+  date: e.date,
+  ticker: e.ticker,
+  companyName: e.name,
+  expectedEps: parseFloat(e.epsEst.replace('$', '')),
+  time: e.time as EarningsEvent['time'],
+}));
+
 export default function WatchlistView() {
+  const [entities, setEntities] = useState<WatchlistEntity[]>(initialEntities);
+
+  const handleAdd = useCallback(() => {
+    // placeholder — would open an entity search dialog
+  }, []);
+
+  const handleRemove = useCallback((id: string) => {
+    setEntities((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
+  const handleReorder = useCallback((fromIdx: number, toIdx: number) => {
+    setEntities((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(fromIdx, 1);
+      if (item) next.splice(toIdx, 0, item);
+      return next;
+    });
+  }, []);
+
+  const handleToggleAlert = useCallback((id: string, alertType: keyof WatchlistEntity['alertsEnabled']) => {
+    setEntities((prev) =>
+      prev.map((e) =>
+        e.id === id ? { ...e, alertsEnabled: { ...e.alertsEnabled, [alertType]: !e.alertsEnabled[alertType] } } : e,
+      ),
+    );
+  }, []);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Watchlist</h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>Core Holdings &mdash; 7 securities monitored</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>Core Holdings &mdash; {entities.length} securities monitored</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Watchlist: Core Holdings</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              {['Ticker', 'Name', 'Price', 'Chg %', 'P/E', 'Mkt Cap', 'Alert'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: ['Ticker', 'Name', 'Alert'].includes(h) ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {watchlistItems.map((w) => (
-                <tr key={w.ticker} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{w.ticker}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{w.name}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>${w.price.toFixed(2)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(w.chg), fontWeight: 500 }}>{w.chg >= 0 ? '+' : ''}{w.chg.toFixed(2)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{w.pe.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>${w.mktCap}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: w.alert ? 'var(--color-signal-warning)' : 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{w.alert || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Upcoming Earnings</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              {['Date', 'Ticker', 'Time', 'EPS Est', 'Impl. Move'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: h === 'Ticker' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {earningsCalendar.map((e) => (
-                <tr key={`${e.ticker}-${e.date}`} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{e.date}</td>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{e.ticker}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{e.time}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.epsEst}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-warning)' }}>{e.impliedMove}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {/* WatchlistManager — replaces inline table */}
+        <WatchlistManager
+          entities={entities}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+          onReorder={handleReorder}
+          onToggleAlert={handleToggleAlert}
+        />
+        {/* EarningsCalendarWidget — replaces inline earnings table */}
+        <EarningsCalendarWidget
+          events={earningsEvents}
+          watchlistTickers={entities.map((e) => e.ticker)}
+        />
       </div>
     </div>
   );

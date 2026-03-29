@@ -1,16 +1,12 @@
 // ---------------------------------------------------------------------------
 // Alerts View — Alert Inbox with Severity Badges, Acknowledge/Dismiss
 // ---------------------------------------------------------------------------
+import { useState, useCallback } from 'react';
+import { AlertInbox, AlertTimeline } from '@/components/alerts';
+import type { Alert as InboxAlert, TimelineAlert } from '@/components/alerts';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
-const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
-
-function severityColor(s: string): string {
-  if (s === 'Critical') return 'var(--color-signal-negative)';
-  if (s === 'High') return 'var(--color-signal-warning)';
-  if (s === 'Medium') return 'var(--color-signal-neutral)';
-  return 'var(--color-text-tertiary)';
-}
 
 const alertStats = [
   { label: 'Unread', value: '12' },
@@ -34,13 +30,46 @@ const alerts = [
   { id: 10, time: '07:50', severity: 'High', type: 'Insider', entity: 'PFE', title: 'PFE CEO purchased $2.1M in shares — largest insider buy in 2Y', status: 'Unread' },
 ];
 
+// --- Component Data ----------------------------------------------------------
+
+const now = new Date();
+const inboxAlerts: InboxAlert[] = alerts.map((a) => ({
+  id: String(a.id),
+  title: a.title,
+  description: `${a.type} alert for ${a.entity}: ${a.title}`,
+  severity: a.severity.toUpperCase() as InboxAlert['severity'],
+  entityTicker: a.entity,
+  createdAt: new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(a.time.split(':')[0] ?? '0'), parseInt(a.time.split(':')[1] ?? '0')).toISOString(),
+  isRead: a.status === 'Read',
+}));
+
+const timelineAlerts: TimelineAlert[] = alerts.map((a) => ({
+  id: String(a.id),
+  title: a.title,
+  description: `${a.type} alert for ${a.entity}: ${a.title}`,
+  severity: a.severity.toUpperCase() as TimelineAlert['severity'],
+  createdAt: new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(a.time.split(':')[0] ?? '0'), parseInt(a.time.split(':')[1] ?? '0')).toISOString(),
+}));
+
 export default function AlertsView() {
+  const [inboxState, setInboxState] = useState(inboxAlerts);
+
+  const handleAcknowledge = useCallback((id: string) => {
+    setInboxState((prev) => prev.map((a) => (a.id === id ? { ...a, isRead: true } : a)));
+  }, []);
+
+  const handleDismiss = useCallback((id: string) => {
+    setInboxState((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Alert Inbox</h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>All alerts with severity, entity tagging, and actions</p>
       </div>
+
+      {/* Stats Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
         {alertStats.map((s) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
@@ -49,32 +78,15 @@ export default function AlertsView() {
           </div>
         ))}
       </div>
-      <div style={panelStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr>
-            {['Time', 'Severity', 'Type', 'Entity', 'Alert', 'Status', 'Actions'].map((h) => (
-              <th key={h} style={{ ...labelStyle, textAlign: h === 'Alert' ? 'left' : 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {alerts.map((a) => (
-              <tr key={a.id} style={{ height: 'var(--table-row-height)', background: a.status === 'Unread' ? 'var(--color-surface-overlay)' : 'transparent' }}>
-                <td style={{ ...dataStyle, textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.time}</td>
-                <td style={{ textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', fontWeight: 600, color: severityColor(a.severity), background: 'var(--color-surface-base)', padding: '2px 6px', borderRadius: '3px', border: `1px solid ${severityColor(a.severity)}` }}>{a.severity}</span>
-                </td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', textAlign: 'center', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.type}</td>
-                <td style={{ ...dataStyle, textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-accent-primary)', fontWeight: 600, fontSize: 'var(--text-sm)' }}>{a.entity}</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.title}</td>
-                <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', color: a.status === 'Unread' ? 'var(--color-signal-warning)' : 'var(--color-text-tertiary)' }}>{a.status}</td>
-                <td style={{ textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer', marginRight: '8px' }}>ACK</span>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', cursor: 'pointer' }}>DISMISS</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      {/* AlertInbox + AlertTimeline */}
+      <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
+        <AlertInbox
+          alerts={inboxState}
+          onAcknowledge={handleAcknowledge}
+          onDismiss={handleDismiss}
+        />
+        <AlertTimeline alerts={timelineAlerts} entityName="All Entities" />
       </div>
     </div>
   );

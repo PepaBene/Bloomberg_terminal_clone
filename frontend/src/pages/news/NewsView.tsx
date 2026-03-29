@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // News View — News Feed with Entity Tagging, Sentiment Scores, Filtering
 // ---------------------------------------------------------------------------
+import { SentimentGauge } from '@/components/intelligence';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 function sentimentColor(s: number): string {
   if (s > 0.3) return 'var(--color-signal-positive)';
@@ -32,6 +34,22 @@ export default function NewsView() {
           ))}
         </div>
       </div>
+      {/* Market-wide Sentiment Gauge */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
+        <div style={panelStyle}>
+          <SentimentGauge value={0.32} momentum="IMPROVING" label="Market Sentiment" />
+        </div>
+        <div style={panelStyle}>
+          <SentimentGauge value={0.85} momentum="STABLE" label="NVDA" />
+        </div>
+        <div style={panelStyle}>
+          <SentimentGauge value={-0.42} momentum="DECLINING" label="Fed / Macro" />
+        </div>
+        <div style={panelStyle}>
+          <SentimentGauge value={-0.65} momentum="DECLINING" label="TSLA" />
+        </div>
+      </div>
+
       <div style={panelStyle}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {newsItems.map((n) => (

@@ -10,6 +10,7 @@ import { CandlestickChart, BarChartComponent, GaugeChart, ScoreBreakdown } from 
 import type { CandlestickDataPoint, ScoreItem } from '@/components/charts';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
+import { SentimentGauge } from '@/components/intelligence';
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -500,6 +501,16 @@ export default function CompanyOverview() {
                 View All &rarr;
               </span>
             </div>
+          </div>
+
+          {/* Entity Sentiment */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Entity Sentiment</h2>
+            <SentimentGauge
+              value={0.42}
+              momentum="IMPROVING"
+              label={`${company.ticker} Market Sentiment`}
+            />
           </div>
 
           {/* Top Holders */}
