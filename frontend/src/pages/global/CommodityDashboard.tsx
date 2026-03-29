@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------
 // Commodity Dashboard
 // ---------------------------------------------------------------------------
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { CommodityPriceChart } from '@/components/global';
+import type { CommodityPricePoint } from '@/components/global';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -123,6 +125,24 @@ export default function CommodityDashboard() {
   const filteredCommodities = commodities.filter((c) => c.category === activeCategory);
   const exposedCompanies = exposureMap[activeCategory];
 
+  // Generate 6 months of price data for the first commodity in the active category
+  const commodityPriceData = useMemo((): CommodityPricePoint[] => {
+    const first = filteredCommodities[0];
+    if (!first) return [];
+    const data: CommodityPricePoint[] = [];
+    let price = first.price * 0.92;
+    const start = new Date('2025-09-28');
+    for (let i = 0; i < 130; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      const day = d.getDay();
+      if (day === 0 || day === 6) continue;
+      price += (Math.random() - 0.48) * price * 0.012;
+      data.push({ date: d.toISOString().slice(0, 10), price: Math.round(price * 100) / 100 });
+    }
+    return data;
+  }, [filteredCommodities]);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
@@ -165,6 +185,19 @@ export default function CommodityDashboard() {
           </button>
         ))}
       </div>
+
+      {/* CommodityPriceChart for selected commodity (6 months) */}
+      {filteredCommodities[0] && (
+        <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+          <h2 style={sectionTitle}>{filteredCommodities[0].name} Price History (6M)</h2>
+          <CommodityPriceChart
+            data={commodityPriceData}
+            commodity={filteredCommodities[0].name}
+            unit={filteredCommodities[0].unit}
+            height={260}
+          />
+        </div>
+      )}
 
       {/* 2-column layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>

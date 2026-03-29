@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Bond Detail — Characteristics, Pricing, Yield Analysis, Call Schedule
 // ---------------------------------------------------------------------------
+import { BondTermsPanel, SpreadHistoryChart } from '@/components/fi';
+import type { BondTerms, SpreadDataPoint } from '@/components/fi';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -56,24 +58,51 @@ const pricing = [
   { label: 'DV01', value: '$0.0278' },
 ];
 
-const yieldHistory = [
-  { date: '2026-03-27', price: 101.45, ytm: 2.872, oas: 42 },
-  { date: '2026-02-27', price: 100.89, ytm: 2.985, oas: 45 },
-  { date: '2026-01-27', price: 99.75, ytm: 3.128, oas: 51 },
-  { date: '2025-12-27', price: 100.12, ytm: 3.052, oas: 48 },
-  { date: '2025-09-27', price: 98.85, ytm: 3.312, oas: 58 },
-];
-
-const callSchedule = [
-  { date: '2028-11-23', type: 'Make-Whole', price: 'T+15 bps' },
-  { date: '2029-01-23', type: 'Par Call', price: '100.000' },
-];
-
 const comparables = [
   { issuer: 'MSFT 3.125% 2028', price: 100.82, ytm: 2.712, oas: 35, rating: 'AAA/Aaa' },
   { issuer: 'GOOGL 3.375% 2029', price: 101.10, ytm: 2.945, oas: 47, rating: 'AA+/Aa2' },
   { issuer: 'AMZN 3.600% 2029', price: 101.95, ytm: 3.015, oas: 52, rating: 'AA/Aa3' },
 ];
+
+// --- BondTermsPanel data -----------------------------------------------------
+
+const bondTerms: BondTerms = {
+  cusip: '037833DX3',
+  isin: 'US037833DX30',
+  coupon: 3.25,
+  frequency: 'Semi-Annual',
+  maturity: '2029-02-23',
+  issuer: 'Apple Inc.',
+  rating: 'AA+ / Aaa',
+  callSchedule: [
+    { date: '2028-11-23', price: 100.25 },
+    { date: '2029-01-23', price: 100.00 },
+  ],
+  covenants: [
+    { type: 'Negative Pledge', description: 'Limitation on liens on principal property', status: 'Active' },
+    { type: 'Change of Control', description: 'Put at 101 upon change of control', status: 'Active' },
+  ],
+};
+
+// --- SpreadHistoryChart data for this bond -----------------------------------
+
+function generateBondSpreadHistory(): SpreadDataPoint[] {
+  const data: SpreadDataPoint[] = [];
+  let oas = 58;
+  const start = new Date('2025-03-28');
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    oas += (Math.random() - 0.52) * 2;
+    oas = Math.max(25, Math.min(75, oas));
+    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
+  }
+  return data;
+}
+
+const bondSpreadHistory = generateBondSpreadHistory();
 
 // --- Component ---------------------------------------------------------------
 
@@ -98,20 +127,8 @@ export default function BondDetail() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* Bond Characteristics */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Bond Characteristics</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              {Object.entries(bond).map(([k, v]) => (
-                <tr key={k} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', textTransform: 'capitalize' }}>{k.replace(/([A-Z])/g, ' $1')}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{v}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {/* BondTermsPanel replaces inline bond characteristics */}
+        <BondTermsPanel bond={bondTerms} />
 
         {/* Risk Analytics */}
         <div style={panelStyle}>
@@ -126,53 +143,16 @@ export default function BondDetail() {
               ))}
             </tbody>
           </table>
-          <h2 style={{ ...sectionTitle, marginTop: '16px' }}>Call Schedule</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Date', 'Type', 'Price'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Date' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {callSchedule.map((c) => (
-                <tr key={c.date} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.date}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.type}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.price}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
 
-        {/* Yield History */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Price / Yield History</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Date', 'Price', 'YTM', 'OAS (bps)'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Date' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {yieldHistory.map((y) => (
-                <tr key={y.date} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{y.date}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{y.price.toFixed(2)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{y.ytm.toFixed(3)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{y.oas}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* SpreadHistoryChart for this bond */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Spread History (12M)</h2>
+          <SpreadHistoryChart data={bondSpreadHistory} benchmarkSpread={42} height={220} />
         </div>
 
         {/* Comparable Bonds */}
-        <div style={panelStyle}>
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Comparable Bonds</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>

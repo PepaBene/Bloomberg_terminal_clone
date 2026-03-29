@@ -1,46 +1,9 @@
 // ---------------------------------------------------------------------------
 // Equity Screener Dashboard
 // ---------------------------------------------------------------------------
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
-
-// --- Helpers -----------------------------------------------------------------
-
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
-function qualityColor(score: number): string {
-  if (score >= 8) return 'var(--color-quality-5)';
-  if (score >= 6) return 'var(--color-quality-4)';
-  if (score >= 4) return 'var(--color-quality-3)';
-  if (score >= 2) return 'var(--color-quality-2)';
-  return 'var(--color-quality-1)';
-}
-
-function formatCap(b: number): string {
-  if (b >= 1000) return `$${(b / 1000).toFixed(1)}T`;
-  if (b >= 1) return `$${b.toFixed(1)}B`;
-  return `$${(b * 1000).toFixed(0)}M`;
-}
-
-// --- Skeleton ----------------------------------------------------------------
-
-function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?: string }) {
-  return (
-    <div
-      style={{
-        width,
-        height,
-        background: 'linear-gradient(90deg, var(--color-surface-raised) 25%, var(--color-surface-overlay) 50%, var(--color-surface-raised) 75%)',
-        backgroundSize: '200% 100%',
-        animation: 'shimmer 1.5s infinite',
-        borderRadius: 'var(--radius-sm)',
-      }}
-    />
-  );
-}
+import { useState, useMemo, useCallback } from 'react';
+import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
+import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -78,77 +41,62 @@ const MOCK_STOCKS: ScreenerRow[] = [
   { ticker: 'CAT',   name: 'Caterpillar Inc.',     sector: 'Industrials',     marketCapB: 178,  pe: 16.2,  roe: 54.8,  revGrowth: -2.4, piotroski: 6 },
 ];
 
-const SECTORS = ['All Sectors', 'Technology', 'Financials', 'Healthcare', 'Consumer Disc.', 'Consumer Stap.', 'Energy', 'Industrials'];
+// --- ScreenBuilder available metrics -----------------------------------------
 
-// --- Filter styles -----------------------------------------------------------
+const EQUITY_METRICS: MetricDef[] = [
+  { key: 'pe', label: 'P/E Ratio', category: 'Valuation' },
+  { key: 'evEbitda', label: 'EV/EBITDA', category: 'Valuation' },
+  { key: 'marketCapB', label: 'Market Cap ($B)', category: 'Size' },
+  { key: 'roe', label: 'ROE (%)', category: 'Profitability' },
+  { key: 'revGrowth', label: 'Revenue Growth (%)', category: 'Growth' },
+  { key: 'piotroski', label: 'Piotroski F-Score', category: 'Quality' },
+];
 
-const selectStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-sm)',
-  background: 'var(--color-surface-raised)',
-  color: 'var(--color-text-primary)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: '4px',
-  padding: '4px 8px',
-  outline: 'none',
-};
+// --- ScreenResults columns ---------------------------------------------------
 
-const inputStyle: React.CSSProperties = {
-  ...selectStyle,
-  width: '72px',
-  fontFamily: 'var(--font-data)',
-};
+const RESULT_COLUMNS: ScreenResultColumn[] = [
+  { key: 'ticker', label: 'Ticker' },
+  { key: 'name', label: 'Name' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'marketCapB', label: 'Market Cap', format: 'currency' },
+  { key: 'pe', label: 'P/E', format: 'number' },
+  { key: 'roe', label: 'ROE %', format: 'percent' },
+  { key: 'revGrowth', label: 'Rev Growth %', format: 'percent' },
+  { key: 'piotroski', label: 'Piotroski', format: 'number' },
+];
 
 // --- Component ---------------------------------------------------------------
 
-interface ScreenerFilters {
-  sector: string;
-  capFilter: string;
-  peMin: string;
-  peMax: string;
-  roeMin: string;
-}
-
 export default function ScreenerDashboard() {
-  const [filters, setFilters] = useState<ScreenerFilters>({
-    sector: 'All Sectors',
-    capFilter: 'All',
-    peMin: '',
-    peMax: '',
-    roeMin: '',
-  });
+  const [filters, setFilters] = useState<ScreenFilter[]>([]);
 
-  // Fetch screener results from API
-  const { data: apiStocks, isLoading } = useQuery<ScreenerRow[]>({
-    queryKey: ['screener', 'results', filters],
-    queryFn: () => api.get('/v4/screener/equity', {
-      sector: filters.sector !== 'All Sectors' ? filters.sector : undefined,
-      cap_filter: filters.capFilter !== 'All' ? filters.capFilter : undefined,
-      pe_min: filters.peMin || undefined,
-      pe_max: filters.peMax || undefined,
-      roe_min: filters.roeMin || undefined,
-    }),
-    retry: 0,
-  });
-  const stocks = apiStocks ?? MOCK_STOCKS;
-
-  // Apply client-side filters to fallback data (API should already filter, but mock needs it)
+  // Derive filtered results from mock data based on ScreenBuilder filters
   const filtered = useMemo(() => {
-    if (apiStocks) return apiStocks; // API already filtered
-    return stocks.filter((s) => {
-      if (filters.sector !== 'All Sectors' && s.sector !== filters.sector) return false;
-      if (filters.peMin && s.pe < Number(filters.peMin)) return false;
-      if (filters.peMax && s.pe > Number(filters.peMax)) return false;
-      if (filters.roeMin && s.roe < Number(filters.roeMin)) return false;
-      if (filters.capFilter === 'Large' && s.marketCapB < 100) return false;
-      if (filters.capFilter === 'Mega' && s.marketCapB < 500) return false;
-      return true;
+    if (filters.length === 0) return MOCK_STOCKS;
+    return MOCK_STOCKS.filter((stock) => {
+      return filters.every((f) => {
+        const val = (stock as unknown as Record<string, unknown>)[f.metric];
+        if (typeof val !== 'number') return true;
+        switch (f.operator) {
+          case '>': return val > f.value;
+          case '<': return val < f.value;
+          case '=': return Math.abs(val - f.value) < 0.01;
+          case 'between': return val >= f.value && val <= (f.valueTo ?? Infinity);
+          default: return true;
+        }
+      });
     });
-  }, [apiStocks, stocks, filters]);
+  }, [filters]);
 
-  const updateFilter = <K extends keyof ScreenerFilters>(key: K, value: ScreenerFilters[K]) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  };
+  const handleFiltersChange = useCallback((newFilters: ScreenFilter[]) => {
+    setFilters(newFilters);
+  }, []);
+
+  // Convert to generic records for ScreenResults
+  const resultRows = useMemo(
+    () => filtered.map((s) => ({ ...s } as unknown as Record<string, unknown>)),
+    [filtered],
+  );
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -159,85 +107,25 @@ export default function ScreenerDashboard() {
           Equity Screener
         </h1>
         <p className="terminal-label" style={{ marginTop: '4px' }}>
-          {filtered.length} results matching filters
+          Build custom screens with flexible filters
         </p>
       </div>
 
-      {/* Filter Bar */}
-      <div className="terminal-panel" style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '16px',
-        flexWrap: 'wrap',
-        marginBottom: 'var(--panel-gap)',
-        padding: '8px 12px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="terminal-label">Sector</span>
-          <select style={selectStyle} value={filters.sector} onChange={(e) => updateFilter('sector', e.target.value)}>
-            {SECTORS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="terminal-label">Market Cap</span>
-          <select style={selectStyle} value={filters.capFilter} onChange={(e) => updateFilter('capFilter', e.target.value)}>
-            <option value="All">All</option>
-            <option value="Mega">Mega (&gt;$500B)</option>
-            <option value="Large">Large (&gt;$100B)</option>
-          </select>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="terminal-label">P/E</span>
-          <input style={inputStyle} placeholder="Min" value={filters.peMin} onChange={(e) => updateFilter('peMin', e.target.value)} />
-          <span style={{ color: 'var(--color-text-tertiary)' }}>&ndash;</span>
-          <input style={inputStyle} placeholder="Max" value={filters.peMax} onChange={(e) => updateFilter('peMax', e.target.value)} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="terminal-label">ROE Min</span>
-          <input style={inputStyle} placeholder="%" value={filters.roeMin} onChange={(e) => updateFilter('roeMin', e.target.value)} />
-        </div>
+      {/* ScreenBuilder replaces inline filter controls */}
+      <div style={{ marginBottom: 'var(--panel-gap)' }}>
+        <ScreenBuilder
+          filters={filters}
+          onChange={handleFiltersChange}
+          availableMetrics={EQUITY_METRICS}
+        />
       </div>
 
-      {/* Results Table */}
-      <div className="terminal-panel">
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} height="28px" />)}
-          </div>
-        ) : (
-          <table className="terminal-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Name</th>
-                <th>Sector</th>
-                <th className="right">Market Cap</th>
-                <th className="right">P/E</th>
-                <th className="right">ROE</th>
-                <th className="right">Rev Growth</th>
-                <th className="right">Piotroski</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s) => (
-                <tr key={s.ticker}>
-                  <td style={{ fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>{s.name}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{s.sector}</td>
-                  <td className="right">{formatCap(s.marketCapB)}</td>
-                  <td className="right">{s.pe.toFixed(1)}x</td>
-                  <td className="right" style={{ color: signalColor(s.roe) }}>{s.roe.toFixed(1)}%</td>
-                  <td className="right" style={{ color: signalColor(s.revGrowth) }}>
-                    {s.revGrowth >= 0 ? '+' : ''}{s.revGrowth.toFixed(1)}%
-                  </td>
-                  <td className="right" style={{ color: qualityColor(s.piotroski), fontWeight: 600 }}>
-                    {s.piotroski}/9
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      {/* LivePreviewCount between builder and results */}
+      <LivePreviewCount count={filtered.length} total={MOCK_STOCKS.length} />
+
+      {/* ScreenResults replaces inline results table */}
+      <div style={{ marginTop: 'var(--panel-gap)' }}>
+        <ScreenResults results={resultRows} columns={RESULT_COLUMNS} />
       </div>
     </div>
   );

@@ -4,6 +4,8 @@
 import { useMemo } from 'react';
 import { YieldCurveChart, TimeSeriesChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
+import { SpreadHistoryChart as FISpreadHistoryChart } from '@/components/fi';
+import type { SpreadDataPoint } from '@/components/fi';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -138,6 +140,30 @@ export default function YieldCurveDeepDive() {
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>2s10s Spread History (1Y)</h2>
         <SpreadHistoryChart />
+      </div>
+
+      {/* Spread Analysis via FI SpreadHistoryChart Component */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Spread Analysis (UST 10Y OAS, 12M)</h2>
+        <FISpreadHistoryChart
+          data={(() => {
+            const pts: SpreadDataPoint[] = [];
+            let oas = 42;
+            const start = new Date('2025-03-28');
+            for (let i = 0; i < 252; i++) {
+              const d = new Date(start);
+              d.setDate(d.getDate() + i);
+              const day = d.getDay();
+              if (day === 0 || day === 6) continue;
+              oas += (Math.random() - 0.48) * 2.5;
+              oas = Math.max(20, Math.min(70, oas));
+              pts.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
+            }
+            return pts;
+          })()}
+          benchmarkSpread={42}
+          height={220}
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>

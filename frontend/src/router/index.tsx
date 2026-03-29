@@ -45,6 +45,7 @@ const AnalystQA = lazy(() => import('@/pages/research/AnalystQA'));
 const ThemesDashboard = lazy(() => import('@/pages/research/ThemesDashboard'));
 const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
+const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
 
 function LoadingFallback() {
@@ -124,6 +125,9 @@ export function AppRouter() {
         {/* Flows & Custom */}
         <Route path="/flows" element={<FlowsDashboard />} />
         <Route path="/custom" element={<CustomData />} />
+
+        {/* Quant */}
+        <Route path="/quant" element={<QuantDashboard />} />
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />

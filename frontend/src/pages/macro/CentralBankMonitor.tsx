@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Central Bank Monitor — Fed, ECB, BOJ, BOE Decisions & Forward Guidance
 // ---------------------------------------------------------------------------
+import { FedRateHistory, MacroIndicatorTable } from '@/components/macro';
+import type { FedRatePoint, MacroIndicator } from '@/components/macro';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -60,6 +62,41 @@ function stanceColor(stance: string): string {
   return 'var(--color-signal-warning)';
 }
 
+// --- FedRateHistory data (20 data points over 5 years) -----------------------
+
+const fedRateData: FedRatePoint[] = [
+  { date: '2021-03', rate: 0.125, decision: 'HOLD' },
+  { date: '2021-06', rate: 0.125, decision: 'HOLD' },
+  { date: '2021-09', rate: 0.125, decision: 'HOLD' },
+  { date: '2021-12', rate: 0.125, decision: 'HOLD' },
+  { date: '2022-03', rate: 0.375, decision: 'HIKE' },
+  { date: '2022-05', rate: 0.875, decision: 'HIKE' },
+  { date: '2022-06', rate: 1.625, decision: 'HIKE' },
+  { date: '2022-09', rate: 3.125, decision: 'HIKE' },
+  { date: '2022-11', rate: 3.875, decision: 'HIKE' },
+  { date: '2022-12', rate: 4.375, decision: 'HIKE' },
+  { date: '2023-02', rate: 4.625, decision: 'HIKE' },
+  { date: '2023-03', rate: 4.875, decision: 'HIKE' },
+  { date: '2023-05', rate: 5.125, decision: 'HIKE' },
+  { date: '2023-07', rate: 5.375, decision: 'HIKE' },
+  { date: '2023-09', rate: 5.375, decision: 'HOLD' },
+  { date: '2024-03', rate: 5.375, decision: 'HOLD' },
+  { date: '2024-09', rate: 5.375, decision: 'HOLD' },
+  { date: '2025-03', rate: 5.375, decision: 'HOLD' },
+  { date: '2025-09', rate: 5.375, decision: 'HOLD' },
+  { date: '2026-03', rate: 5.375, decision: 'HOLD' },
+];
+
+// --- MacroIndicatorTable data for recent releases ----------------------------
+
+const recentReleases: MacroIndicator[] = [
+  { name: 'CPI YoY', actual: 3.1, prior: 3.4, forecast: 3.2, surprise: -0.1, releaseDate: '2026-03-12' },
+  { name: 'Core PCE YoY', actual: 2.8, prior: 2.8, forecast: 2.8, surprise: 0.0, releaseDate: '2026-03-28' },
+  { name: 'NFP (000s)', actual: 275, prior: 229, forecast: 198, surprise: 77, releaseDate: '2026-03-07' },
+  { name: 'GDP (QoQ SAAR)', actual: 2.4, prior: 3.2, forecast: 2.5, surprise: -0.1, releaseDate: '2026-03-27' },
+  { name: 'Retail Sales MoM', actual: 0.6, prior: -0.8, forecast: 0.3, surprise: 0.3, releaseDate: '2026-03-14' },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function CentralBankMonitor() {
@@ -92,6 +129,12 @@ export default function CentralBankMonitor() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* FedRateHistory Chart */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Fed Funds Rate History (5Y)</h2>
+        <FedRateHistory data={fedRateData} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
@@ -142,6 +185,12 @@ export default function CentralBankMonitor() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* MacroIndicatorTable for recent releases */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Recent Economic Releases</h2>
+          <MacroIndicatorTable indicators={recentReleases} />
         </div>
       </div>
     </div>

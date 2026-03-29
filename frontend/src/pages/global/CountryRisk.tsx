@@ -2,6 +2,8 @@
 // Country Risk Dashboard
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
+import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
+import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -31,33 +33,6 @@ const dataStyle: React.CSSProperties = {
   fontSize: 'var(--text-base)',
   color: 'var(--color-text-primary)',
 };
-
-function classificationColor(cls: string): string {
-  switch (cls) {
-    case 'LOW':       return 'var(--color-quality-5)';
-    case 'MODERATE':  return 'var(--color-quality-3)';
-    case 'ELEVATED':  return 'var(--color-quality-2)';
-    case 'HIGH':      return 'var(--color-signal-negative)';
-    case 'EXTREME':   return '#dc2626';
-    default:          return 'var(--color-text-secondary)';
-  }
-}
-
-function trendArrow(trend: string): string {
-  switch (trend) {
-    case 'Improving':     return '\u2191';
-    case 'Deteriorating': return '\u2193';
-    default:              return '\u2192';
-  }
-}
-
-function trendColor(trend: string): string {
-  switch (trend) {
-    case 'Improving':     return 'var(--color-signal-positive)';
-    case 'Deteriorating': return 'var(--color-signal-negative)';
-    default:              return 'var(--color-signal-neutral)';
-  }
-}
 
 // --- Mock Data ---------------------------------------------------------------
 
@@ -107,15 +82,6 @@ const geoEvents: GeoEvent[] = [
   { id: 5, title: 'Venezuela opposition protests intensify ahead of referendum',       region: 'LatAm',        severity: 'High',     date: '2026-03-21' },
 ];
 
-function severityColor(severity: string): string {
-  switch (severity) {
-    case 'Critical': return '#dc2626';
-    case 'High':     return 'var(--color-signal-negative)';
-    case 'Medium':   return 'var(--color-quality-2)';
-    default:         return 'var(--color-text-secondary)';
-  }
-}
-
 // --- KPI data ----------------------------------------------------------------
 const kpis = [
   { label: 'Countries Tracked', value: '195' },
@@ -123,6 +89,31 @@ const kpis = [
   { label: 'Elevated',          value: '34',  color: 'var(--color-quality-2)' },
   { label: 'Active Events',     value: '12',  color: 'var(--color-accent-primary)' },
 ];
+
+// --- CountryRiskRanking component data ----------------------------------------
+
+const countryRiskData: CountryRiskType[] = countries.map((c) => ({
+  code: c.code,
+  name: c.country,
+  composite: c.compositeScore,
+  political: c.political,
+  economic: c.economic,
+  sanctions: c.sanctions,
+  classification: c.classification,
+  trend: c.trend,
+  history: [c.compositeScore - 4, c.compositeScore - 2, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
+}));
+
+// --- GeopoliticalEvent component data ----------------------------------------
+
+const geoEventCards: GeopoliticalEvent[] = geoEvents.map((ev) => ({
+  title: ev.title,
+  description: `${ev.severity} severity event in ${ev.region}`,
+  severity: ev.severity,
+  countries: [ev.region],
+  startDate: ev.date,
+  status: 'Active',
+}));
 
 // --- Component ---------------------------------------------------------------
 
@@ -157,89 +148,18 @@ export default function CountryRisk() {
       {/* 2-column layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
 
-        {/* Risk Rankings Table */}
+        {/* CountryRiskRanking Component replaces inline table */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Risk Rankings</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['#', 'Country', 'Composite', 'Political', 'Economic', 'Sanctions', 'Classification', 'Trend'].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      ...labelStyle,
-                      textAlign: h === 'Country' || h === 'Classification' ? 'left' : 'right',
-                      padding: 'var(--table-cell-py) var(--table-cell-px)',
-                      borderBottom: '1px solid var(--color-surface-border)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {countries.map((c) => (
-                <tr key={c.code} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-tertiary)' }}>{c.rank}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span style={{ fontFamily: 'var(--font-data)', color: 'var(--color-text-tertiary)', marginRight: '6px' }}>{c.code}</span>
-                    {c.country}
-                  </td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.compositeScore}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.political}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.economic}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.sanctions}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: classificationColor(c.classification),
-                      background: `color-mix(in srgb, ${classificationColor(c.classification)} 15%, transparent)`,
-                      fontWeight: 600,
-                    }}>
-                      {c.classification}
-                    </span>
-                  </td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: trendColor(c.trend) }}>
-                    {trendArrow(c.trend)} {c.trend}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <CountryRiskRanking countries={countryRiskData} />
         </div>
 
-        {/* Geopolitical Events Panel */}
+        {/* GeopoliticalEventCard Components replace inline events */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Geopolitical Events</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {geoEvents.map((ev) => (
-              <div key={ev.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--text-xs)',
-                    padding: '1px 6px',
-                    borderRadius: '2px',
-                    color: severityColor(ev.severity),
-                    background: `color-mix(in srgb, ${severityColor(ev.severity)} 15%, transparent)`,
-                    fontWeight: 600,
-                  }}>
-                    {ev.severity}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{ev.date}</span>
-                </div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', lineHeight: '1.4' }}>
-                  {ev.title}
-                </div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
-                  {ev.region}
-                </div>
-              </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {geoEventCards.map((ev, idx) => (
+              <GeopoliticalEventCard key={idx} event={ev} />
             ))}
           </div>
         </div>

@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Macro Dashboard — Economic Indicators, GDP, Inflation, Employment
 // ---------------------------------------------------------------------------
+import { GDPChart, InflationChart, EmploymentChart, MacroIndicatorTable } from '@/components/macro';
+import type { GDPDataPoint, InflationDataPoint, NFPDataPoint, UnemploymentDataPoint, MacroIndicator } from '@/components/macro';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -24,13 +26,6 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--color-text-secondary)',
 };
 
-const dataStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-data)',
-  fontVariantNumeric: 'tabular-nums',
-  fontSize: 'var(--text-base)',
-  color: 'var(--color-text-primary)',
-};
-
 // --- Mock Data ---------------------------------------------------------------
 
 const headlineKPIs = [
@@ -42,28 +37,81 @@ const headlineKPIs = [
   { label: 'ISM Mfg', value: '48.2' },
 ];
 
-const gdpComponents = [
-  { component: 'Personal Consumption', q1: 2.8, q4: 3.3, q3: 3.6 },
-  { component: 'Gross Private Investment', q1: 1.2, q4: 0.8, q3: -1.5 },
-  { component: 'Net Exports', q1: -0.4, q4: -0.2, q3: 0.6 },
-  { component: 'Government Spending', q1: 0.8, q4: 0.5, q3: 0.8 },
-  { component: 'GDP Total', q1: 2.4, q4: 3.2, q3: 4.9 },
+// --- GDPChart data -----------------------------------------------------------
+
+const gdpData: GDPDataPoint[] = [
+  { country: 'US',      actual: 2.4, forecast: 2.1, prior: 3.2 },
+  { country: 'Euro',    actual: 0.8, forecast: 1.0, prior: 0.5 },
+  { country: 'China',   actual: 5.2, forecast: 5.0, prior: 4.9 },
+  { country: 'Japan',   actual: 1.9, forecast: 1.2, prior: 1.5 },
+  { country: 'UK',      actual: 0.5, forecast: 0.8, prior: 0.3 },
+  { country: 'India',   actual: 6.8, forecast: 6.5, prior: 7.2 },
 ];
 
-const inflationData = [
-  { metric: 'CPI YoY', latest: 3.1, prior: 3.4, trend: 'down' },
-  { metric: 'Core CPI YoY', latest: 3.8, prior: 3.9, trend: 'down' },
-  { metric: 'PCE YoY', latest: 2.5, prior: 2.6, trend: 'down' },
-  { metric: 'Core PCE YoY', latest: 2.8, prior: 2.8, trend: 'flat' },
-  { metric: 'PPI YoY', latest: 0.9, prior: 1.0, trend: 'down' },
+// --- InflationChart data (monthly, 24 months) --------------------------------
+
+const inflationData: InflationDataPoint[] = [
+  { date: '2024-04', headline: 3.4, core: 3.6, pce: 2.7 },
+  { date: '2024-05', headline: 3.3, core: 3.4, pce: 2.6 },
+  { date: '2024-06', headline: 3.0, core: 3.3, pce: 2.6 },
+  { date: '2024-07', headline: 2.9, core: 3.2, pce: 2.5 },
+  { date: '2024-08', headline: 2.5, core: 3.2, pce: 2.5 },
+  { date: '2024-09', headline: 2.4, core: 3.3, pce: 2.4 },
+  { date: '2024-10', headline: 2.6, core: 3.3, pce: 2.5 },
+  { date: '2024-11', headline: 2.7, core: 3.3, pce: 2.6 },
+  { date: '2024-12', headline: 2.9, core: 3.2, pce: 2.6 },
+  { date: '2025-01', headline: 3.0, core: 3.3, pce: 2.6 },
+  { date: '2025-02', headline: 2.8, core: 3.1, pce: 2.5 },
+  { date: '2025-03', headline: 3.5, core: 3.8, pce: 2.8 },
+  { date: '2025-06', headline: 3.2, core: 3.5, pce: 2.7 },
+  { date: '2025-09', headline: 3.0, core: 3.4, pce: 2.7 },
+  { date: '2025-12', headline: 3.2, core: 3.7, pce: 2.8 },
+  { date: '2026-01', headline: 3.0, core: 3.6, pce: 2.7 },
+  { date: '2026-02', headline: 2.8, core: 3.5, pce: 2.6 },
+  { date: '2026-03', headline: 3.1, core: 3.8, pce: 2.8 },
 ];
 
-const employmentData = [
-  { metric: 'NFP (000s)', latest: '275', prior: '229', surprise: '+46' },
-  { metric: 'Unemployment Rate', latest: '3.8%', prior: '3.7%', surprise: '+0.1%' },
-  { metric: 'Avg Hourly Earnings YoY', latest: '4.3%', prior: '4.4%', surprise: '-0.1%' },
-  { metric: 'Labor Force Part Rate', latest: '62.5%', prior: '62.5%', surprise: '0.0%' },
-  { metric: 'JOLTS Openings (M)', latest: '8.86', prior: '8.89', surprise: '-0.03' },
+// --- EmploymentChart data ----------------------------------------------------
+
+const nfpData: NFPDataPoint[] = [
+  { date: '2025-04', actual: 165, forecast: 180 },
+  { date: '2025-05', actual: 272, forecast: 190 },
+  { date: '2025-06', actual: 206, forecast: 200 },
+  { date: '2025-07', actual: 114, forecast: 175 },
+  { date: '2025-08', actual: 142, forecast: 160 },
+  { date: '2025-09', actual: 336, forecast: 170 },
+  { date: '2025-10', actual: 150, forecast: 180 },
+  { date: '2025-11', actual: 199, forecast: 185 },
+  { date: '2025-12', actual: 256, forecast: 170 },
+  { date: '2026-01', actual: 353, forecast: 185 },
+  { date: '2026-02', actual: 229, forecast: 200 },
+  { date: '2026-03', actual: 275, forecast: 198 },
+];
+
+const unemploymentData: UnemploymentDataPoint[] = [
+  { date: '2025-04', rate: 3.9 },
+  { date: '2025-05', rate: 4.0 },
+  { date: '2025-06', rate: 4.1 },
+  { date: '2025-07', rate: 4.3 },
+  { date: '2025-08', rate: 4.2 },
+  { date: '2025-09', rate: 4.1 },
+  { date: '2025-10', rate: 4.1 },
+  { date: '2025-11', rate: 3.9 },
+  { date: '2025-12', rate: 3.7 },
+  { date: '2026-01', rate: 3.7 },
+  { date: '2026-02', rate: 3.7 },
+  { date: '2026-03', rate: 3.8 },
+];
+
+// --- MacroIndicatorTable data ------------------------------------------------
+
+const macroIndicators: MacroIndicator[] = [
+  { name: 'GDP (QoQ SAAR)', actual: 2.4, prior: 3.2, forecast: 2.5, surprise: -0.1, releaseDate: '2026-03-27' },
+  { name: 'CPI YoY', actual: 3.1, prior: 3.4, forecast: 3.2, surprise: -0.1, releaseDate: '2026-03-12' },
+  { name: 'Core PCE YoY', actual: 2.8, prior: 2.8, forecast: 2.8, surprise: 0.0, releaseDate: '2026-03-28' },
+  { name: 'NFP (000s)', actual: 275, prior: 229, forecast: 198, surprise: 77, releaseDate: '2026-03-07' },
+  { name: 'ISM Manufacturing', actual: 48.2, prior: 49.1, forecast: 49.5, surprise: -1.3, releaseDate: '2026-03-03' },
+  { name: 'Retail Sales MoM', actual: 0.6, prior: -0.8, forecast: 0.3, surprise: 0.3, releaseDate: '2026-03-14' },
 ];
 
 // --- Component ---------------------------------------------------------------
@@ -89,78 +137,28 @@ export default function MacroDashboard() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* GDP Components */}
+        {/* GDPChart */}
         <div style={panelStyle}>
-          <h2 style={sectionTitle}>GDP Components (QoQ SAAR)</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Component', 'Q1 2026', 'Q4 2025', 'Q3 2025'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Component' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {gdpComponents.map((g) => (
-                <tr key={g.component} style={{ height: 'var(--table-row-height)', fontWeight: g.component === 'GDP Total' ? 600 : 400 }}>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: g.component === 'GDP Total' ? 600 : 400 }}>{g.component}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: g.q1 >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)' }}>{g.q1 >= 0 ? '+' : ''}{g.q1.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{g.q4 >= 0 ? '+' : ''}{g.q4.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{g.q3 >= 0 ? '+' : ''}{g.q3.toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h2 style={sectionTitle}>GDP Growth Comparison</h2>
+          <GDPChart data={gdpData} height={280} />
         </div>
 
-        {/* Inflation */}
+        {/* InflationChart */}
         <div style={panelStyle}>
-          <h2 style={sectionTitle}>Inflation Metrics</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Metric', 'Latest', 'Prior', 'Trend'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Metric' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {inflationData.map((d) => (
-                <tr key={d.metric} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.metric}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{d.latest.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{d.prior.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: d.trend === 'down' ? 'var(--color-signal-positive)' : 'var(--color-text-secondary)' }}>
-                    {d.trend === 'down' ? '\u2193' : d.trend === 'up' ? '\u2191' : '\u2194'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h2 style={sectionTitle}>Inflation Trends</h2>
+          <InflationChart data={inflationData} target={2.0} height={280} />
         </div>
 
-        {/* Employment */}
+        {/* EmploymentChart */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Employment Data</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Metric', 'Latest', 'Prior', 'Surprise'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Metric' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {employmentData.map((e) => (
-                <tr key={e.metric} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.metric}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{e.latest}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{e.prior}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: e.surprise.startsWith('+') ? 'var(--color-signal-positive)' : e.surprise.startsWith('-') ? 'var(--color-signal-negative)' : 'var(--color-text-secondary)' }}>{e.surprise}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <EmploymentChart nfpData={nfpData} unemploymentData={unemploymentData} />
+        </div>
+
+        {/* MacroIndicatorTable */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Recent Economic Releases</h2>
+          <MacroIndicatorTable indicators={macroIndicators} />
         </div>
       </div>
     </div>

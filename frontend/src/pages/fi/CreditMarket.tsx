@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Credit Market — IG/HY Spread Indices, Credit Regime, Sector Spreads
 // ---------------------------------------------------------------------------
+import { KeySpreadsPanel, SpreadHistoryChart } from '@/components/fi';
+import type { SpreadRow, SpreadDataPoint } from '@/components/fi';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -63,6 +65,35 @@ const sectorSpreads = [
   { sector: 'Utilities', igOas: 68, hyOas: 275, chg1m: -3 },
 ];
 
+// --- KeySpreadsPanel data for market-wide spreads ----------------------------
+
+const marketSpreads: SpreadRow[] = [
+  { name: 'CDX IG',       value: 52,  change1d: -1, change1w: -3, percentile: 22 },
+  { name: 'CDX HY',       value: 328, change1d: 2,  change1w: -5, percentile: 35 },
+  { name: 'iTraxx Main',  value: 55,  change1d: 0,  change1w: -2, percentile: 25 },
+  { name: 'iTraxx Xover', value: 295, change1d: -3, change1w: -8, percentile: 30 },
+];
+
+// --- SpreadHistoryChart data for IG/HY index spreads -------------------------
+
+function generateCreditSpreadHistory(): SpreadDataPoint[] {
+  const data: SpreadDataPoint[] = [];
+  let oas = 98;
+  const start = new Date('2025-03-28');
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    oas += (Math.random() - 0.48) * 4;
+    oas = Math.max(60, Math.min(160, oas));
+    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas) });
+  }
+  return data;
+}
+
+const creditSpreadHistory = generateCreditSpreadHistory();
+
 // --- Component ---------------------------------------------------------------
 
 export default function CreditMarket() {
@@ -83,6 +114,18 @@ export default function CreditMarket() {
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: r.value === 'Risk-On' ? 'var(--color-signal-positive)' : 'var(--color-text-primary)' }}>{r.value}</div>
           </div>
         ))}
+      </div>
+
+      {/* KeySpreadsPanel for market-wide spreads */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Market-Wide Key Spreads</h2>
+        <KeySpreadsPanel spreads={marketSpreads} />
+      </div>
+
+      {/* SpreadHistoryChart for IG index */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>IG Corporate OAS History (12M)</h2>
+        <SpreadHistoryChart data={creditSpreadHistory} benchmarkSpread={92} height={220} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>

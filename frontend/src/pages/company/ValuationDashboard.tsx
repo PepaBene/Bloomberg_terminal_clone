@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 import { RatioDashboard } from '@/components/company/RatioDashboard';
 import type { DuPontData, MultiplesPoint } from '@/components/company/RatioDashboard';
+import { MultiplesOverTime, PeerScatter, DCFPanel, SensitivityMatrix } from '@/components/valuation';
+import type { MultiplesDataPoint, PeerPoint, DCFAssumptions, DCFResult } from '@/components/valuation';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -33,28 +35,9 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
 // --- Mock Data ---------------------------------------------------------------
 
 const company = { name: 'Apple Inc.', ticker: 'AAPL', price: 178.72 };
-
-const dcfInputs = [
-  { param: 'Revenue Growth (5Y CAGR)', value: '6.2%' },
-  { param: 'Terminal Growth Rate', value: '2.5%' },
-  { param: 'WACC', value: '9.8%' },
-  { param: 'EBITDA Margin (Terminal)', value: '33.5%' },
-  { param: 'CapEx / Revenue', value: '2.8%' },
-  { param: 'Tax Rate', value: '16.2%' },
-];
-
-const dcfOutputs = [
-  { scenario: 'Bear Case', evTarget: 2250, impliedPrice: 146.12, upside: -18.2 },
-  { scenario: 'Base Case', evTarget: 2780, impliedPrice: 180.53, upside: 1.0 },
-  { scenario: 'Bull Case', evTarget: 3420, impliedPrice: 222.08, upside: 24.2 },
-];
 
 const peerValuation = [
   { ticker: 'AAPL', name: 'Apple', pe: 28.6, evEbitda: 22.1, pfcf: 25.7, evRev: 7.4, mktCap: '2.78T' },
@@ -83,6 +66,73 @@ const multiplesHistory: MultiplesPoint[] = [
   { period: '2025', pe: 28.6, evEbitda: 22.1, pbv: 45.2 },
 ];
 
+// --- MultiplesOverTime 5Y mock data ------------------------------------------
+
+const multiplesOverTimeData: MultiplesDataPoint[] = [
+  { date: '2021-03', pe: 28.8, evEbitda: 22.1, ps: 8.4, pbv: 35.6 },
+  { date: '2021-06', pe: 27.5, evEbitda: 21.0, ps: 8.1, pbv: 33.8 },
+  { date: '2021-09', pe: 26.2, evEbitda: 19.8, ps: 7.8, pbv: 36.2 },
+  { date: '2021-12', pe: 30.1, evEbitda: 23.5, ps: 8.9, pbv: 38.4 },
+  { date: '2022-03', pe: 27.8, evEbitda: 21.4, ps: 7.6, pbv: 40.1 },
+  { date: '2022-06', pe: 23.2, evEbitda: 18.2, ps: 6.8, pbv: 37.2 },
+  { date: '2022-09', pe: 24.8, evEbitda: 19.5, ps: 6.5, pbv: 42.1 },
+  { date: '2022-12', pe: 22.4, evEbitda: 18.5, ps: 6.2, pbv: 41.8 },
+  { date: '2023-03', pe: 25.6, evEbitda: 20.1, ps: 7.0, pbv: 44.2 },
+  { date: '2023-06', pe: 31.2, evEbitda: 24.1, ps: 7.8, pbv: 46.8 },
+  { date: '2023-09', pe: 28.4, evEbitda: 21.8, ps: 7.5, pbv: 45.1 },
+  { date: '2023-12', pe: 26.1, evEbitda: 20.2, ps: 7.2, pbv: 48.3 },
+  { date: '2024-03', pe: 27.2, evEbitda: 20.8, ps: 7.4, pbv: 46.2 },
+  { date: '2024-06', pe: 32.4, evEbitda: 25.2, ps: 8.6, pbv: 48.5 },
+  { date: '2024-09', pe: 29.8, evEbitda: 22.6, ps: 7.9, pbv: 44.8 },
+  { date: '2024-12', pe: 27.5, evEbitda: 21.0, ps: 7.4, pbv: 44.2 },
+  { date: '2025-03', pe: 28.1, evEbitda: 21.4, ps: 7.6, pbv: 45.8 },
+  { date: '2025-06', pe: 29.4, evEbitda: 22.5, ps: 7.8, pbv: 46.2 },
+  { date: '2025-09', pe: 27.8, evEbitda: 21.2, ps: 7.3, pbv: 44.6 },
+  { date: '2025-12', pe: 28.6, evEbitda: 22.1, ps: 7.4, pbv: 45.2 },
+];
+
+// --- PeerScatter data --------------------------------------------------------
+
+const peerScatterData: PeerPoint[] = [
+  { name: 'Apple', ticker: 'AAPL', x: 5.2, y: 28.6, marketCap: 2780 },
+  { name: 'Microsoft', ticker: 'MSFT', x: 12.8, y: 34.2, marketCap: 3120 },
+  { name: 'Alphabet', ticker: 'GOOGL', x: 15.4, y: 24.5, marketCap: 2050 },
+  { name: 'Amazon', ticker: 'AMZN', x: 13.2, y: 58.3, marketCap: 1920 },
+  { name: 'Meta', ticker: 'META', x: 24.6, y: 22.8, marketCap: 1280 },
+  { name: 'NVIDIA', ticker: 'NVDA', x: 122.4, y: 62.4, marketCap: 2180 },
+];
+
+// --- DCFPanel data -----------------------------------------------------------
+
+const dcfAssumptions: DCFAssumptions = {
+  wacc: 0.098,
+  terminalGrowth: 0.025,
+  projectionYears: 10,
+  currentFCF: 105.6e9,
+};
+
+const dcfResult: DCFResult = {
+  enterpriseValue: 2.78e12,
+  equityValue: 2.72e12,
+  impliedPrice: 180.53,
+  currentPrice: 178.72,
+  upside: 0.010,
+};
+
+// --- SensitivityMatrix data --------------------------------------------------
+
+const waccValues = [0.08, 0.085, 0.09, 0.095, 0.10, 0.105, 0.11];
+const growthValues = [0.015, 0.02, 0.025, 0.03, 0.035];
+const priceMatrix = [
+  [228.4, 248.2, 272.6, 302.8, 340.2],
+  [210.6, 226.8, 246.4, 270.2, 299.4],
+  [195.2, 208.4, 224.1, 243.2, 266.8],
+  [182.0, 192.8, 205.6, 221.0, 239.8],
+  [170.4, 179.4, 190.0, 202.6, 217.8],
+  [160.2, 167.8, 176.6, 187.2, 199.8],
+  [151.2, 157.6, 165.0, 173.8, 184.2],
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function ValuationDashboard() {
@@ -100,49 +150,44 @@ export default function ValuationDashboard() {
         <RatioDashboard dupont={dupontData} multiplesHistory={multiplesHistory} />
       </div>
 
+      {/* MultiplesOverTime (5Y history) */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Multiples Over Time (5Y)</h2>
+        <MultiplesOverTime
+          data={multiplesOverTimeData}
+          peerMedians={{ pe: 29.0, evEbitda: 19.2 }}
+        />
+      </div>
+
+      {/* PeerScatter: P/E vs Revenue Growth */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Peer Comparison: P/E vs Revenue Growth</h2>
+        <PeerScatter
+          peers={peerScatterData}
+          xLabel="Revenue Growth (%)"
+          yLabel="P/E Ratio"
+          highlightTicker="AAPL"
+        />
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* DCF Inputs */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>DCF Model Inputs</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              {dcfInputs.map((d) => (
-                <tr key={d.param} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.param}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{d.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* DCFPanel Component */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <DCFPanel assumptions={dcfAssumptions} result={dcfResult} />
         </div>
 
-        {/* DCF Scenarios */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>DCF Scenario Analysis</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Scenario', 'EV ($T)', 'Implied Price', 'Upside'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Scenario' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dcfOutputs.map((d) => (
-                <tr key={d.scenario} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.scenario}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>${(d.evTarget / 1000).toFixed(2)}T</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>${d.impliedPrice.toFixed(2)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(d.upside), fontWeight: 600 }}>
-                    {d.upside >= 0 ? '+' : ''}{d.upside.toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* SensitivityMatrix below DCF */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>WACC / Terminal Growth Sensitivity ($)</h2>
+          <SensitivityMatrix
+            waccValues={waccValues}
+            growthValues={growthValues}
+            priceMatrix={priceMatrix}
+            currentPrice={company.price}
+          />
         </div>
 
-        {/* Peer Valuation */}
+        {/* Peer Valuation Table (existing) */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Peer Valuation</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

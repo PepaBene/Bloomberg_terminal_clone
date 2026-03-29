@@ -2,6 +2,8 @@
 // Political Monitor Dashboard
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
+import { BillTracker, SanctionsTable } from '@/components/global';
+import type { BillRecord, SanctionRecord } from '@/components/global';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -32,12 +34,6 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-function passageProbColor(prob: number): string {
-  if (prob >= 50) return 'var(--color-signal-positive)';
-  if (prob >= 20) return 'var(--color-quality-2)';
-  return 'var(--color-signal-negative)';
-}
-
 function severityColor(severity: string): string {
   switch (severity) {
     case 'Critical': return '#dc2626';
@@ -45,17 +41,6 @@ function severityColor(severity: string): string {
     case 'Medium':   return 'var(--color-quality-2)';
     case 'Low':      return 'var(--color-quality-4)';
     default:         return 'var(--color-text-secondary)';
-  }
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case 'Committee':    return 'var(--color-quality-3)';
-    case 'Floor Vote':   return 'var(--color-accent-primary)';
-    case 'Conference':   return 'var(--color-quality-2)';
-    case 'Signed':       return 'var(--color-signal-positive)';
-    case 'Introduced':   return 'var(--color-text-tertiary)';
-    default:             return 'var(--color-text-secondary)';
   }
 }
 
@@ -98,18 +83,6 @@ const regulatoryActions: RegulatoryAction[] = [
   { agency: 'FDA',  type: 'Guidance',           title: 'AI/ML-Based Medical Device Approval Pathway',     severity: 'Low',      date: '2026-03-02' },
 ];
 
-interface SanctionsSummary {
-  country: string;
-  programs: number;
-  latestAction: string;
-}
-
-const sanctionsSummaries: SanctionsSummary[] = [
-  { country: 'Russia',      programs: 14, latestAction: 'Energy sector export controls expanded (Mar 2026)' },
-  { country: 'Iran',        programs: 8,  latestAction: 'JCPOA-related waivers under review (Feb 2026)' },
-  { country: 'North Korea', programs: 6,  latestAction: 'Maritime enforcement strengthened (Jan 2026)' },
-];
-
 const electionEvents = [
   { country: 'Germany',       date: '2026-09-28', type: 'Federal Election',     marketImpact: 'High' },
   { country: 'Brazil',        date: '2026-10-04', type: 'Municipal Elections',   marketImpact: 'Medium' },
@@ -117,6 +90,29 @@ const electionEvents = [
 ];
 
 const tabs: SectionTab[] = ['Legislation', 'Regulatory', 'Sanctions', 'Elections'];
+
+// --- BillTracker component data ----------------------------------------------
+
+const billRecords: BillRecord[] = bills.map((b) => ({
+  id: b.billId,
+  title: b.title,
+  type: b.type,
+  status: b.status,
+  sponsors: b.sponsors.split(',').length,
+  passageProbability: b.passageProb,
+  affectedSectors: b.affectedSectors.split(', '),
+  lastAction: `${b.status} stage - ${b.type}`,
+}));
+
+// --- SanctionsTable component data -------------------------------------------
+
+const sanctionRecords: SanctionRecord[] = [
+  { country: 'Russia', programs: 14, targets: 1842, trajectory: 'Escalating', lastUpdated: '2026-03-25' },
+  { country: 'Iran', programs: 8, targets: 456, trajectory: 'Stable', lastUpdated: '2026-02-18' },
+  { country: 'North Korea', programs: 6, targets: 289, trajectory: 'Stable', lastUpdated: '2026-01-12' },
+  { country: 'Venezuela', programs: 4, targets: 124, trajectory: 'De-escalating', lastUpdated: '2026-02-28' },
+  { country: 'Syria', programs: 5, targets: 312, trajectory: 'Stable', lastUpdated: '2026-01-20' },
+];
 
 // --- Component ---------------------------------------------------------------
 
@@ -166,57 +162,12 @@ export default function PoliticalMonitor() {
         ))}
       </div>
 
-      {/* Legislation Tab */}
+      {/* Legislation Tab - BillTracker cards */}
       {activeTab === 'Legislation' && (
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Active Bills</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Bill ID', 'Title', 'Type', 'Status', 'Sponsors', 'Passage %', 'Affected Sectors'].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      ...labelStyle,
-                      textAlign: h === 'Passage %' ? 'right' : 'left',
-                      padding: 'var(--table-cell-py) var(--table-cell-px)',
-                      borderBottom: '1px solid var(--color-surface-border)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {bills.map((b) => (
-                <tr key={b.billId} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)', fontSize: 'var(--text-sm)' }}>{b.billId}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', maxWidth: '280px' }}>{b.title}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{b.type}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: statusColor(b.status),
-                      background: `color-mix(in srgb, ${statusColor(b.status)} 15%, transparent)`,
-                      fontWeight: 600,
-                    }}>
-                      {b.status}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)', whiteSpace: 'nowrap' }}>{b.sponsors}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: passageProbColor(b.passageProb), fontWeight: 600 }}>
-                    {b.passageProb}%
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{b.affectedSectors}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)' }}>
+          {billRecords.map((bill) => (
+            <BillTracker key={bill.id} bill={bill} />
+          ))}
         </div>
       )}
 
@@ -270,33 +221,11 @@ export default function PoliticalMonitor() {
         </div>
       )}
 
-      {/* Sanctions Tab */}
+      {/* Sanctions Tab - SanctionsTable component */}
       {activeTab === 'Sanctions' && (
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Active Sanctions Programs</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {sanctionsSummaries.map((s) => (
-              <div key={s.country} style={{ padding: '12px', borderBottom: '1px solid var(--color-surface-border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', color: 'var(--color-text-primary)', fontWeight: 600 }}>{s.country}</span>
-                  <span style={{
-                    fontFamily: 'var(--font-data)',
-                    fontSize: 'var(--text-sm)',
-                    padding: '1px 8px',
-                    borderRadius: '2px',
-                    color: 'var(--color-signal-negative)',
-                    background: 'color-mix(in srgb, var(--color-signal-negative) 15%, transparent)',
-                    fontWeight: 600,
-                  }}>
-                    {s.programs} programs
-                  </span>
-                </div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: '6px' }}>
-                  {s.latestAction}
-                </div>
-              </div>
-            ))}
-          </div>
+          <SanctionsTable sanctions={sanctionRecords} />
         </div>
       )}
 

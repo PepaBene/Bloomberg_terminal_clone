@@ -2,6 +2,8 @@
 // Global Intelligence Dashboard
 // ---------------------------------------------------------------------------
 import { BarChartComponent } from '@/components/charts';
+import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
+import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -34,16 +36,6 @@ const dataStyle: React.CSSProperties = {
 
 function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
-function riskColor(classification: string): string {
-  switch (classification) {
-    case 'Low':       return 'var(--color-quality-5)';
-    case 'Moderate':  return 'var(--color-quality-3)';
-    case 'Elevated':  return 'var(--color-quality-2)';
-    case 'High':      return 'var(--color-signal-negative)';
-    default:          return 'var(--color-text-secondary)';
-  }
 }
 
 // --- Mock Data ---------------------------------------------------------------
@@ -112,22 +104,6 @@ function stanceColor(stance: string): string {
   }
 }
 
-function trendIcon(trend: string): string {
-  switch (trend) {
-    case 'Improving':     return '\u2191';
-    case 'Deteriorating': return '\u2193';
-    default:              return '\u2192';
-  }
-}
-
-function trendColor(trend: string): string {
-  switch (trend) {
-    case 'Improving':     return 'var(--color-signal-positive)';
-    case 'Deteriorating': return 'var(--color-signal-negative)';
-    default:              return 'var(--color-signal-neutral)';
-  }
-}
-
 // --- GDP Growth Mock Data ----------------------------------------------------
 
 const GDP_DATA = [
@@ -139,6 +115,53 @@ const GDP_DATA = [
   { country: 'Brazil',  gdp2024: 2.9, gdp2025: 1.8 },
   { country: 'UK',      gdp2024: 0.5, gdp2025: 1.1 },
   { country: 'Germany', gdp2024: -0.1, gdp2025: 0.8 },
+];
+
+// --- CountryRiskRanking data -------------------------------------------------
+
+const countryRiskRankingData: CountryRiskType[] = countryRisks.map((c) => ({
+  code: c.code,
+  name: c.country,
+  composite: c.compositeScore,
+  political: c.political,
+  economic: c.economic,
+  sanctions: 0,
+  classification: c.classification,
+  trend: c.trend,
+  history: [c.compositeScore - 5, c.compositeScore - 3, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
+}));
+
+// --- GeopoliticalEvent data --------------------------------------------------
+
+const geoEvents: GeopoliticalEvent[] = [
+  {
+    title: 'EU imposes new sanctions package on Russian energy sector',
+    description: 'Sixth round of sanctions targeting Russian oil exports and banking infrastructure.',
+    severity: 'Critical',
+    countries: ['Russia', 'EU'],
+    startDate: '2026-03-25',
+    status: 'Active',
+    commodityImpact: ['Crude Oil', 'Natural Gas'],
+    sectorImpact: ['Energy', 'Financials'],
+  },
+  {
+    title: 'South China Sea military exercises escalate tensions',
+    description: 'Multiple nations conducting overlapping military drills in disputed waters.',
+    severity: 'High',
+    countries: ['China', 'Philippines', 'US'],
+    startDate: '2026-03-22',
+    status: 'Monitoring',
+    sectorImpact: ['Industrials', 'Technology'],
+  },
+  {
+    title: 'Turkey central bank emergency rate hike amid lira volatility',
+    description: 'Emergency 500bp rate increase to stabilize the Turkish lira.',
+    severity: 'High',
+    countries: ['Turkey'],
+    startDate: '2026-03-24',
+    status: 'Active',
+    sectorImpact: ['Financials'],
+  },
 ];
 
 // --- Component ---------------------------------------------------------------
@@ -179,42 +202,20 @@ export default function GlobalDashboard() {
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
-          {/* Country Risk Rankings */}
+          {/* CountryRiskRanking Component */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Country Risk Rankings</h2>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['#', 'Country', 'Score', 'Risk', 'Trend', 'Political', 'Economic'].map((h) => (
-                    <th key={h} style={{ ...labelStyle, textAlign: h === 'Country' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)', whiteSpace: 'nowrap' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {countryRisks.map((c) => (
-                  <tr key={c.code} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-tertiary)' }}>{c.rank}</td>
-                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                      <span style={{ fontFamily: 'var(--font-data)', color: 'var(--color-text-tertiary)', marginRight: '6px' }}>{c.code}</span>
-                      {c.country}
-                    </td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.compositeScore}</td>
-                    <td style={{ textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '1px 6px', borderRadius: '2px', color: riskColor(c.classification), background: `color-mix(in srgb, ${riskColor(c.classification)} 15%, transparent)` }}>
-                        {c.classification}
-                      </span>
-                    </td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: trendColor(c.trend) }}>
-                      {trendIcon(c.trend)} {c.trend}
-                    </td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.political}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.economic}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <CountryRiskRanking countries={countryRiskRankingData} />
+          </div>
+
+          {/* GeopoliticalEventCards for top 3 events */}
+          <div style={panelStyle}>
+            <h2 style={sectionTitle}>Top Geopolitical Events</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {geoEvents.map((ev, idx) => (
+                <GeopoliticalEventCard key={idx} event={ev} />
+              ))}
+            </div>
           </div>
         </div>
 

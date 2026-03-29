@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Treasury Dashboard — Yield Curve, Auction Results, Rate Sensitivity
 // ---------------------------------------------------------------------------
+import { TreasuryAuctionCalendar, SpreadHistoryChart } from '@/components/fi';
+import type { AuctionRecord, SpreadDataPoint } from '@/components/fi';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -57,18 +59,47 @@ const keySpreads = [
   { label: 'Fed Funds', value: 5.33, chg: 0 },
 ];
 
-const auctionResults = [
-  { date: '2026-03-25', security: '2Y Note', size: '$48B', highYield: '4.520%', bidCover: 2.68, tail: '0.2 bps', indirect: '72.5%' },
-  { date: '2026-03-26', security: '5Y Note', size: '$49B', highYield: '4.180%', bidCover: 2.45, tail: '-0.1 bps', indirect: '68.2%' },
-  { date: '2026-03-27', security: '7Y Note', size: '$41B', highYield: '4.250%', bidCover: 2.52, tail: '0.5 bps', indirect: '70.1%' },
-];
-
 const rateSensitivity = [
   { scenario: '+100 bps parallel', duration: -6.2, convexity: 0.3, pnl: '-$6.2M' },
   { scenario: '-100 bps parallel', duration: 6.2, convexity: 0.3, pnl: '+$6.5M' },
   { scenario: 'Bear steepener', duration: -2.1, convexity: 0.1, pnl: '-$2.0M' },
   { scenario: 'Bull flattener', duration: 3.8, convexity: 0.2, pnl: '+$4.0M' },
 ];
+
+// --- TreasuryAuctionCalendar data (5 upcoming + 5 completed) ----------------
+
+const auctionRecords: AuctionRecord[] = [
+  { date: '2026-04-02', security: '3Y Note',  size: '$46B', status: 'upcoming' },
+  { date: '2026-04-03', security: '10Y Note', size: '$38B', status: 'upcoming' },
+  { date: '2026-04-04', security: '30Y Bond', size: '$22B', status: 'upcoming' },
+  { date: '2026-04-08', security: '2Y Note',  size: '$50B', status: 'upcoming' },
+  { date: '2026-04-09', security: '5Y Note',  size: '$49B', status: 'upcoming' },
+  { date: '2026-03-27', security: '7Y Note',  size: '$41B', bidToCover: 2.52, tailBps: 0.5, status: 'completed' },
+  { date: '2026-03-26', security: '5Y Note',  size: '$49B', bidToCover: 2.45, tailBps: -0.1, status: 'completed' },
+  { date: '2026-03-25', security: '2Y Note',  size: '$48B', bidToCover: 2.68, tailBps: 0.2, status: 'completed' },
+  { date: '2026-03-20', security: '20Y Bond', size: '$16B', bidToCover: 2.38, tailBps: 1.2, status: 'completed' },
+  { date: '2026-03-18', security: '10Y Note', size: '$39B', bidToCover: 2.56, tailBps: 0.3, status: 'completed' },
+];
+
+// --- SpreadHistoryChart data (12 months of 10Y OAS history) -----------------
+
+function generate10YSpreadHistory(): SpreadDataPoint[] {
+  const data: SpreadDataPoint[] = [];
+  let oas = 45;
+  const start = new Date('2025-03-28');
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    oas += (Math.random() - 0.48) * 3;
+    oas = Math.max(20, Math.min(80, oas));
+    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
+  }
+  return data;
+}
+
+const spreadHistory = generate10YSpreadHistory();
 
 // --- Component ---------------------------------------------------------------
 
@@ -144,31 +175,16 @@ export default function TreasuryDashboard() {
           </table>
         </div>
 
-        {/* Auction Results */}
+        {/* TreasuryAuctionCalendar Component */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
-          <h2 style={sectionTitle}>Recent Auction Results</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Date', 'Security', 'Size', 'High Yield', 'Bid/Cover', 'Tail', 'Indirect %'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: ['Security'].includes(h) ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {auctionResults.map((a) => (
-                <tr key={a.security} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.date}</td>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{a.security}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.size}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.highYield}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.bidCover.toFixed(2)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.tail}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.indirect}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h2 style={sectionTitle}>Auction Calendar</h2>
+          <TreasuryAuctionCalendar auctions={auctionRecords} />
+        </div>
+
+        {/* SpreadHistoryChart: 10Y OAS history */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>10Y Spread History (12M)</h2>
+          <SpreadHistoryChart data={spreadHistory} benchmarkSpread={42} height={250} />
         </div>
       </div>
     </div>
