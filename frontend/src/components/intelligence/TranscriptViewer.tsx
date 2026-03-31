@@ -33,17 +33,29 @@ export interface TranscriptViewerProps {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const ROLE_COLORS: Record<string, string> = {
-  CEO: 'var(--color-signal-positive)',
-  CFO: 'var(--color-accent-primary)',
-  COO: 'var(--color-signal-highlight)',
-  Analyst: 'var(--color-signal-neutral)',
+const ROLE_BADGE: Record<string, { color: string; bg: string }> = {
+  CEO: {
+    color: 'var(--accent-primary)',
+    bg: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
+  },
+  CFO: {
+    color: 'var(--chart-3)',
+    bg: 'color-mix(in srgb, var(--chart-3) 15%, transparent)',
+  },
+  COO: {
+    color: 'var(--signal-highlight)',
+    bg: 'color-mix(in srgb, var(--signal-highlight) 15%, transparent)',
+  },
+  Analyst: {
+    color: 'var(--text-secondary)',
+    bg: 'color-mix(in srgb, var(--text-secondary) 15%, transparent)',
+  },
 };
 
 const SENTIMENT_BG: Record<string, string> = {
-  positive: 'rgba(45, 184, 125, 0.08)',
-  negative: 'rgba(224, 82, 82, 0.08)',
-  hedging: 'rgba(224, 146, 58, 0.08)',
+  positive: 'color-mix(in srgb, var(--signal-positive) 8%, transparent)',
+  negative: 'color-mix(in srgb, var(--signal-negative) 8%, transparent)',
+  hedging: 'color-mix(in srgb, var(--signal-warning) 8%, transparent)',
   neutral: 'transparent',
 };
 
@@ -64,22 +76,24 @@ export function TranscriptViewer({
 
   return (
     <div
-      className={clsx('flex', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
+        display: 'flex',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
         overflow: 'hidden',
         minHeight: 300,
       }}
     >
       {/* Main transcript area */}
-      <div className="flex flex-1 flex-col" style={{ minWidth: 0 }}>
+      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 }}>
         {/* Section tabs */}
         <div
-          className="flex gap-0"
           style={{
-            borderBottom: '1px solid var(--color-surface-border)',
+            display: 'flex',
+            gap: 0,
+            borderBottom: '1px solid var(--surface-border)',
           }}
         >
           {sections.map((s, idx) => (
@@ -88,24 +102,32 @@ export function TranscriptViewer({
               type="button"
               onClick={() => handleSectionClick(idx)}
               style={{
-                padding: '8px 16px',
+                padding: 'var(--space-2) var(--space-4)',
                 fontFamily: 'var(--font-ui)',
                 fontSize: 'var(--text-xs)',
                 fontWeight: 600,
                 color: idx === activeSection
-                  ? 'var(--color-accent-primary)'
-                  : 'var(--color-text-secondary)',
+                  ? 'var(--accent-primary)'
+                  : 'var(--text-tertiary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-                background: idx === activeSection
-                  ? 'var(--color-surface-raised)'
-                  : 'transparent',
+                background: 'transparent',
                 border: 'none',
                 borderBottom: idx === activeSection
-                  ? '2px solid var(--color-accent-primary)'
+                  ? '2px solid var(--accent-primary)'
                   : '2px solid transparent',
                 cursor: 'pointer',
-                transition: 'color 0.15s',
+                transition: 'color var(--transition-fast), border-color var(--transition-fast)',
+              }}
+              onMouseEnter={(e) => {
+                if (idx !== activeSection) {
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (idx !== activeSection) {
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                }
               }}
             >
               {s.title}
@@ -114,7 +136,7 @@ export function TranscriptViewer({
         </div>
 
         {/* Paragraphs */}
-        <div className="flex-1 overflow-auto" style={{ padding: '12px 16px' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: 'var(--space-3) var(--space-4)' }}>
           {sections[activeSection]?.paragraphs.map((p, idx) => (
             <ParagraphRow key={idx} paragraph={p} />
           ))}
@@ -124,12 +146,15 @@ export function TranscriptViewer({
       {/* Tone scores sidebar */}
       {toneScores && (
         <div
-          className="flex flex-col gap-3 shrink-0"
           style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-3)',
+            flexShrink: 0,
             width: 180,
-            padding: '12px 16px',
-            borderLeft: '1px solid var(--color-surface-border)',
-            background: 'var(--color-surface-raised)',
+            padding: 'var(--space-3) var(--space-4)',
+            borderLeft: '1px solid var(--surface-border)',
+            background: 'var(--surface-raised)',
           }}
         >
           <span
@@ -137,7 +162,7 @@ export function TranscriptViewer({
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: 'var(--color-text-secondary)',
+              color: 'var(--text-secondary)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
             }}
@@ -158,29 +183,38 @@ export function TranscriptViewer({
 /* ------------------------------------------------------------------ */
 
 function ParagraphRow({ paragraph }: { paragraph: TranscriptParagraph }) {
-  const roleColor = ROLE_COLORS[paragraph.role] ?? 'var(--color-text-tertiary)';
+  const badge = ROLE_BADGE[paragraph.role] ?? {
+    color: 'var(--text-tertiary)',
+    bg: 'color-mix(in srgb, var(--text-tertiary) 15%, transparent)',
+  };
   const bgColor = SENTIMENT_BG[paragraph.sentiment ?? 'neutral'] ?? 'transparent';
 
   return (
     <div
       style={{
         display: 'flex',
-        gap: 12,
-        padding: '8px 0',
-        borderBottom: '1px solid var(--color-surface-border)',
+        gap: 'var(--space-3)',
+        padding: 'var(--space-2) 0',
+        borderBottom: '1px solid var(--surface-border)',
       }}
     >
       {/* Speaker badge */}
       <div
-        className="flex flex-col items-start gap-1 shrink-0"
-        style={{ width: 100 }}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 'var(--space-1)',
+          flexShrink: 0,
+          width: 100,
+        }}
       >
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
             lineHeight: 1.3,
           }}
         >
@@ -191,12 +225,13 @@ function ParagraphRow({ paragraph }: { paragraph: TranscriptParagraph }) {
             fontFamily: 'var(--font-data)',
             fontSize: 'var(--text-xs)',
             fontWeight: 500,
-            color: roleColor,
+            fontVariantNumeric: 'tabular-nums',
+            color: badge.color,
+            background: badge.bg,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
-            padding: '1px 6px',
-            border: `1px solid ${roleColor}`,
-            borderRadius: '9999px',
+            padding: '1px var(--space-1)',
+            borderRadius: 'var(--radius-sm)',
             whiteSpace: 'nowrap',
           }}
         >
@@ -210,11 +245,11 @@ function ParagraphRow({ paragraph }: { paragraph: TranscriptParagraph }) {
           flex: 1,
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-sm)',
-          color: 'var(--color-text-primary)',
+          color: 'var(--text-primary)',
           lineHeight: 1.6,
-          padding: '4px 8px',
+          padding: 'var(--space-1) var(--space-2)',
           background: bgColor,
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
         }}
       >
         {paragraph.text}
@@ -229,21 +264,16 @@ function ParagraphRow({ paragraph }: { paragraph: TranscriptParagraph }) {
 
 function ToneBar({ label, value }: { label: string; value: number }) {
   const pct = Math.max(0, Math.min(100, value));
-  const barColor =
-    pct >= 60
-      ? 'var(--color-signal-positive)'
-      : pct >= 30
-        ? 'var(--color-signal-neutral)'
-        : 'var(--color-signal-warning)';
+  const barColor = qualityTierColor(pct);
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
-            fontSize: '10px',
-            color: 'var(--color-text-primary)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-primary)',
           }}
         >
           {label}
@@ -251,9 +281,9 @@ function ToneBar({ label, value }: { label: string; value: number }) {
         <span
           style={{
             fontFamily: 'var(--font-data)',
-            fontSize: '10px',
-            color: barColor,
+            fontSize: 'var(--text-xs)',
             fontVariantNumeric: 'tabular-nums',
+            color: barColor,
           }}
         >
           {pct}%
@@ -262,8 +292,8 @@ function ToneBar({ label, value }: { label: string; value: number }) {
       <div
         style={{
           height: 4,
-          borderRadius: 2,
-          background: 'var(--color-surface-overlay, rgba(255,255,255,0.06))',
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--surface-overlay)',
           overflow: 'hidden',
         }}
       >
@@ -272,11 +302,23 @@ function ToneBar({ label, value }: { label: string; value: number }) {
             height: '100%',
             width: `${pct}%`,
             background: barColor,
-            borderRadius: 2,
-            transition: 'width var(--transition-normal, 0.2s)',
+            borderRadius: 'var(--radius-sm)',
+            transition: 'width var(--transition-normal)',
           }}
         />
       </div>
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function qualityTierColor(pct: number): string {
+  if (pct >= 80) return 'var(--quality-5)';
+  if (pct >= 60) return 'var(--quality-4)';
+  if (pct >= 40) return 'var(--quality-3)';
+  if (pct >= 20) return 'var(--quality-2)';
+  return 'var(--quality-1)';
 }

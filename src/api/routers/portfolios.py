@@ -5,10 +5,13 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import csv_upload_engine
+from src.engines.portfolio_parser import parse_csv, match_holdings_to_securities
 from src.models.portfolio import Portfolio
 from src.models.position import Position
 from src.models.transaction import Transaction
@@ -43,6 +46,18 @@ router = APIRouter(tags=["Portfolio Management"])
 DEFAULT_USER = "default_user"
 
 
+# ── Upload request bodies ─────────────────────────────────────────────
+
+
+class UploadPreviewRequest(BaseModel):
+    csv_content: str
+
+
+class UploadCommitRequest(BaseModel):
+    csv_content: str
+    portfolio_name: str
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -73,29 +88,128 @@ async def _get_position(session: AsyncSession, position_id: uuid.UUID) -> Positi
 
 @router.post("/portfolios/upload/preview", response_model=UploadPreviewResponse)
 async def upload_preview(
+    body: UploadPreviewRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """Preview a portfolio upload before committing."""
-    # Stub: in production this would parse a CSV/Excel file
+    # Step 1: Parse CSV rows via the upload engine
+    rows = csv_upload_engine.parse_csv_holdings(body.csv_content)
+    total_rows = len(rows)
+
+    # Step 2: Validate required fields (ticker, shares)
+    valid_rows, req_errors = csv_upload_engine.validate_required_fields(rows)
+
+    # Step 3: Normalize ticker symbols
+    normalized = csv_upload_engine.normalize_tickers(valid_rows)
+
+    # Step 4: Detect duplicates (informational, not blocking)
+    _duplicates = csv_upload_engine.detect_duplicates(normalized)
+
+    # Step 5: Validate numeric fields
+    final_valid, num_errors = csv_upload_engine.validate_numeric_fields(normalized)
+    all_errors = req_errors + num_errors
+
+    # Step 6: Build position list from validated rows
+    positions = csv_upload_engine.build_position_list(final_valid)
+
+    # Step 7: Use portfolio_parser to match holdings to securities
+    holdings = parse_csv(body.csv_content)
+    match_results = match_holdings_to_securities(holdings)
+
+    matched_count = sum(1 for m in match_results if m.status == "MATCHED")
+    unmatched_count = sum(1 for m in match_results if m.status != "MATCHED")
+
+    # Build a lookup of matched tickers for the preview
+    matched_tickers = {
+        m.identifier.upper()
+        for m in match_results
+        if m.status == "MATCHED" and m.identifier
+    }
+
+    preview_positions = [
+        UploadPreviewPosition(
+            ticker=p["ticker"],
+            shares=p["shares"],
+            cost_basis_per_share=p["cost_basis_per_share"],
+            matched=p["ticker"].upper() in matched_tickers,
+        )
+        for p in positions
+    ]
+
     return UploadPreviewResponse(
-        total_rows=0,
-        matched=0,
-        unmatched=0,
-        errors=0,
-        preview_positions=[],
+        total_rows=total_rows,
+        matched=matched_count,
+        unmatched=unmatched_count,
+        errors=len(all_errors),
+        preview_positions=preview_positions,
     )
 
 
 @router.post("/portfolios/upload/commit", response_model=UploadCommitResponse)
 async def upload_commit(
+    body: UploadCommitRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """Commit a previewed portfolio upload."""
-    # Stub: in production this would process the upload
-    pid = uuid.uuid4()
+    # Parse and validate the CSV through the engine pipeline
+    rows = csv_upload_engine.parse_csv_holdings(body.csv_content)
+    valid_rows, _req_errors = csv_upload_engine.validate_required_fields(rows)
+    normalized = csv_upload_engine.normalize_tickers(valid_rows)
+    final_valid, _num_errors = csv_upload_engine.validate_numeric_fields(normalized)
+    positions = csv_upload_engine.build_position_list(final_valid)
+
+    if not positions:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid positions found in CSV",
+        )
+
+    # Check for duplicate portfolio name
+    existing = await session.execute(
+        select(Portfolio).where(
+            Portfolio.user_id == DEFAULT_USER,
+            Portfolio.portfolio_name == body.portfolio_name,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Portfolio name already exists")
+
+    # Create the portfolio record
+    portfolio = Portfolio(
+        id=uuid.uuid4(),
+        user_id=DEFAULT_USER,
+        portfolio_name=body.portfolio_name,
+        portfolio_type="EQUITY",
+        inception_date=date.today(),
+        initial_cash=Decimal("0"),
+        current_cash=Decimal("0"),
+    )
+    session.add(portfolio)
+    await session.flush()
+
+    # Create position records from the validated rows
+    positions_created = 0
+    for p in positions:
+        shares = Decimal(str(p["shares"]))
+        cost_basis = Decimal(str(p["cost_basis_per_share"]))
+        position = Position(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio.id,
+            ticker=p["ticker"],
+            status="OPEN",
+            shares=shares,
+            cost_basis_per_share=cost_basis,
+            cost_basis_total=shares * cost_basis,
+            first_acquisition_date=date.today(),
+        )
+        session.add(position)
+        positions_created += 1
+
+    await session.flush()
+
     return UploadCommitResponse(
-        portfolio_id=pid,
-        positions_created=0,
+        portfolio_id=portfolio.id,
+        positions_created=positions_created,
         status="COMMITTED",
     )
 

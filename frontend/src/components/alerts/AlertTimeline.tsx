@@ -24,10 +24,10 @@ export interface AlertTimelineProps {
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'var(--color-signal-negative)',
-  HIGH: 'var(--color-signal-warning)',
-  MEDIUM: 'var(--color-signal-neutral)',
-  LOW: 'var(--color-text-tertiary)',
+  CRITICAL: 'var(--signal-negative)',
+  HIGH: 'var(--signal-warning)',
+  MEDIUM: 'var(--signal-highlight)',
+  LOW: 'var(--text-tertiary)',
 };
 
 /* ------------------------------------------------------------------ */
@@ -91,12 +91,14 @@ export function AlertTimeline({
 
   return (
     <div
-      className={clsx('flex flex-col', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
-        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-4)',
       }}
     >
       {/* Header */}
@@ -106,53 +108,77 @@ export function AlertTimeline({
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
-            marginBottom: 12,
+            marginBottom: 'var(--space-3)',
           }}
         >
-          Alert Timeline — {entityName}
+          Alert Timeline &mdash;{' '}
+          <span style={{ fontFamily: 'var(--font-data)', color: 'var(--accent-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {entityName}
+          </span>
         </span>
       )}
 
       {/* Timeline */}
       {grouped.map((group) => (
-        <div key={group.date} style={{ marginBottom: 16 }}>
-          {/* Date header */}
+        <div key={group.date} style={{ marginBottom: 'var(--space-4)' }}>
+          {/* Date header with horizontal rule */}
           <div
             style={{
-              fontFamily: 'var(--font-ui)',
-              fontSize: 'var(--text-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-              marginBottom: 8,
-              paddingLeft: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              marginBottom: 'var(--space-2)',
+              paddingLeft: 'var(--space-5)',
             }}
           >
-            {formatDate(group.items[0]?.createdAt ?? group.date)}
+            <span
+              style={{
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {formatDate(group.items[0]?.createdAt ?? group.date)}
+            </span>
+            <div
+              style={{
+                flex: 1,
+                height: 1,
+                background: 'var(--surface-border)',
+              }}
+            />
           </div>
 
           {/* Timeline items */}
           {group.items.map((alert, idx) => {
             const isLast = idx === group.items.length - 1;
             const sevColor =
-              SEVERITY_COLORS[alert.severity] ?? 'var(--color-text-tertiary)';
+              SEVERITY_COLORS[alert.severity] ?? 'var(--text-tertiary)';
             const isExpanded = expandedId === alert.id;
 
             return (
               <div
                 key={alert.id}
-                style={{ display: 'flex', gap: 12, position: 'relative' }}
+                style={{ display: 'flex', gap: 'var(--space-3)', position: 'relative' }}
               >
                 {/* Timeline rail */}
                 <div
-                  className="flex flex-col items-center"
-                  style={{ width: 12, flexShrink: 0 }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    width: 12,
+                    flexShrink: 0,
+                  }}
                 >
-                  {/* Dot */}
+                  {/* Dot — 10px, severity-colored */}
                   <div
                     style={{
                       width: 10,
@@ -160,18 +186,18 @@ export function AlertTimeline({
                       borderRadius: '50%',
                       background: sevColor,
                       flexShrink: 0,
-                      marginTop: 4,
+                      marginTop: 'var(--space-1)',
                       boxShadow: `0 0 6px ${sevColor}`,
                     }}
                   />
-                  {/* Line */}
+                  {/* Line — 2px wide, surface-border-strong */}
                   {!isLast && (
                     <div
                       style={{
                         width: 2,
                         flex: 1,
-                        background: 'var(--color-surface-border)',
-                        minHeight: 20,
+                        background: 'var(--surface-border-strong)',
+                        minHeight: 'var(--space-5)',
                       }}
                     />
                   )}
@@ -181,7 +207,7 @@ export function AlertTimeline({
                 <div
                   style={{
                     flex: 1,
-                    paddingBottom: isLast ? 0 : 12,
+                    paddingBottom: isLast ? 0 : 'var(--space-3)',
                     minWidth: 0,
                   }}
                 >
@@ -191,7 +217,7 @@ export function AlertTimeline({
                     style={{
                       display: 'flex',
                       alignItems: 'baseline',
-                      gap: 8,
+                      gap: 'var(--space-2)',
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
@@ -204,7 +230,7 @@ export function AlertTimeline({
                       style={{
                         fontFamily: 'var(--font-data)',
                         fontSize: 'var(--text-xs)',
-                        color: 'var(--color-text-tertiary)',
+                        color: 'var(--text-tertiary)',
                         fontVariantNumeric: 'tabular-nums',
                         flexShrink: 0,
                       }}
@@ -215,7 +241,7 @@ export function AlertTimeline({
                       style={{
                         fontFamily: 'var(--font-ui)',
                         fontSize: 'var(--text-sm)',
-                        color: 'var(--color-text-primary)',
+                        color: 'var(--text-primary)',
                         fontWeight: 500,
                         lineHeight: 1.3,
                       }}
@@ -225,8 +251,9 @@ export function AlertTimeline({
                     <span
                       style={{
                         fontFamily: 'var(--font-data)',
-                        fontSize: '9px',
+                        fontSize: 'var(--text-xs)',
                         fontWeight: 500,
+                        fontVariantNumeric: 'tabular-nums',
                         color: sevColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.06em',
@@ -237,20 +264,27 @@ export function AlertTimeline({
                     </span>
                   </button>
 
-                  {isExpanded && (
+                  {/* Expand animation: slide down 200ms ease */}
+                  <div
+                    style={{
+                      overflow: 'hidden',
+                      maxHeight: isExpanded ? '200px' : '0px',
+                      transition: 'max-height 200ms ease-out',
+                    }}
+                  >
                     <p
                       style={{
                         fontFamily: 'var(--font-ui)',
                         fontSize: 'var(--text-sm)',
-                        color: 'var(--color-text-secondary)',
+                        color: 'var(--text-secondary)',
                         lineHeight: 1.5,
-                        margin: '6px 0 0 0',
+                        margin: 'var(--space-1) 0 0 0',
                         paddingLeft: 0,
                       }}
                     >
                       {alert.description}
                     </p>
-                  )}
+                  </div>
                 </div>
               </div>
             );
@@ -261,11 +295,11 @@ export function AlertTimeline({
       {alerts.length === 0 && (
         <div
           style={{
-            padding: '24px 0',
+            padding: 'var(--space-6) 0',
             textAlign: 'center',
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
           }}
         >
           No alerts in timeline

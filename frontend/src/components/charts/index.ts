@@ -92,3 +92,15 @@ export type { GaugeChartProps, GaugeThreshold } from './GaugeChart';
 // Score breakdown — detailed sub-score panel
 export { ScoreBreakdown } from './ScoreBreakdown';
 export type { ScoreBreakdownProps, ScoreItem } from './ScoreBreakdown';
+
+// Lasso selection — free-form polygon selection overlay for scatter plots
+export { LassoSelection, useLassoSelection } from './LassoSelection';
+export type { LassoPoint, LassoSelectionProps } from './LassoSelection';
+
+// Waterfall chart — financial bridge / EBITDA bridge visualization
+export { WaterfallChart } from './WaterfallChart';
+export type { WaterfallBar, WaterfallChartProps } from './WaterfallChart';
+
+// Monte Carlo chart — probability distribution histogram for scenario outputs
+export { MonteCarloChart } from './MonteCarloChart';
+export type { MonteCarloChartProps } from './MonteCarloChart';

@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { CHART_THEME } from './chartTheme';
 
 /* ------------------------------------------------------------------ */
@@ -40,6 +42,14 @@ export interface ChartTooltipProps {
   benchmark?: ChartTooltipBenchmark;
   source?: ChartTooltipSource;
   series?: ChartTooltipSeriesItem[];
+  /** Enable the pin button in the top-right corner */
+  pinnable?: boolean;
+  /** Controlled pin state — parent manages this */
+  isPinned?: boolean;
+  /** Called when user clicks the pin button */
+  onPin?: (pinned: boolean) => void;
+  /** Absolute position for the tooltip when pinned */
+  position?: { x: number; y: number };
 }
 
 /* ------------------------------------------------------------------ */
@@ -55,6 +65,7 @@ const STYLES = {
     boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
     pointerEvents: 'none' as const,
     minWidth: 160,
+    position: 'relative' as const,
   },
   title: {
     fontFamily: CHART_THEME.fonts.ui,
@@ -174,6 +185,50 @@ function ChangeDisplay({ change }: { change: ChartTooltipChange }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Pin button                                                         */
+/* ------------------------------------------------------------------ */
+
+function PinButton({ isPinned, onPin }: { isPinned: boolean; onPin: () => void }) {
+  const pinButtonStyle: CSSProperties = {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    background: isPinned
+      ? 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)'
+      : 'transparent',
+    border: isPinned
+      ? '1px solid var(--color-accent-primary)'
+      : '1px solid var(--color-surface-border)',
+    borderRadius: 'var(--radius-sm)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 10,
+    lineHeight: 1,
+    padding: 0,
+    color: isPinned ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+    transition: 'background var(--transition-fast), border-color var(--transition-fast)',
+  };
+
+  return (
+    <button
+      type="button"
+      style={pinButtonStyle}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPin();
+      }}
+      title={isPinned ? 'Unpin tooltip' : 'Pin tooltip'}
+    >
+      &#8853;
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main tooltip component                                             */
 /* ------------------------------------------------------------------ */
 
@@ -186,11 +241,45 @@ export function ChartTooltip({
   benchmark,
   source,
   series,
+  pinnable,
+  isPinned = false,
+  onPin,
+  position,
 }: ChartTooltipProps) {
+  const containerStyle: CSSProperties = {
+    ...STYLES.container,
+    ...(isPinned
+      ? {
+          pointerEvents: 'auto',
+          border: '1px solid var(--color-accent-primary)',
+          boxShadow:
+            '0 4px 16px rgba(0,0,0,0.6), 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
+          opacity: 0.5,
+        }
+      : {}),
+    ...(position != null
+      ? {
+          position: 'fixed',
+          left: position.x,
+          top: position.y,
+        }
+      : {}),
+    // Give room for pin button when pinnable
+    ...(pinnable ? { paddingTop: isPinned ? 10 : 10 } : {}),
+  };
+
   return (
-    <div style={STYLES.container}>
-      {/* Title line */}
-      <div style={STYLES.title}>{title}</div>
+    <div style={containerStyle}>
+      {/* Pin button */}
+      {pinnable && (
+        <PinButton
+          isPinned={isPinned}
+          onPin={() => onPin?.(!isPinned)}
+        />
+      )}
+
+      {/* Title line — add right padding when pin button present */}
+      <div style={{ ...STYLES.title, paddingRight: pinnable ? 20 : 0 }}>{title}</div>
 
       {/* Separator after title */}
       <div style={STYLES.separator} />
@@ -266,6 +355,23 @@ export function ChartTooltip({
       )}
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/*  usePinnableTooltip hook                                            */
+/* ------------------------------------------------------------------ */
+
+export function usePinnableTooltip() {
+  const [isPinned, setIsPinned] = useState(false);
+  const [pinnedPosition, setPinnedPosition] = useState<{ x: number; y: number } | null>(null);
+
+  const handlePin = (e: React.MouseEvent, pinned: boolean) => {
+    setIsPinned(pinned);
+    if (pinned) setPinnedPosition({ x: e.clientX + 12, y: e.clientY });
+    else setPinnedPosition(null);
+  };
+
+  return { isPinned, pinnedPosition, handlePin, setIsPinned };
 }
 
 /* ------------------------------------------------------------------ */

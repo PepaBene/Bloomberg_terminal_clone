@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import clsx from 'clsx';
 import { GaugeChart } from '../charts/GaugeChart';
 
@@ -33,9 +34,9 @@ export interface GovernanceScorecardProps {
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'var(--color-signal-negative)',
-  HIGH: 'var(--color-signal-warning)',
-  MEDIUM: 'var(--color-signal-neutral)',
+  CRITICAL: 'var(--signal-negative)',
+  HIGH: 'var(--signal-warning)',
+  MEDIUM: 'var(--signal-highlight)',
 };
 
 const SEVERITY_ICONS: Record<string, string> = {
@@ -49,11 +50,11 @@ const SEVERITY_ICONS: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 function qualityColor(pct: number): string {
-  if (pct >= 80) return 'var(--color-quality-5)';
-  if (pct >= 60) return 'var(--color-quality-4)';
-  if (pct >= 40) return 'var(--color-quality-3)';
-  if (pct >= 20) return 'var(--color-quality-2)';
-  return 'var(--color-quality-1)';
+  if (pct >= 80) return 'var(--quality-5)';
+  if (pct >= 60) return 'var(--quality-4)';
+  if (pct >= 40) return 'var(--quality-3)';
+  if (pct >= 20) return 'var(--quality-2)';
+  return 'var(--quality-1)';
 }
 
 /* ------------------------------------------------------------------ */
@@ -70,32 +71,41 @@ export function GovernanceScorecard({
   className,
 }: GovernanceScorecardProps) {
   const scoreColor = qualityColor(score);
+  const [expandedFlag, setExpandedFlag] = useState<string | null>(null);
+
+  const toggleFlag = useCallback((id: string) => {
+    setExpandedFlag((prev) => (prev === id ? null : id));
+  }, []);
 
   return (
     <div
-      className={clsx('flex flex-col gap-4', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
-        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-4)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-4)',
       }}
     >
       {/* Header: gauge + classification */}
-      <div className="flex items-center gap-4">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
         <GaugeChart value={score} max={100} label="Governance" size={100} />
-        <div className="flex flex-col gap-1">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
           <span
             style={{
               fontFamily: 'var(--font-data)',
               fontSize: 'var(--text-xs)',
               fontWeight: 500,
+              fontVariantNumeric: 'tabular-nums',
               color: scoreColor,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
-              padding: '2px 8px',
-              border: `1px solid ${scoreColor}`,
-              borderRadius: '9999px',
+              padding: '2px var(--space-2)',
+              background: `color-mix(in srgb, ${scoreColor} 15%, transparent)`,
+              borderRadius: 'var(--radius-sm)',
               whiteSpace: 'nowrap',
               alignSelf: 'flex-start',
             }}
@@ -106,7 +116,7 @@ export function GovernanceScorecard({
       </div>
 
       {/* Metrics grid */}
-      <div className="flex flex-col gap-3">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {/* Board Independence */}
         <MetricBar
           label="Board Independence"
@@ -115,12 +125,12 @@ export function GovernanceScorecard({
         />
 
         {/* CEO / Chair Separation */}
-        <div className="flex items-center justify-between">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
-              color: 'var(--color-text-primary)',
+              color: 'var(--text-primary)',
             }}
           >
             CEO / Chair Separation
@@ -130,9 +140,10 @@ export function GovernanceScorecard({
               fontFamily: 'var(--font-data)',
               fontSize: 'var(--text-xs)',
               fontWeight: 500,
+              fontVariantNumeric: 'tabular-nums',
               color: ceoIsChair
-                ? 'var(--color-signal-negative)'
-                : 'var(--color-signal-positive)',
+                ? 'var(--signal-negative)'
+                : 'var(--signal-positive)',
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
             }}
@@ -147,13 +158,13 @@ export function GovernanceScorecard({
 
       {/* Red flags */}
       {redFlags.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <span
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: 'var(--color-text-secondary)',
+              color: 'var(--text-secondary)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
             }}
@@ -162,20 +173,36 @@ export function GovernanceScorecard({
           </span>
           {redFlags.map((flag) => {
             const sevColor =
-              SEVERITY_COLORS[flag.severity] ?? 'var(--color-signal-neutral)';
+              SEVERITY_COLORS[flag.severity] ?? 'var(--signal-neutral)';
             const sevIcon = SEVERITY_ICONS[flag.severity] ?? '\u25CF';
+            const isExpanded = expandedFlag === flag.id;
 
             return (
-              <div
+              <button
+                type="button"
                 key={flag.id}
+                onClick={() => toggleFlag(flag.id)}
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: 8,
-                  padding: '6px 8px',
-                  background: 'var(--color-surface-raised)',
+                  gap: 'var(--space-2)',
+                  padding: 'var(--space-1) var(--space-2)',
+                  background: 'var(--surface-raised)',
                   borderLeft: `3px solid ${sevColor}`,
-                  borderRadius: 2,
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                  transition: 'background var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--surface-overlay)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--surface-raised)';
                 }}
               >
                 <span
@@ -189,12 +216,13 @@ export function GovernanceScorecard({
                 >
                   {sevIcon}
                 </span>
-                <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', minWidth: 0, flex: 1 }}>
                   <span
                     style={{
                       fontFamily: 'var(--font-data)',
                       fontSize: 'var(--text-xs)',
                       fontWeight: 500,
+                      fontVariantNumeric: 'tabular-nums',
                       color: sevColor,
                       textTransform: 'uppercase',
                       letterSpacing: '0.06em',
@@ -206,14 +234,27 @@ export function GovernanceScorecard({
                     style={{
                       fontFamily: 'var(--font-ui)',
                       fontSize: 'var(--text-sm)',
-                      color: 'var(--color-text-primary)',
+                      color: 'var(--text-primary)',
                       lineHeight: 1.4,
+                      maxHeight: isExpanded ? '200px' : '1.4em',
+                      overflow: 'hidden',
+                      transition: 'max-height var(--transition-normal)',
                     }}
                   >
                     {flag.description}
                   </span>
                 </div>
-              </div>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--text-tertiary)',
+                    flexShrink: 0,
+                    marginTop: 2,
+                  }}
+                >
+                  {isExpanded ? '\u25B2' : '\u25BC'}
+                </span>
+              </button>
             );
           })}
         </div>
@@ -237,13 +278,13 @@ function MetricBar({
 }) {
   const barColor = qualityColor(value);
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
           }}
         >
           {label}
@@ -252,8 +293,8 @@ function MetricBar({
           style={{
             fontFamily: 'var(--font-data)',
             fontSize: 'var(--text-xs)',
-            color: barColor,
             fontVariantNumeric: 'tabular-nums',
+            color: barColor,
           }}
         >
           {value}
@@ -263,8 +304,8 @@ function MetricBar({
       <div
         style={{
           height: 6,
-          borderRadius: 3,
-          background: 'var(--color-surface-overlay, rgba(255,255,255,0.06))',
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--surface-overlay)',
           overflow: 'hidden',
         }}
       >
@@ -273,8 +314,8 @@ function MetricBar({
             height: '100%',
             width: `${Math.min(value, 100)}%`,
             background: barColor,
-            borderRadius: 3,
-            transition: 'width var(--transition-normal, 0.2s)',
+            borderRadius: 'var(--radius-sm)',
+            transition: 'width var(--transition-normal)',
           }}
         />
       </div>

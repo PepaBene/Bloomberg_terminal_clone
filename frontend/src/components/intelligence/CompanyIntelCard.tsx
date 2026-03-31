@@ -21,11 +21,11 @@ export interface CompanyIntelCardProps {
 /* ------------------------------------------------------------------ */
 
 function qualityColor(score: number): string {
-  if (score >= 80) return 'var(--color-quality-5)';
-  if (score >= 60) return 'var(--color-quality-4)';
-  if (score >= 40) return 'var(--color-quality-3)';
-  if (score >= 20) return 'var(--color-quality-2)';
-  return 'var(--color-quality-1)';
+  if (score >= 80) return 'var(--quality-5)';
+  if (score >= 60) return 'var(--quality-4)';
+  if (score >= 40) return 'var(--quality-3)';
+  if (score >= 20) return 'var(--quality-2)';
+  return 'var(--quality-1)';
 }
 
 /* ------------------------------------------------------------------ */
@@ -48,20 +48,23 @@ export function CompanyIntelCard({
 
   return (
     <div
-      className={clsx('flex flex-col gap-3', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
-        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-3)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-4)',
       }}
     >
       {/* Overall score header */}
-      <div className="flex items-center gap-3">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
         <span
           style={{
             fontFamily: 'var(--font-data)',
-            fontSize: 'var(--text-3xl)',
+            fontSize: 'var(--text-2xl)',
             fontWeight: 600,
             color: overallColor,
             fontVariantNumeric: 'tabular-nums',
@@ -70,13 +73,13 @@ export function CompanyIntelCard({
         >
           {computedOverall}
         </span>
-        <div className="flex flex-col">
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: 'var(--color-text-secondary)',
+              color: 'var(--text-secondary)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
             }}
@@ -87,7 +90,8 @@ export function CompanyIntelCard({
             style={{
               fontFamily: 'var(--font-data)',
               fontSize: 'var(--text-sm)',
-              color: 'var(--color-text-tertiary)',
+              fontVariantNumeric: 'tabular-nums',
+              color: 'var(--text-tertiary)',
             }}
           >
             / 100
@@ -96,20 +100,37 @@ export function CompanyIntelCard({
       </div>
 
       {/* Module rows */}
-      <div className="flex flex-col gap-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {modules.map((mod) => {
           const barColor = qualityColor(mod.score);
           const pct = Math.min(mod.score, 100);
 
           return (
-            <div key={mod.name} className="flex flex-col gap-1">
+            <div
+              key={mod.name}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+                padding: 'var(--space-1) var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                transition: 'background var(--transition-fast)',
+                cursor: 'default',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--surface-overlay)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
               {/* Label + classification + score */}
-              <div className="flex items-center justify-between gap-2">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-xs)',
-                    color: 'var(--color-text-primary)',
+                    color: 'var(--text-primary)',
                     flex: 1,
                     minWidth: 0,
                     whiteSpace: 'nowrap',
@@ -124,12 +145,13 @@ export function CompanyIntelCard({
                     fontFamily: 'var(--font-data)',
                     fontSize: 'var(--text-xs)',
                     fontWeight: 500,
+                    fontVariantNumeric: 'tabular-nums',
                     color: barColor,
+                    background: `color-mix(in srgb, ${barColor} 15%, transparent)`,
                     textTransform: 'uppercase',
                     letterSpacing: '0.06em',
-                    padding: '1px 6px',
-                    border: `1px solid ${barColor}`,
-                    borderRadius: '9999px',
+                    padding: '1px var(--space-1)',
+                    borderRadius: 'var(--radius-sm)',
                     whiteSpace: 'nowrap',
                     flexShrink: 0,
                   }}
@@ -140,8 +162,8 @@ export function CompanyIntelCard({
                   style={{
                     fontFamily: 'var(--font-data)',
                     fontSize: 'var(--text-xs)',
-                    color: barColor,
                     fontVariantNumeric: 'tabular-nums',
+                    color: barColor,
                     minWidth: 24,
                     textAlign: 'right',
                     flexShrink: 0,
@@ -151,13 +173,12 @@ export function CompanyIntelCard({
                 </span>
               </div>
 
-              {/* Progress bar */}
+              {/* Progress bar with quality-tier gradient */}
               <div
                 style={{
                   height: 6,
-                  borderRadius: 3,
-                  background:
-                    'var(--color-surface-overlay, rgba(255,255,255,0.06))',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface-overlay)',
                   overflow: 'hidden',
                 }}
               >
@@ -166,8 +187,8 @@ export function CompanyIntelCard({
                     height: '100%',
                     width: `${pct}%`,
                     background: barColor,
-                    borderRadius: 3,
-                    transition: 'width var(--transition-normal, 0.2s)',
+                    borderRadius: 'var(--radius-sm)',
+                    transition: 'width var(--transition-normal)',
                   }}
                 />
               </div>

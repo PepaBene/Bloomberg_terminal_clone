@@ -56,7 +56,16 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
   }, [categories, search]);
 
   return (
-    <div className="terminal-panel flex flex-col gap-2" style={{ maxHeight: 400, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div
+      className="terminal-panel animate-in"
+      style={{
+        maxHeight: 400,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-2)',
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -78,15 +87,22 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         style={{
-          background: 'var(--color-surface-base)',
+          background: 'var(--color-surface-raised)',
           color: 'var(--color-text-primary)',
           border: '1px solid var(--color-surface-border)',
-          borderRadius: 3,
-          padding: '5px 8px',
+          borderRadius: 'var(--radius-sm)',
+          padding: 'var(--space-1) var(--space-2)',
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-xs)',
           outline: 'none',
           width: '100%',
+          transition: 'border-color 120ms ease',
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = 'var(--color-surface-border)';
         }}
       />
 
@@ -96,7 +112,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
           const isExpanded = expanded.has(cat.name) || search.trim().length > 0;
 
           return (
-            <div key={cat.name} style={{ marginBottom: 2 }}>
+            <div key={cat.name} style={{ marginBottom: 'var(--space-1)' }}>
               {/* Category header */}
               <button
                 type="button"
@@ -105,18 +121,26 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
                   width: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
+                  gap: 'var(--space-2)',
                   background: 'none',
                   border: 'none',
-                  padding: '4px 2px',
+                  padding: 'var(--space-1) var(--space-1)',
                   cursor: 'pointer',
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-xs)',
+                  fontSize: 'var(--text-sm)',
                   fontWeight: 600,
                   color: 'var(--color-text-secondary)',
                   textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
+                  letterSpacing: '0.5px',
                   textAlign: 'left',
+                  borderRadius: 'var(--radius-sm)',
+                  transition: 'background 120ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-surface-overlay)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
                 }}
               >
                 <span
@@ -138,6 +162,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
                     marginLeft: 'auto',
                     fontSize: 'var(--text-xs)',
                     fontFamily: 'var(--font-data)',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {cat.metrics.length}
@@ -146,7 +171,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
 
               {/* Metrics */}
               {isExpanded && (
-                <div style={{ paddingLeft: 14 }}>
+                <div style={{ paddingLeft: 'var(--space-4)' }}>
                   {cat.metrics.map((m) => {
                     const isSelected = selected === m.key;
 
@@ -161,14 +186,14 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
                           flexDirection: 'column',
                           gap: 1,
                           background: isSelected
-                            ? 'rgba(59, 130, 246, 0.12)'
+                            ? 'var(--accent-glow)'
                             : 'transparent',
                           border: 'none',
-                          borderRadius: 3,
-                          padding: '3px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: 'var(--space-1) var(--space-2)',
                           cursor: 'pointer',
                           textAlign: 'left',
-                          transition: 'background var(--transition-fast)',
+                          transition: 'background 120ms ease',
                         }}
                         onMouseEnter={(e) => {
                           if (!isSelected)
@@ -182,7 +207,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
                         <span
                           style={{
                             fontFamily: 'var(--font-ui)',
-                            fontSize: 'var(--text-xs)',
+                            fontSize: 'var(--text-base)',
                             color: isSelected
                               ? 'var(--color-accent-primary)'
                               : 'var(--color-text-primary)',
@@ -195,7 +220,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
                           <span
                             style={{
                               fontFamily: 'var(--font-ui)',
-                              fontSize: 10,
+                              fontSize: 'var(--text-xs)',
                               color: 'var(--color-text-tertiary)',
                               lineHeight: 1.3,
                             }}
@@ -218,7 +243,7 @@ export function MetricCategoryTree({ categories, onSelect, selected }: MetricCat
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
               color: 'var(--color-text-tertiary)',
-              padding: '12px 4px',
+              padding: 'var(--space-3) var(--space-1)',
               textAlign: 'center',
             }}
           >

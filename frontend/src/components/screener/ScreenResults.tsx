@@ -47,6 +47,13 @@ function formatValue(value: unknown, format?: string): string {
   }
 }
 
+/** Format negative numbers with minus sign, never parentheses */
+function formatNumericDisplay(value: unknown, format?: string): string {
+  const formatted = formatValue(value, format);
+  // Ensure no parenthesized negatives sneak through from toLocaleString
+  return formatted.replace(/\(([^)]+)\)/, '-$1');
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -61,16 +68,31 @@ export function ScreenResults({ results, columns, onRowClick }: ScreenResultsPro
         align: 'right' as const,
         sortable: true,
         format: (value: unknown) => {
-          const formatted = formatValue(value, col.format);
+          const formatted = formatNumericDisplay(value, col.format);
           const color = typeof value === 'number' ? signalColor(value) : undefined;
           if (color) {
             return (
-              <span style={{ color, fontVariantNumeric: 'tabular-nums' }}>
+              <span
+                style={{
+                  color,
+                  fontFamily: 'var(--font-data)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 {formatted}
               </span>
             );
           }
-          return formatted;
+          return (
+            <span
+              style={{
+                fontFamily: 'var(--font-data)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {formatted}
+            </span>
+          );
         },
       })),
     [columns],
@@ -81,7 +103,18 @@ export function ScreenResults({ results, columns, onRowClick }: ScreenResultsPro
     if (tableColumns.length === 0) return tableColumns;
     const first = tableColumns[0];
     if (!first) return tableColumns;
-    return [{ ...first, align: 'left' as const }, ...tableColumns.slice(1)];
+    return [
+      {
+        ...first,
+        align: 'left' as const,
+        format: (value: unknown) => (
+          <span style={{ fontFamily: 'var(--font-ui)', color: 'var(--color-text-primary)' }}>
+            {String(value ?? '\u2014')}
+          </span>
+        ),
+      },
+      ...tableColumns.slice(1),
+    ];
   }, [tableColumns]);
 
   const handleRowClick = useMemo(() => {
@@ -90,9 +123,9 @@ export function ScreenResults({ results, columns, onRowClick }: ScreenResultsPro
   }, [onRowClick]);
 
   return (
-    <div className="terminal-panel flex flex-col gap-3">
+    <div className="terminal-panel animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
@@ -129,7 +162,7 @@ export function ScreenResults({ results, columns, onRowClick }: ScreenResultsPro
       ) : (
         <div
           style={{
-            padding: '24px 0',
+            padding: 'var(--space-6) 0',
             textAlign: 'center',
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',

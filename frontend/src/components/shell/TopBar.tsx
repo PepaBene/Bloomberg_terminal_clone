@@ -100,7 +100,6 @@ function useBreadcrumbs(): string[] {
       if (label) {
         crumbs.push(label);
       } else {
-        // dynamic segment -- show raw
         crumbs.push(decodeURIComponent(seg));
       }
     }
@@ -113,7 +112,8 @@ function useBreadcrumbs(): string[] {
 export function TopBar() {
   const primary = useSecurityStore((s) => s.primary);
   const unread = useAlertsStore((s) => s.unread);
-  const recent = useNavigationStore((s) => s.recent(5));
+  const stack = useNavigationStore((s) => s.stack);
+  const recent = useMemo(() => stack.slice(-5), [stack]);
   const utcClock = useUtcClock();
   const market = useMarketStatus();
   const breadcrumbs = useBreadcrumbs();

@@ -26,31 +26,46 @@ export interface NewIssueTableProps {
 
 const STATUS_MAP: Record<
   NewIssue['status'],
-  { label: string; color: string }
+  { label: string; badgeClass: string }
 > = {
-  priced: { label: 'PRICED', color: 'var(--color-signal-positive)' },
-  launched: { label: 'LAUNCHED', color: 'var(--color-accent-primary)' },
-  upcoming: { label: 'UPCOMING', color: 'var(--color-signal-neutral)' },
+  priced: { label: 'PRICED', badgeClass: 'terminal-badge terminal-badge-positive' },
+  launched: { label: 'LAUNCHED', badgeClass: 'terminal-badge terminal-badge-accent' },
+  upcoming: { label: 'UPCOMING', badgeClass: 'terminal-badge terminal-badge-neutral' },
 };
 
-function spreadVsTalk(spread: number, talk: number) {
+function spreadVsTalk(spread: number, talk: number): { badgeClass: string; label: string } {
   const diff = spread - talk;
   const tighter = diff < 0;
-  const color = tighter
-    ? 'var(--color-signal-positive)'
-    : diff > 0
-      ? 'var(--color-signal-negative)'
-      : 'var(--color-signal-neutral)';
-  const label = tighter
-    ? `${Math.abs(diff).toFixed(0)}bp tighter`
-    : diff > 0
-      ? `${diff.toFixed(0)}bp wider`
-      : 'flat';
-  return { color, label };
+  if (tighter) {
+    return {
+      badgeClass: 'terminal-badge terminal-badge-positive',
+      label: `${Math.abs(diff).toFixed(0)}bp tighter`,
+    };
+  }
+  if (diff > 0) {
+    return {
+      badgeClass: 'terminal-badge terminal-badge-negative',
+      label: `${diff.toFixed(0)}bp wider`,
+    };
+  }
+  return {
+    badgeClass: 'terminal-badge terminal-badge-neutral',
+    label: 'flat',
+  };
 }
 
 function fmtBps(v: number): string {
   return `${v.toFixed(0)}`;
+}
+
+/** Map credit rating to quality-tier color */
+function ratingColor(rating: string): string {
+  const r = rating.toUpperCase();
+  if (r.startsWith('AAA') || r.startsWith('AA')) return 'var(--color-quality-5)';
+  if (r.startsWith('A')) return 'var(--color-quality-4)';
+  if (r.startsWith('BBB')) return 'var(--color-quality-3)';
+  if (r.startsWith('BB')) return 'var(--color-quality-2)';
+  return 'var(--color-quality-1)';
 }
 
 /* ------------------------------------------------------------------ */
@@ -59,49 +74,19 @@ function fmtBps(v: number): string {
 
 export function NewIssueTable({ issues, className }: NewIssueTableProps) {
   return (
-    <div className={clsx('overflow-auto', className)}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontFamily: 'var(--font-data)',
-          fontSize: 'var(--text-sm)',
-        }}
-      >
+    <div className={clsx('animate-in overflow-auto', className)}>
+      <table className="terminal-table">
         <thead>
           <tr>
-            {[
-              'Issuer',
-              'Coupon',
-              'Maturity',
-              'Size',
-              'Rating',
-              'Spread',
-              'Talk',
-              'vs Talk',
-              'Status',
-            ].map((h) => (
-              <th
-                key={h}
-                style={{
-                  textAlign:
-                    h === 'Issuer' || h === 'Rating' || h === 'Status' || h === 'vs Talk'
-                      ? 'left'
-                      : 'right',
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-xs)',
-                  fontWeight: 500,
-                  color: 'var(--color-text-secondary)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  padding: '6px 8px',
-                  borderBottom: '1px solid var(--color-surface-border)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {h}
-              </th>
-            ))}
+            <th style={{ textAlign: 'left' }}>Issuer</th>
+            <th className="right">Coupon</th>
+            <th className="right">Maturity</th>
+            <th className="right">Size</th>
+            <th style={{ textAlign: 'left' }}>Rating</th>
+            <th className="right">Spread</th>
+            <th className="right">Talk</th>
+            <th style={{ textAlign: 'left' }}>vs Talk</th>
+            <th style={{ textAlign: 'left' }}>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -110,16 +95,10 @@ export function NewIssueTable({ issues, className }: NewIssueTableProps) {
             const statusCfg = STATUS_MAP[iss.status];
 
             return (
-              <tr
-                key={`${iss.issuer}-${i}`}
-                style={{
-                  borderBottom: '1px solid var(--color-surface-border)',
-                }}
-              >
+              <tr key={`${iss.issuer}-${i}`}>
+                {/* Issuer */}
                 <td
                   style={{
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-sm)',
                     whiteSpace: 'nowrap',
@@ -128,22 +107,21 @@ export function NewIssueTable({ issues, className }: NewIssueTableProps) {
                   {iss.issuer}
                 </td>
 
+                {/* Coupon */}
                 <td
+                  className="right"
                   style={{
-                    textAlign: 'right',
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
+                    fontFamily: 'var(--font-data)',
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {iss.coupon.toFixed(3)}%
                 </td>
 
+                {/* Maturity */}
                 <td
+                  className="right"
                   style={{
-                    textAlign: 'right',
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-sm)',
                   }}
@@ -151,82 +129,61 @@ export function NewIssueTable({ issues, className }: NewIssueTableProps) {
                   {iss.maturity}
                 </td>
 
+                {/* Size */}
                 <td
+                  className="right"
                   style={{
-                    textAlign: 'right',
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
+                    fontFamily: 'var(--font-data)',
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {iss.size}
                 </td>
 
+                {/* Rating -- quality-tier coloring */}
                 <td
                   style={{
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
+                    fontFamily: 'var(--font-data)',
+                    fontWeight: 500,
+                    color: ratingColor(iss.rating),
                   }}
                 >
                   {iss.rating}
                 </td>
 
+                {/* Spread */}
                 <td
+                  className="right"
                   style={{
-                    textAlign: 'right',
-                    padding: '6px 8px',
-                    color: 'var(--color-text-primary)',
+                    fontFamily: 'var(--font-data)',
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {fmtBps(iss.spread)}
                 </td>
 
+                {/* Initial Talk */}
                 <td
+                  className="right"
                   style={{
-                    textAlign: 'right',
-                    padding: '6px 8px',
-                    color: 'var(--color-text-tertiary)',
+                    fontFamily: 'var(--font-data)',
                     fontVariantNumeric: 'tabular-nums',
+                    color: 'var(--color-text-tertiary)',
                   }}
                 >
                   {fmtBps(iss.initialTalk)}
                 </td>
 
-                {/* vs Talk badge */}
-                <td style={{ padding: '6px 8px' }}>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-data)',
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 500,
-                      color: vt.color,
-                      padding: '2px 8px',
-                      border: `1px solid ${vt.color}`,
-                      borderRadius: '9999px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+                {/* vs Talk badge -- 15% opacity background */}
+                <td>
+                  <span className={vt.badgeClass}>
                     {vt.label}
                   </span>
                 </td>
 
                 {/* Status badge */}
-                <td style={{ padding: '6px 8px' }}>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-data)',
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 500,
-                      color: statusCfg.color,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      padding: '2px 8px',
-                      border: `1px solid ${statusCfg.color}`,
-                      borderRadius: '9999px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+                <td>
+                  <span className={statusCfg.badgeClass}>
                     {statusCfg.label}
                   </span>
                 </td>

@@ -712,6 +712,16 @@ def create_app() -> FastAPI:
         logger.warning("Portfolios router not available; skipping.")
 
     # ------------------------------------------------------------------
+    # Pillar 4 Phase 4: Research Notes
+    # ------------------------------------------------------------------
+    try:
+        from src.api.routers.research_notes import router as research_notes_router
+
+        app.include_router(research_notes_router, prefix="/v4")
+    except ImportError:
+        logger.warning("Research notes router not available; skipping.")
+
+    # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
     @app.get("/health", tags=["health"])

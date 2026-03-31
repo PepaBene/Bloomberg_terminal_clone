@@ -52,9 +52,9 @@ export function SensitivityMatrix({
   };
 
   return (
-    <div className="terminal-panel flex flex-col gap-3">
+    <div className="terminal-panel animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
@@ -82,14 +82,14 @@ export function SensitivityMatrix({
       </div>
 
       {/* Axis labels */}
-      <div className="flex items-center justify-between">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             color: 'var(--color-text-secondary)',
             textTransform: 'uppercase',
-            letterSpacing: '0.04em',
+            letterSpacing: '0.5px',
           }}
         >
           WACC {'\u2193'}
@@ -100,7 +100,7 @@ export function SensitivityMatrix({
             fontSize: 'var(--text-xs)',
             color: 'var(--color-text-secondary)',
             textTransform: 'uppercase',
-            letterSpacing: '0.04em',
+            letterSpacing: '0.5px',
           }}
         >
           Terminal Growth {'\u2192'}

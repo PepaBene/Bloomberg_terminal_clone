@@ -29,15 +29,15 @@ export interface FilingDiffViewerProps {
 /* ------------------------------------------------------------------ */
 
 const CHANGE_BG: Record<DiffChange['type'], string> = {
-  add: 'rgba(45, 184, 125, 0.10)',
-  remove: 'rgba(224, 82, 82, 0.10)',
-  modify: 'rgba(212, 168, 67, 0.10)',
+  add: 'color-mix(in srgb, var(--signal-positive) 8%, transparent)',
+  remove: 'color-mix(in srgb, var(--signal-negative) 8%, transparent)',
+  modify: 'color-mix(in srgb, var(--signal-warning) 8%, transparent)',
 };
 
 const CHANGE_BORDER: Record<DiffChange['type'], string> = {
-  add: 'var(--color-signal-positive)',
-  remove: 'var(--color-signal-negative)',
-  modify: 'var(--color-signal-highlight)',
+  add: 'var(--signal-positive)',
+  remove: 'var(--signal-negative)',
+  modify: 'var(--signal-warning)',
 };
 
 const CHANGE_LABEL: Record<DiffChange['type'], string> = {
@@ -65,11 +65,13 @@ export function FilingDiffViewer({
 
   return (
     <div
-      className={clsx('flex flex-col', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
         overflow: 'hidden',
       }}
     >
@@ -91,25 +93,26 @@ export function FilingDiffViewer({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 8,
-                padding: '8px 12px',
-                background: 'var(--color-surface-raised)',
-                borderBottom: '1px solid var(--color-surface-border)',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2) var(--space-3)',
+                background: 'var(--surface-raised)',
+                borderBottom: '1px solid var(--surface-border)',
                 borderTop: 'none',
                 borderLeft: 'none',
                 borderRight: 'none',
                 cursor: 'pointer',
                 fontFamily: 'var(--font-ui)',
-                fontSize: 'var(--text-sm)',
+                fontSize: 'var(--text-md)',
                 fontWeight: 600,
-                color: 'var(--color-text-primary)',
+                color: 'var(--text-primary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
                 textAlign: 'left',
+                transition: 'background var(--transition-fast)',
               }}
             >
-              <span className="flex items-center gap-2">
-                <span style={{ color: 'var(--color-text-tertiary)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span style={{ color: 'var(--text-tertiary)' }}>
                   {isExpanded ? '\u25BC' : '\u25B6'}
                 </span>
                 {section.name}
@@ -119,7 +122,8 @@ export function FilingDiffViewer({
                   style={{
                     fontFamily: 'var(--font-data)',
                     fontSize: 'var(--text-xs)',
-                    color: 'var(--color-signal-warning)',
+                    fontVariantNumeric: 'tabular-nums',
+                    color: 'var(--signal-warning)',
                     fontWeight: 500,
                   }}
                 >
@@ -128,16 +132,22 @@ export function FilingDiffViewer({
               )}
             </button>
 
-            {/* Content */}
-            {isExpanded && (
-              <div style={{ padding: 0 }}>
+            {/* Content — expand/collapse with smooth transition */}
+            <div
+              style={{
+                overflow: 'hidden',
+                maxHeight: isExpanded ? '4000px' : '0px',
+                transition: 'max-height var(--transition-normal)',
+              }}
+            >
+              <div>
                 {mode === 'side-by-side' ? (
                   <SideBySideView section={section} />
                 ) : (
                   <UnifiedView section={section} />
                 )}
               </div>
-            )}
+            </div>
           </div>
         );
       })}
@@ -172,16 +182,16 @@ function SideBySideView({ section }: { section: DiffSection }) {
 
       {/* Changes summary */}
       {section.changes.length > 0 && (
-        <div style={{ gridColumn: '1 / -1', padding: '8px 12px' }}>
+        <div style={{ gridColumn: '1 / -1', padding: 'var(--space-2) var(--space-3)' }}>
           <div
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: 'var(--color-text-secondary)',
+              color: 'var(--text-secondary)',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
-              marginBottom: 6,
+              marginBottom: 'var(--space-1)',
             }}
           >
             Detected Changes
@@ -213,7 +223,7 @@ function SideBySideRow({
       <div
         style={{
           ...lineStyle,
-          borderLeft: '1px solid var(--color-surface-border)',
+          borderLeft: '1px solid var(--surface-border)',
         }}
       >
         <span style={lineNumStyle}>{current != null ? lineNum : ''}</span>
@@ -229,14 +239,14 @@ function SideBySideRow({
 
 function UnifiedView({ section }: { section: DiffSection }) {
   return (
-    <div style={{ padding: '8px 12px' }}>
+    <div style={{ padding: 'var(--space-2) var(--space-3)' }}>
       {section.changes.length === 0 ? (
         <div
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-tertiary)',
-            padding: '12px 0',
+            color: 'var(--text-tertiary)',
+            padding: 'var(--space-3) 0',
           }}
         >
           No changes detected in this section.
@@ -258,12 +268,12 @@ function ChangeRow({ change }: { change: DiffChange }) {
       style={{
         display: 'flex',
         alignItems: 'flex-start',
-        gap: 8,
-        padding: '6px 8px',
-        marginBottom: 4,
+        gap: 'var(--space-2)',
+        padding: 'var(--space-1) var(--space-2)',
+        marginBottom: 'var(--space-1)',
         background: CHANGE_BG[change.type],
         borderLeft: `3px solid ${CHANGE_BORDER[change.type]}`,
-        borderRadius: 2,
+        borderRadius: 'var(--radius-sm)',
       }}
     >
       <span
@@ -271,6 +281,7 @@ function ChangeRow({ change }: { change: DiffChange }) {
           fontFamily: 'var(--font-data)',
           fontSize: 'var(--text-xs)',
           fontWeight: 500,
+          fontVariantNumeric: 'tabular-nums',
           color: CHANGE_BORDER[change.type],
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
@@ -284,7 +295,7 @@ function ChangeRow({ change }: { change: DiffChange }) {
         style={{
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-sm)',
-          color: 'var(--color-text-primary)',
+          color: 'var(--text-primary)',
           lineHeight: 1.5,
           whiteSpace: 'pre-wrap',
         }}
@@ -303,27 +314,28 @@ const columnHeaderStyle: React.CSSProperties = {
   fontFamily: 'var(--font-ui)',
   fontSize: 'var(--text-xs)',
   fontWeight: 600,
-  color: 'var(--color-text-tertiary)',
+  color: 'var(--text-tertiary)',
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
-  padding: '6px 12px',
-  background: 'var(--color-surface-raised)',
-  borderBottom: '1px solid var(--color-surface-border)',
+  padding: 'var(--space-1) var(--space-3)',
+  background: 'var(--surface-raised)',
+  borderBottom: '1px solid var(--surface-border)',
 };
 
 const lineStyle: React.CSSProperties = {
   display: 'flex',
-  gap: 8,
-  padding: '2px 12px',
+  gap: 'var(--space-2)',
+  padding: '2px var(--space-3)',
   fontFamily: 'var(--font-data)',
   fontSize: 'var(--text-xs)',
-  color: 'var(--color-text-primary)',
+  color: 'var(--text-primary)',
   lineHeight: 1.6,
   minHeight: 22,
 };
 
 const lineNumStyle: React.CSSProperties = {
-  color: 'var(--color-text-tertiary)',
+  fontFamily: 'var(--font-data)',
+  color: 'var(--text-tertiary)',
   fontVariantNumeric: 'tabular-nums',
   minWidth: 28,
   textAlign: 'right',

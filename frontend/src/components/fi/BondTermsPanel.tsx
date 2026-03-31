@@ -36,38 +36,13 @@ export interface BondTermsPanelProps {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-function covenantStatusColor(status: string): string {
+function covenantBadgeClass(status: string): string {
   const s = status.toUpperCase();
-  if (s === 'COMPLIANT' || s === 'MET') return 'var(--color-signal-positive)';
-  if (s === 'WARNING' || s === 'WATCH') return 'var(--color-signal-warning)';
-  if (s === 'BREACHED' || s === 'VIOLATED') return 'var(--color-signal-negative)';
-  return 'var(--color-signal-neutral)';
+  if (s === 'COMPLIANT' || s === 'MET') return 'terminal-badge terminal-badge-positive';
+  if (s === 'WARNING' || s === 'WATCH') return 'terminal-badge terminal-badge-warning';
+  if (s === 'BREACHED' || s === 'VIOLATED') return 'terminal-badge terminal-badge-negative';
+  return 'terminal-badge terminal-badge-neutral';
 }
-
-/* ------------------------------------------------------------------ */
-/*  Sub-components                                                     */
-/* ------------------------------------------------------------------ */
-
-const thStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-ui)',
-  fontSize: 'var(--text-xs)',
-  fontWeight: 500,
-  color: 'var(--color-text-secondary)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  padding: '6px 8px',
-  borderBottom: '1px solid var(--color-surface-border)',
-  whiteSpace: 'nowrap',
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  fontFamily: 'var(--font-data)',
-  fontSize: 'var(--text-sm)',
-  fontVariantNumeric: 'tabular-nums',
-  color: 'var(--color-text-primary)',
-  borderBottom: '1px solid var(--color-surface-border)',
-};
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -85,13 +60,13 @@ export function BondTermsPanel({ bond, className }: BondTermsPanelProps) {
   ];
 
   return (
-    <div className={clsx('flex flex-col gap-4', className)}>
-      {/* Key terms — 2-column grid */}
+    <div className={clsx('animate-in', className)} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {/* Key terms -- 2-column grid */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: '0',
+          gap: 0,
         }}
       >
         {termPairs.map((t) => (
@@ -100,8 +75,17 @@ export function BondTermsPanel({ bond, className }: BondTermsPanelProps) {
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              padding: '6px 8px',
+              padding: 'var(--space-1) var(--space-2)',
               borderBottom: '1px solid var(--color-surface-border)',
+              borderRadius: 0,
+              transition: 'background 120ms ease',
+              cursor: 'default',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--color-surface-overlay)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
             }}
           >
             <span
@@ -138,25 +122,39 @@ export function BondTermsPanel({ bond, className }: BondTermsPanelProps) {
               fontSize: 'var(--text-sm)',
               fontWeight: 600,
               color: 'var(--color-text-primary)',
-              marginBottom: '6px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              margin: 0,
+              marginBottom: 'var(--space-2)',
             }}
           >
             Call Schedule
           </h4>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="terminal-table">
             <thead>
               <tr>
-                <th style={{ ...thStyle, textAlign: 'left' }}>Date</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>
+                <th style={{ textAlign: 'left' }}>Date</th>
+                <th className="right">Price</th>
               </tr>
             </thead>
             <tbody>
               {bond.callSchedule.map((c) => (
                 <tr key={`${c.date}-${c.price}`}>
-                  <td style={{ ...tdStyle, textAlign: 'left', fontFamily: 'var(--font-ui)' }}>
+                  <td
+                    style={{
+                      fontFamily: 'var(--font-ui)',
+                      fontSize: 'var(--text-sm)',
+                    }}
+                  >
                     {c.date}
                   </td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  <td
+                    className="right"
+                    style={{
+                      fontFamily: 'var(--font-data)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
                     {c.price.toFixed(3)}
                   </td>
                 </tr>
@@ -175,65 +173,50 @@ export function BondTermsPanel({ bond, className }: BondTermsPanelProps) {
               fontSize: 'var(--text-sm)',
               fontWeight: 600,
               color: 'var(--color-text-primary)',
-              marginBottom: '6px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              margin: 0,
+              marginBottom: 'var(--space-2)',
             }}
           >
             Covenants
           </h4>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="terminal-table">
             <thead>
               <tr>
-                <th style={{ ...thStyle, textAlign: 'left' }}>Type</th>
-                <th style={{ ...thStyle, textAlign: 'left' }}>Description</th>
-                <th style={{ ...thStyle, textAlign: 'left' }}>Status</th>
+                <th style={{ textAlign: 'left' }}>Type</th>
+                <th style={{ textAlign: 'left' }}>Description</th>
+                <th style={{ textAlign: 'left' }}>Status</th>
               </tr>
             </thead>
             <tbody>
-              {bond.covenants.map((cv, i) => {
-                const sColor = covenantStatusColor(cv.status);
-                return (
-                  <tr key={`${cv.type}-${i}`}>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'left',
-                        fontFamily: 'var(--font-ui)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {cv.type}
-                    </td>
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'left',
-                        fontFamily: 'var(--font-ui)',
-                        color: 'var(--color-text-secondary)',
-                      }}
-                    >
-                      {cv.description}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'left' }}>
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-data)',
-                          fontSize: 'var(--text-xs)',
-                          fontWeight: 500,
-                          color: sColor,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          padding: '2px 8px',
-                          border: `1px solid ${sColor}`,
-                          borderRadius: '9999px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {cv.status}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {bond.covenants.map((cv, i) => (
+                <tr key={`${cv.type}-${i}`}>
+                  <td
+                    style={{
+                      fontFamily: 'var(--font-ui)',
+                      fontSize: 'var(--text-sm)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {cv.type}
+                  </td>
+                  <td
+                    style={{
+                      fontFamily: 'var(--font-ui)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {cv.description}
+                  </td>
+                  <td>
+                    <span className={covenantBadgeClass(cv.status)}>
+                      {cv.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

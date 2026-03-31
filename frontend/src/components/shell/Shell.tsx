@@ -23,7 +23,6 @@ export function Shell({ children }: ShellProps) {
 
   /* ── Shortcut actions (stable refs) ───────────────────────── */
   const openCommandBar = useCallback(() => {
-    // Dispatch a synthetic Ctrl+K so TopBar's existing handler opens the CommandBar
     window.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
     );
@@ -61,7 +60,6 @@ export function Shell({ children }: ShellProps) {
   /* ── Shortcut definitions ─────────────────────────────────── */
   const shortcutDefs: ShortcutDef[] = useMemo(
     () => [
-      // ── Navigation ──
       {
         key: '/',
         description: 'Open command bar',
@@ -89,13 +87,10 @@ export function Shell({ children }: ShellProps) {
         action: goBackSecurity,
         category: 'Navigation',
       },
-
-      // ── Panel ──
       {
         key: 'f',
         description: 'Fullscreen current panel',
         action: () => {
-          // Dispatch a custom event that Panel components can listen for
           window.dispatchEvent(new CustomEvent('terminal:panel-fullscreen'));
         },
         category: 'Panel',
@@ -115,8 +110,6 @@ export function Shell({ children }: ShellProps) {
         },
         category: 'Panel',
       },
-
-      // ── Data ──
       {
         key: 'd',
         ctrl: true,
@@ -142,8 +135,6 @@ export function Shell({ children }: ShellProps) {
         },
         category: 'Data',
       },
-
-      // ── Search ──
       {
         key: '?',
         shift: true,
@@ -220,14 +211,12 @@ export function Shell({ children }: ShellProps) {
         <StatusBar />
       </div>
 
-      {/* ── Shortcut Reference Modal ── */}
       <ShortcutReference
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
         shortcuts={shortcutEntries}
       />
 
-      {/* ── Export Menu ── */}
       <ExportMenu
         open={exportOpen}
         onClose={() => setExportOpen(false)}

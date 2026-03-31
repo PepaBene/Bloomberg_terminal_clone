@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
 import clsx from 'clsx';
+import { ContextMenu, useContextMenu } from './ContextMenu';
 
 export interface KPICardProps {
   /** Short metric label (e.g. "Market Cap") */
@@ -16,6 +17,8 @@ export interface KPICardProps {
   sparkline?: ReactNode;
   /** Additional CSS class */
   className?: string;
+  /** Called when "Drill into this value" is selected from the right-click menu */
+  onDrillDown?: () => void;
 }
 
 export function KPICard({
@@ -26,7 +29,10 @@ export function KPICard({
   subtitle,
   sparkline,
   className,
+  onDrillDown,
 }: KPICardProps) {
+  const { menu: ctxMenu, open: openCtxMenu, close: closeCtxMenu } = useContextMenu();
+
   const changeColor =
     changeDirection === 'positive'
       ? 'var(--color-signal-positive)'
@@ -42,6 +48,7 @@ export function KPICard({
         : '';
 
   return (
+    <>
     <div
       className={clsx(
         'flex flex-col gap-1 rounded-[var(--border-radius-md,4px)] p-[var(--panel-padding)]',
@@ -50,6 +57,18 @@ export function KPICard({
       style={{
         background: 'var(--color-surface-base)',
         border: '1px solid var(--color-surface-border)',
+      }}
+      onContextMenu={(e) => {
+        openCtxMenu(e, [
+          {
+            label: 'Drill into this value',
+            onClick: () => onDrillDown?.(),
+          },
+          {
+            label: 'Copy value',
+            onClick: () => navigator.clipboard.writeText(String(value ?? '')),
+          },
+        ]);
       }}
     >
       {/* Label */}
@@ -118,5 +137,14 @@ export function KPICard({
       {/* Sparkline placeholder */}
       {sparkline && <div className="mt-1">{sparkline}</div>}
     </div>
+    {ctxMenu && (
+      <ContextMenu
+        items={ctxMenu.items}
+        x={ctxMenu.x}
+        y={ctxMenu.y}
+        onClose={closeCtxMenu}
+      />
+    )}
+    </>
   );
 }

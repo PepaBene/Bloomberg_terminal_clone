@@ -30,6 +30,12 @@ const TIME_LABELS: Record<string, string> = {
   DMH: 'During Hours',
 };
 
+const TIME_BADGE_COLOR: Record<string, string> = {
+  BMO: 'var(--chart-1)',
+  AMC: 'var(--chart-3)',
+  DMH: 'var(--text-tertiary)',
+};
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -91,23 +97,25 @@ export function EarningsCalendarWidget({
 
   return (
     <div
-      className={clsx('flex flex-col', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
         overflow: 'hidden',
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: '8px 12px',
-          borderBottom: '1px solid var(--color-surface-border)',
+          padding: 'var(--space-2) var(--space-3)',
+          borderBottom: '1px solid var(--surface-border)',
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-sm)',
           fontWeight: 600,
-          color: 'var(--color-text-primary)',
+          color: 'var(--text-primary)',
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
         }}
@@ -120,17 +128,19 @@ export function EarningsCalendarWidget({
 
         return (
           <div key={group.date}>
-            {/* Date header */}
+            {/* Date group header — sticky, font-ui text-xs text-secondary */}
             <div
               style={{
-                padding: '6px 12px',
-                background: today
-                  ? 'rgba(59, 130, 246, 0.08)'
-                  : 'var(--color-surface-raised)',
-                borderBottom: '1px solid var(--color-surface-border)',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1,
+                padding: 'var(--space-1) var(--space-3)',
+                background: 'var(--surface-raised)',
+                borderBottom: '1px solid var(--surface-border)',
+                borderLeft: today ? '3px solid var(--accent-primary)' : '3px solid transparent',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: 'var(--space-2)',
               }}
             >
               <span
@@ -139,8 +149,8 @@ export function EarningsCalendarWidget({
                   fontSize: 'var(--text-xs)',
                   fontWeight: 600,
                   color: today
-                    ? 'var(--color-accent-primary)'
-                    : 'var(--color-text-secondary)',
+                    ? 'var(--accent-primary)'
+                    : 'var(--text-secondary)',
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
                 }}
@@ -151,12 +161,13 @@ export function EarningsCalendarWidget({
                 <span
                   style={{
                     fontFamily: 'var(--font-data)',
-                    fontSize: '9px',
+                    fontSize: 'var(--text-xs)',
                     fontWeight: 500,
-                    color: 'var(--color-accent-primary)',
-                    padding: '1px 6px',
-                    border: '1px solid var(--color-accent-primary)',
-                    borderRadius: '9999px',
+                    fontVariantNumeric: 'tabular-nums',
+                    color: 'var(--accent-primary)',
+                    padding: '1px var(--space-1)',
+                    background: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
+                    borderRadius: 'var(--radius-sm)',
                   }}
                 >
                   TODAY
@@ -167,6 +178,7 @@ export function EarningsCalendarWidget({
             {/* Event rows */}
             {group.items.map((ev) => {
               const isWatchlisted = watchSet.has(ev.ticker.toUpperCase());
+              const timeBadgeColor = TIME_BADGE_COLOR[ev.time] ?? 'var(--text-tertiary)';
 
               return (
                 <div
@@ -174,12 +186,13 @@ export function EarningsCalendarWidget({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    padding: '6px 12px',
-                    borderBottom: '1px solid var(--color-surface-border)',
+                    gap: 'var(--space-2)',
+                    padding: 'var(--space-1) var(--space-3)',
+                    borderBottom: '1px solid var(--surface-border)',
                     background: isWatchlisted
-                      ? 'rgba(59, 130, 246, 0.04)'
+                      ? 'color-mix(in srgb, var(--signal-highlight) 10%, transparent)'
                       : 'transparent',
+                    transition: 'background var(--transition-fast)',
                   }}
                 >
                   {/* Watchlist indicator */}
@@ -189,7 +202,7 @@ export function EarningsCalendarWidget({
                       height: 5,
                       borderRadius: '50%',
                       background: isWatchlisted
-                        ? 'var(--color-accent-primary)'
+                        ? 'var(--accent-primary)'
                         : 'transparent',
                       flexShrink: 0,
                     }}
@@ -201,9 +214,10 @@ export function EarningsCalendarWidget({
                       fontFamily: 'var(--font-data)',
                       fontSize: 'var(--text-sm)',
                       fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
                       color: isWatchlisted
-                        ? 'var(--color-accent-primary)'
-                        : 'var(--color-text-primary)',
+                        ? 'var(--accent-primary)'
+                        : 'var(--text-primary)',
                       minWidth: 60,
                       flexShrink: 0,
                     }}
@@ -217,7 +231,7 @@ export function EarningsCalendarWidget({
                       flex: 1,
                       fontFamily: 'var(--font-ui)',
                       fontSize: 'var(--text-sm)',
-                      color: 'var(--color-text-secondary)',
+                      color: 'var(--text-secondary)',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -226,12 +240,12 @@ export function EarningsCalendarWidget({
                     {ev.companyName}
                   </span>
 
-                  {/* Expected EPS */}
+                  {/* Expected EPS — font-data tabular-nums */}
                   <span
                     style={{
                       fontFamily: 'var(--font-data)',
                       fontSize: 'var(--text-xs)',
-                      color: 'var(--color-text-primary)',
+                      color: 'var(--text-primary)',
                       fontVariantNumeric: 'tabular-nums',
                       minWidth: 56,
                       textAlign: 'right',
@@ -241,17 +255,21 @@ export function EarningsCalendarWidget({
                     {ev.expectedEps != null ? `$${ev.expectedEps.toFixed(2)}` : '\u2014'}
                   </span>
 
-                  {/* Time badge */}
+                  {/* Time badge — BMO=chart-1, AMC=chart-3 */}
                   <span
                     style={{
                       fontFamily: 'var(--font-data)',
-                      fontSize: '9px',
+                      fontSize: 'var(--text-xs)',
                       fontWeight: 500,
-                      color: 'var(--color-text-tertiary)',
+                      fontVariantNumeric: 'tabular-nums',
+                      color: timeBadgeColor,
+                      background: `color-mix(in srgb, ${timeBadgeColor} 15%, transparent)`,
                       textTransform: 'uppercase',
                       letterSpacing: '0.06em',
+                      padding: '1px var(--space-1)',
+                      borderRadius: 'var(--radius-sm)',
                       minWidth: 28,
-                      textAlign: 'right',
+                      textAlign: 'center',
                       flexShrink: 0,
                     }}
                     title={TIME_LABELS[ev.time] ?? ev.time}
@@ -268,11 +286,11 @@ export function EarningsCalendarWidget({
       {events.length === 0 && (
         <div
           style={{
-            padding: '24px 16px',
+            padding: 'var(--space-6) var(--space-4)',
             textAlign: 'center',
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
           }}
         >
           No upcoming earnings events

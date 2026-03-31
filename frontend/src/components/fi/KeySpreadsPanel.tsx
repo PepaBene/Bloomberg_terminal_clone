@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import clsx from 'clsx';
 
 /* ------------------------------------------------------------------ */
@@ -29,21 +28,30 @@ function changeColor(v: number): string {
   return 'var(--color-signal-neutral)';
 }
 
+function changeArrow(v: number): string {
+  if (v > 0) return '\u2191';
+  if (v < 0) return '\u2193';
+  return '';
+}
+
 function formatBps(v: number): string {
   return v.toFixed(0);
 }
 
 function formatChange(v: number): string {
   const sign = v > 0 ? '+' : '';
-  return `${sign}${v.toFixed(1)}`;
+  return `${changeArrow(v)}${sign}${v.toFixed(1)}`;
 }
 
+/** Quality-tier coloring for percentile bars:
+ *  Low percentile (tight spreads) = quality-5 (green)
+ *  High percentile (wide spreads) = quality-1 (red) */
 function percentileColor(p: number): string {
-  if (p >= 80) return 'var(--color-signal-negative)';
-  if (p >= 60) return 'var(--color-signal-warning)';
-  if (p >= 40) return 'var(--color-signal-neutral)';
-  if (p >= 20) return 'var(--color-signal-positive)';
-  return 'var(--color-signal-positive)';
+  if (p >= 80) return 'var(--color-quality-1)';
+  if (p >= 60) return 'var(--color-quality-2)';
+  if (p >= 40) return 'var(--color-quality-3)';
+  if (p >= 20) return 'var(--color-quality-4)';
+  return 'var(--color-quality-5)';
 }
 
 /* ------------------------------------------------------------------ */
@@ -51,54 +59,24 @@ function percentileColor(p: number): string {
 /* ------------------------------------------------------------------ */
 
 export function KeySpreadsPanel({ spreads, className }: KeySpreadsPanelProps) {
-  const rows = useMemo(() => spreads, [spreads]);
-
   return (
-    <div className={clsx('overflow-auto', className)}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontFamily: 'var(--font-data)',
-          fontSize: 'var(--text-sm)',
-        }}
-      >
+    <div className={clsx('animate-in overflow-auto', className)}>
+      <table className="terminal-table">
         <thead>
           <tr>
-            {['Name', 'Value (bps)', '1D Chg', '1W Chg', '1Y Percentile'].map(
-              (h) => (
-                <th
-                  key={h}
-                  style={{
-                    textAlign: h === 'Name' ? 'left' : 'right',
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--text-xs)',
-                    fontWeight: 500,
-                    color: 'var(--color-text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    padding: '6px 8px',
-                    borderBottom: '1px solid var(--color-surface-border)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
-              ),
-            )}
+            <th style={{ textAlign: 'left' }}>Name</th>
+            <th className="right">Value (bps)</th>
+            <th className="right">1D Chg</th>
+            <th className="right">1W Chg</th>
+            <th className="right" style={{ minWidth: 120 }}>1Y Percentile</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((s) => (
-            <tr
-              key={s.name}
-              style={{ borderBottom: '1px solid var(--color-surface-border)' }}
-            >
+          {spreads.map((s) => (
+            <tr key={s.name}>
               {/* Name */}
               <td
                 style={{
-                  padding: '6px 8px',
-                  color: 'var(--color-text-primary)',
                   fontFamily: 'var(--font-ui)',
                   fontSize: 'var(--text-sm)',
                   whiteSpace: 'nowrap',
@@ -108,24 +86,17 @@ export function KeySpreadsPanel({ spreads, className }: KeySpreadsPanelProps) {
               </td>
 
               {/* Value */}
-              <td
-                style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
-                  color: 'var(--color-text-primary)',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
+              <td className="right" style={{ fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)' }}>
                 {formatBps(s.value)}
               </td>
 
               {/* 1D Change */}
               <td
+                className="right"
                 style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
-                  color: changeColor(s.change1d),
+                  fontFamily: 'var(--font-data)',
                   fontVariantNumeric: 'tabular-nums',
+                  color: changeColor(s.change1d),
                 }}
               >
                 {formatChange(s.change1d)}
@@ -133,28 +104,32 @@ export function KeySpreadsPanel({ spreads, className }: KeySpreadsPanelProps) {
 
               {/* 1W Change */}
               <td
+                className="right"
                 style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
-                  color: changeColor(s.change1w),
+                  fontFamily: 'var(--font-data)',
                   fontVariantNumeric: 'tabular-nums',
+                  color: changeColor(s.change1w),
                 }}
               >
                 {formatChange(s.change1w)}
               </td>
 
               {/* Percentile bar */}
-              <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+              <td className="right">
                 <div
-                  className="inline-flex items-center gap-2"
-                  style={{ minWidth: '90px' }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                    minWidth: 100,
+                  }}
                 >
                   <div
                     style={{
                       flex: 1,
-                      height: '4px',
+                      height: 4,
                       background: 'var(--color-surface-border)',
-                      borderRadius: '2px',
+                      borderRadius: 'var(--radius-sm)',
                       overflow: 'hidden',
                     }}
                   >
@@ -163,17 +138,18 @@ export function KeySpreadsPanel({ spreads, className }: KeySpreadsPanelProps) {
                         width: `${Math.max(0, Math.min(100, s.percentile))}%`,
                         height: '100%',
                         background: percentileColor(s.percentile),
-                        borderRadius: '2px',
-                        transition: 'width 0.3s ease',
+                        borderRadius: 'var(--radius-sm)',
+                        transition: 'width 300ms ease',
                       }}
                     />
                   </div>
                   <span
                     style={{
+                      fontFamily: 'var(--font-data)',
                       fontVariantNumeric: 'tabular-nums',
                       color: percentileColor(s.percentile),
                       fontSize: 'var(--text-xs)',
-                      minWidth: '28px',
+                      minWidth: 28,
                       textAlign: 'right',
                     }}
                   >

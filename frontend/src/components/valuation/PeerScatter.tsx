@@ -1,5 +1,6 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
-import { CHART_THEME } from '@/components/charts';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { LassoSelection, useLassoSelection } from '../charts/LassoSelection';
+import type { LassoPoint } from '../charts/LassoSelection';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -18,6 +19,7 @@ export interface PeerScatterProps {
   xLabel: string;
   yLabel: string;
   highlightTicker?: string;
+  onLassoSelect?: (selectedTickers: string[]) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -28,14 +30,35 @@ const MARGIN = { top: 16, right: 24, bottom: 40, left: 56 };
 const MIN_DOT = 4;
 const MAX_DOT = 20;
 
+/* CSS variable values resolved at render-time via getComputedStyle
+   would be ideal, but for SVG inline styles we use the token values
+   directly from the design spec so they stay in sync with tokens.css. */
+const C = {
+  grid: 'var(--color-surface-border)',
+  axis: 'var(--color-text-secondary)',
+  axisLabel: 'var(--color-text-secondary)',
+  dotDefault: 'var(--color-chart-1)',
+  dotAccent: 'var(--color-accent-primary)',
+  textPrimary: 'var(--color-text-primary)',
+  textSecondary: 'var(--color-text-secondary)',
+  textTertiary: 'var(--color-text-tertiary)',
+  surfaceRaised: 'var(--color-surface-raised)',
+  surfaceBorder: 'var(--color-surface-border)',
+  surfaceBorderStrong: 'var(--color-surface-border-strong)',
+} as const;
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScatterProps) {
+export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSelect }: PeerScatterProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [containerWidth, setContainerWidth] = useState(600);
   const height = 360;
+
+  /* Lasso state */
+  const [lassoActive, setLassoActive] = useState(false);
+  const [lassoPolygon, setLassoPolygon] = useState<LassoPoint[] | null>(null);
 
   /* Observe container width */
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,6 +83,9 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
     y: number;
     point: PeerPoint;
   } | null>(null);
+
+  /* Hovered dot */
+  const [hoveredTicker, setHoveredTicker] = useState<string | null>(null);
 
   /* Scales */
   const { xScale, yScale, rScale, xTicks, yTicks } = useMemo(() => {
@@ -90,7 +116,6 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
       return MIN_DOT + t * (MAX_DOT - MIN_DOT);
     };
 
-    /* Generate ticks */
     const generateTicks = (min: number, max: number, count: number): number[] => {
       const step = (max - min) / (count - 1) || 1;
       return Array.from({ length: count }, (_, i) => min + step * i);
@@ -108,8 +133,26 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
   const plotW = containerWidth - MARGIN.left - MARGIN.right;
   const plotH = height - MARGIN.top - MARGIN.bottom;
 
+  /* Map peers to lasso-testable points (SVG coordinate space) */
+  const lassoPoints = useMemo(
+    () =>
+      peers.map((p) => ({
+        id: p.ticker,
+        x: xScale(p.x),
+        y: yScale(p.y),
+      })),
+    [peers, xScale, yScale],
+  );
+
+  const selectedIds = useLassoSelection(lassoPoints, lassoPolygon);
+
+  /* Notify parent when selection changes */
+  useEffect(() => {
+    onLassoSelect?.(selectedIds);
+  }, [selectedIds, onLassoSelect]);
+
   return (
-    <div ref={setRef} className="terminal-panel" style={{ width: '100%', position: 'relative' }}>
+    <div ref={setRef} className="terminal-panel animate-in" style={{ width: '100%', position: 'relative' }}>
       {/* Header */}
       <div
         style={{
@@ -119,13 +162,50 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
           color: 'var(--color-text-primary)',
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
-          marginBottom: 8,
+          marginBottom: 'var(--space-2)',
         }}
       >
         Peer Comparison
       </div>
 
-      <svg ref={svgRef} width={containerWidth} height={height} style={{ display: 'block' }}>
+      {/* Lasso toggle button */}
+      <button
+        onClick={() => {
+          setLassoActive((v) => !v);
+          if (lassoActive) {
+            setLassoPolygon(null);
+          }
+        }}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 20,
+          cursor: 'pointer',
+          fontFamily: 'var(--font-ui)',
+          fontSize: 'var(--text-xs)',
+          padding: '3px 8px',
+          borderRadius: 'var(--radius-sm)',
+          lineHeight: 1.5,
+          ...(lassoActive
+            ? {
+                background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
+                border: '1px solid var(--color-accent-primary)',
+                color: 'var(--color-accent-primary)',
+              }
+            : {
+                background: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                color: 'var(--color-text-tertiary)',
+              }),
+        }}
+      >
+        ⬡ Lasso
+      </button>
+
+      {/* Chart container — relative so the SVG overlay is positioned correctly */}
+      <div style={{ position: 'relative' }}>
+        <svg ref={svgRef} width={containerWidth} height={height} style={{ display: 'block' }}>
         {/* Grid lines */}
         {xTicks.map((t, i) => (
           <line
@@ -134,7 +214,8 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
             x2={xScale(t)}
             y1={MARGIN.top}
             y2={MARGIN.top + plotH}
-            stroke={CHART_THEME.colors.grid}
+            stroke={C.grid}
+            strokeOpacity={0.3}
             strokeDasharray="3 3"
           />
         ))}
@@ -145,12 +226,13 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
             x2={MARGIN.left + plotW}
             y1={yScale(t)}
             y2={yScale(t)}
-            stroke={CHART_THEME.colors.grid}
+            stroke={C.grid}
+            strokeOpacity={0.3}
             strokeDasharray="3 3"
           />
         ))}
 
-        {/* X axis labels */}
+        {/* X axis tick labels */}
         {xTicks.map((t, i) => (
           <text
             key={`xl-${i}`}
@@ -158,16 +240,17 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
             y={MARGIN.top + plotH + 16}
             textAnchor="middle"
             style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 10,
-              fill: CHART_THEME.colors.axis,
+              fontFamily: 'var(--font-data)',
+              fontSize: 'var(--text-xs)',
+              fill: C.axis,
+              fontVariantNumeric: 'tabular-nums',
             }}
           >
             {t.toFixed(1)}
           </text>
         ))}
 
-        {/* Y axis labels */}
+        {/* Y axis tick labels */}
         {yTicks.map((t, i) => (
           <text
             key={`yl-${i}`}
@@ -176,9 +259,10 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
             textAnchor="end"
             dominantBaseline="central"
             style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 10,
-              fill: CHART_THEME.colors.axis,
+              fontFamily: 'var(--font-data)',
+              fontSize: 'var(--text-xs)',
+              fill: C.axis,
+              fontVariantNumeric: 'tabular-nums',
             }}
           >
             {t.toFixed(1)}
@@ -191,9 +275,9 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
           y={height - 4}
           textAnchor="middle"
           style={{
-            fontFamily: CHART_THEME.fonts.ui,
-            fontSize: 11,
-            fill: CHART_THEME.colors.textSecondary,
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-xs)',
+            fill: C.axisLabel,
           }}
         >
           {xLabel}
@@ -206,17 +290,27 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
           textAnchor="middle"
           transform={`rotate(-90, 12, ${MARGIN.top + plotH / 2})`}
           style={{
-            fontFamily: CHART_THEME.fonts.ui,
-            fontSize: 11,
-            fill: CHART_THEME.colors.textSecondary,
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-xs)',
+            fill: C.axisLabel,
           }}
         >
           {yLabel}
         </text>
 
+        {/* Glow filter for hover effect */}
+        <defs>
+          <filter id="peer-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="var(--color-accent-primary)" floodOpacity="0.5" />
+          </filter>
+        </defs>
+
         {/* Dots */}
         {peers.map((p) => {
           const isHighlighted = highlightTicker != null && p.ticker === highlightTicker;
+          const isHovered = hoveredTicker === p.ticker;
+          const isSelected = selectedIds.includes(p.ticker);
+          const hasSelection = selectedIds.length > 0;
           const cx = xScale(p.x);
           const cy = yScale(p.y);
           const r = rScale(p.marketCap);
@@ -226,27 +320,43 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
               <circle
                 cx={cx}
                 cy={cy}
-                r={r}
-                fill={isHighlighted ? CHART_THEME.colors.accent : CHART_THEME.colors.series[0]}
-                opacity={isHighlighted ? 1 : 0.6}
-                stroke={isHighlighted ? CHART_THEME.colors.textPrimary : 'none'}
-                strokeWidth={isHighlighted ? 1.5 : 0}
-                style={{ cursor: 'pointer', transition: 'opacity 120ms ease' }}
-                onMouseEnter={() => setTooltip({ x: cx, y: cy, point: p })}
-                onMouseLeave={() => setTooltip(null)}
+                r={isHovered ? r + 2 : r}
+                fill={isHighlighted ? C.dotAccent : C.dotDefault}
+                opacity={
+                  hasSelection
+                    ? isSelected
+                      ? 1
+                      : 0.2
+                    : isHighlighted || isHovered
+                      ? 1
+                      : 0.6
+                }
+                stroke={isSelected ? C.dotAccent : isHighlighted ? C.textPrimary : 'none'}
+                strokeWidth={isSelected || isHighlighted ? 1.5 : 0}
+                filter={isHovered ? 'url(#peer-glow)' : undefined}
+                style={{ cursor: 'pointer', transition: 'all 120ms ease' }}
+                onMouseEnter={() => {
+                  setHoveredTicker(p.ticker);
+                  setTooltip({ x: cx, y: cy, point: p });
+                }}
+                onMouseLeave={() => {
+                  setHoveredTicker(null);
+                  setTooltip(null);
+                }}
               />
-              {/* Ticker label for highlighted */}
-              {isHighlighted && (
+              {/* Ticker label for highlighted or hovered */}
+              {(isHighlighted || isHovered) && (
                 <text
                   x={cx}
-                  y={cy - r - 4}
+                  y={cy - r - 6}
                   textAnchor="middle"
                   style={{
-                    fontFamily: CHART_THEME.fonts.data,
-                    fontSize: 10,
+                    fontFamily: 'var(--font-data)',
+                    fontSize: 'var(--text-xs)',
                     fontWeight: 600,
-                    fill: CHART_THEME.colors.accent,
+                    fill: isHighlighted ? C.dotAccent : C.textPrimary,
                     pointerEvents: 'none',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {p.ticker}
@@ -255,66 +365,123 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker }: PeerScat
             </g>
           );
         })}
-      </svg>
+        </svg>
 
-      {/* Tooltip */}
-      {tooltip && (
+        {/* Lasso overlay — sits on top of the SVG */}
+        <LassoSelection
+          active={lassoActive}
+          width={containerWidth}
+          height={height}
+          onSelect={(poly) => {
+            setLassoPolygon(poly);
+            setLassoActive(false);
+          }}
+          onClear={() => setLassoPolygon(null)}
+        />
+
+        {/* Tooltip */}
+        {tooltip && (
+          <div
+            style={{
+              position: 'absolute',
+              left: tooltip.x,
+              top: tooltip.y - 12,
+              transform: 'translate(-50%, -100%)',
+              background: 'var(--color-surface-raised)',
+              border: `1px solid var(--color-surface-border-strong)`,
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--space-2) var(--space-3)',
+              boxShadow: 'var(--shadow-float)',
+              pointerEvents: 'none',
+              zIndex: 10,
+              minWidth: 140,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-text-secondary)',
+                marginBottom: 'var(--space-1)',
+              }}
+            >
+              {tooltip.point.name} ({tooltip.point.ticker})
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: 'var(--text-base)',
+                color: 'var(--color-text-primary)',
+                fontVariantNumeric: 'tabular-nums' as const,
+              }}
+            >
+              {xLabel}: {tooltip.point.x.toFixed(2)}
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: 'var(--text-base)',
+                color: 'var(--color-text-primary)',
+                fontVariantNumeric: 'tabular-nums' as const,
+              }}
+            >
+              {yLabel}: {tooltip.point.y.toFixed(2)}
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-secondary)',
+                marginTop: 'var(--space-1)',
+                fontVariantNumeric: 'tabular-nums' as const,
+              }}
+            >
+              Mkt Cap: ${(tooltip.point.marketCap / 1e9).toFixed(1)}B
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Selection badge */}
+      {selectedIds.length > 0 && (
         <div
           style={{
-            position: 'absolute',
-            left: tooltip.x,
-            top: tooltip.y - 12,
-            transform: 'translate(-50%, -100%)',
-            background: CHART_THEME.colors.tooltip.bg,
-            border: `1px solid ${CHART_THEME.colors.surfaceBorderStrong}`,
-            borderRadius: 4,
-            padding: '8px 10px',
-            boxShadow: CHART_THEME.shadowFloat,
-            pointerEvents: 'none',
-            zIndex: 10,
-            minWidth: 140,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            marginTop: 'var(--space-2)',
           }}
         >
-          <div
+          <span
             style={{
-              fontFamily: CHART_THEME.fonts.ui,
-              fontSize: 11,
-              color: CHART_THEME.colors.tooltip.label,
-              marginBottom: 2,
+              fontFamily: 'var(--font-ui)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-accent-primary)',
+              background: 'color-mix(in srgb, var(--color-accent-primary) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 8px',
             }}
           >
-            {tooltip.point.name} ({tooltip.point.ticker})
-          </div>
-          <div
+            {selectedIds.length} {selectedIds.length === 1 ? 'company' : 'companies'} selected
+          </span>
+          <button
+            onClick={() => {
+              setLassoPolygon(null);
+            }}
             style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 12,
-              color: CHART_THEME.colors.tooltip.text,
-              fontVariantNumeric: 'tabular-nums',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--color-text-tertiary)',
+              background: 'var(--color-surface-raised)',
+              border: '1px solid var(--color-surface-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 8px',
+              cursor: 'pointer',
             }}
           >
-            {xLabel}: {tooltip.point.x.toFixed(2)}
-          </div>
-          <div
-            style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 12,
-              color: CHART_THEME.colors.tooltip.text,
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {yLabel}: {tooltip.point.y.toFixed(2)}
-          </div>
-          <div
-            style={{
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 10,
-              color: CHART_THEME.colors.tooltip.label,
-              marginTop: 2,
-            }}
-          >
-            Mkt Cap: ${(tooltip.point.marketCap / 1e9).toFixed(1)}B
-          </div>
+            Clear
+          </button>
         </div>
       )}
     </div>

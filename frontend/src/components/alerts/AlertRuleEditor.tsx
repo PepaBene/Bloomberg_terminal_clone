@@ -93,22 +93,25 @@ export function AlertRuleEditor({
 
   return (
     <div
-      className={clsx('flex flex-col gap-4', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
-        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-4)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-4)',
       }}
     >
-      {/* Title */}
-      <div className="flex items-center justify-between">
+      {/* Title + toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -120,20 +123,33 @@ export function AlertRuleEditor({
           type="button"
           onClick={() => setIsEnabled((v) => !v)}
           style={{
-            fontFamily: 'var(--font-data)',
-            fontSize: 'var(--text-xs)',
-            fontWeight: 500,
-            color: isEnabled ? 'var(--color-signal-positive)' : 'var(--color-text-tertiary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            padding: '2px 8px',
-            border: `1px solid ${isEnabled ? 'var(--color-signal-positive)' : 'var(--color-surface-border)'}`,
-            borderRadius: '9999px',
-            background: 'transparent',
+            width: 36,
+            height: 20,
+            borderRadius: 10,
+            background: isEnabled
+              ? 'var(--accent-primary)'
+              : 'var(--surface-border-strong)',
+            border: 'none',
+            position: 'relative',
             cursor: 'pointer',
+            padding: 0,
+            transition: 'background var(--transition-fast)',
           }}
+          title={isEnabled ? 'Enabled' : 'Disabled'}
+          aria-label={`Toggle rule ${isEnabled ? 'off' : 'on'}`}
         >
-          {isEnabled ? 'ENABLED' : 'DISABLED'}
+          <span
+            style={{
+              position: 'absolute',
+              top: 2,
+              left: isEnabled ? 18 : 2,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              background: 'var(--text-primary)',
+              transition: 'left var(--transition-fast)',
+            }}
+          />
         </button>
       </div>
 
@@ -164,13 +180,13 @@ export function AlertRuleEditor({
       </FormField>
 
       {/* Conditions */}
-      <div className="flex flex-col gap-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: 'var(--color-text-secondary)',
+            color: 'var(--text-secondary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -183,11 +199,11 @@ export function AlertRuleEditor({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '6px 8px',
-              background: 'var(--color-surface-raised)',
-              borderRadius: 4,
-              border: '1px solid var(--color-surface-border)',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-1) var(--space-2)',
+              background: 'var(--surface-raised)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--surface-border)',
             }}
           >
             <input
@@ -216,7 +232,12 @@ export function AlertRuleEditor({
               onChange={(e) =>
                 handleConditionChange(idx, 'threshold', parseFloat(e.target.value) || 0)
               }
-              style={{ ...inputStyle, width: 80, fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums' }}
+              style={{
+                ...inputStyle,
+                width: 80,
+                fontFamily: 'var(--font-data)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
             />
             <button
               type="button"
@@ -234,10 +255,10 @@ export function AlertRuleEditor({
           onClick={handleAddCondition}
           style={addButtonStyle}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--color-surface-overlay)';
+            e.currentTarget.style.background = 'var(--surface-overlay)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--color-surface-raised)';
+            e.currentTarget.style.background = 'var(--surface-raised)';
           }}
         >
           + Add Condition
@@ -245,31 +266,36 @@ export function AlertRuleEditor({
       </div>
 
       {/* Quiet hours */}
-      <div className="flex flex-col gap-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: 'var(--color-text-secondary)',
+            color: 'var(--text-secondary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
         >
           Quiet Hours
         </span>
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <input
             type="time"
             value={quietStart}
             onChange={(e) => setQuietStart(e.target.value)}
-            style={{ ...inputStyle, width: 120 }}
+            style={{
+              ...inputStyle,
+              width: 120,
+              fontFamily: 'var(--font-data)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
           />
           <span
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-xs)',
-              color: 'var(--color-text-tertiary)',
+              color: 'var(--text-tertiary)',
             }}
           >
             to
@@ -278,7 +304,12 @@ export function AlertRuleEditor({
             type="time"
             value={quietEnd}
             onChange={(e) => setQuietEnd(e.target.value)}
-            style={{ ...inputStyle, width: 120 }}
+            style={{
+              ...inputStyle,
+              width: 120,
+              fontFamily: 'var(--font-data)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
           />
         </div>
       </div>
@@ -286,17 +317,17 @@ export function AlertRuleEditor({
       {/* Preview */}
       <div
         style={{
-          padding: '8px 12px',
-          background: 'var(--color-surface-raised)',
-          border: '1px solid var(--color-surface-border)',
-          borderRadius: 4,
+          padding: 'var(--space-2) var(--space-3)',
+          background: 'var(--surface-base)',
+          border: '1px dashed var(--surface-border)',
+          borderRadius: 'var(--radius-sm)',
         }}
       >
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -307,8 +338,8 @@ export function AlertRuleEditor({
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-primary)',
-            margin: '4px 0 0',
+            color: 'var(--text-primary)',
+            margin: 'var(--space-1) 0 0',
             lineHeight: 1.4,
           }}
         >
@@ -328,7 +359,7 @@ export function AlertRuleEditor({
       </div>
 
       {/* Action buttons */}
-      <div className="flex items-center justify-end gap-2">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
         <button
           type="button"
           onClick={onCancel}
@@ -336,12 +367,13 @@ export function AlertRuleEditor({
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             fontWeight: 500,
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
             background: 'transparent',
-            border: '1px solid var(--color-surface-border)',
-            borderRadius: 4,
-            padding: '6px 16px',
+            border: '1px solid var(--surface-border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: 'var(--space-1) var(--space-4)',
             cursor: 'pointer',
+            transition: 'background var(--transition-fast)',
           }}
         >
           Cancel
@@ -353,12 +385,13 @@ export function AlertRuleEditor({
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             fontWeight: 500,
-            color: 'var(--color-text-primary)',
-            background: 'var(--color-accent-primary)',
+            color: 'var(--text-primary)',
+            background: 'var(--accent-primary)',
             border: 'none',
-            borderRadius: 4,
-            padding: '6px 16px',
+            borderRadius: 'var(--radius-sm)',
+            padding: 'var(--space-1) var(--space-4)',
             cursor: 'pointer',
+            transition: 'background var(--transition-fast)',
           }}
         >
           Save Rule
@@ -380,13 +413,13 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
       <span
         style={{
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-xs)',
           fontWeight: 600,
-          color: 'var(--color-text-secondary)',
+          color: 'var(--text-secondary)',
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
         }}
@@ -403,38 +436,40 @@ function FormField({
 /* ------------------------------------------------------------------ */
 
 const inputStyle: React.CSSProperties = {
-  background: 'var(--color-surface-base)',
-  color: 'var(--color-text-primary)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: 3,
-  padding: '4px 8px',
+  background: 'var(--surface-raised)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--surface-border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--space-1) var(--space-2)',
   fontFamily: 'var(--font-ui)',
   fontSize: 'var(--text-xs)',
   outline: 'none',
+  transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
 };
 
 const removeButtonStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
-  color: 'var(--color-text-tertiary)',
+  color: 'var(--text-tertiary)',
   cursor: 'pointer',
   fontSize: 14,
   lineHeight: 1,
-  padding: '2px 4px',
+  padding: '2px var(--space-1)',
   flexShrink: 0,
+  transition: 'color var(--transition-fast)',
 };
 
 const addButtonStyle: React.CSSProperties = {
   alignSelf: 'flex-start',
-  background: 'var(--color-surface-raised)',
-  color: 'var(--color-accent-primary)',
-  border: '1px solid var(--color-surface-border)',
-  borderRadius: 4,
-  padding: '6px 14px',
+  background: 'var(--surface-raised)',
+  color: 'var(--accent-primary)',
+  border: '1px solid var(--surface-border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--space-1) var(--space-3)',
   fontFamily: 'var(--font-ui)',
   fontSize: 'var(--text-xs)',
   fontWeight: 500,
   cursor: 'pointer',
   letterSpacing: '0.02em',
-  transition: 'background var(--transition-fast, 0.1s)',
+  transition: 'background var(--transition-fast)',
 };

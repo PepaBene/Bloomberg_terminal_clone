@@ -9,6 +9,8 @@ import {
 } from 'react';
 import clsx from 'clsx';
 import { QualityScoreCell } from './QualityScoreCell';
+import { ContextMenu, useContextMenu } from './ContextMenu';
+import type { ContextMenuItem } from './ContextMenu';
 
 /* ── Public types ─────────────────────────────────────────── */
 
@@ -88,6 +90,16 @@ export interface DataTableProps<T> {
   /* ── Row grouping ──────────────────────────────────────── */
   /** Group rows by this column key. Inserts group header rows. */
   groupBy?: string;
+
+  /* ── Context menu / drill-down ─────────────────────────── */
+  /** Called when a cell is right-clicked. Receives row data and column key. Return items for the context menu, or null to use default. */
+  onCellContextMenu?: (row: T, columnKey: string, value: unknown) => ContextMenuItem[] | null;
+  /** Called when "Drill into this value" is selected from context menu */
+  onDrillDown?: (row: T, columnKey: string, value: unknown) => void;
+
+  /* ── Column drag-reorder ───────────────────────────────── */
+  /** Enable drag-to-reorder columns */
+  reorderable?: boolean;
 }
 
 interface SortEntry {
@@ -122,7 +134,18 @@ export function DataTable<T extends Record<string, unknown>>({
   renderExpanded,
   pinnedColumns,
   groupBy,
+  onCellContextMenu,
+  onDrillDown,
+  reorderable = false,
 }: DataTableProps<T>) {
+  /* ── Context menu state ─────────────────────────────────── */
+  const { menu: ctxMenu, open: openCtxMenu, close: closeCtxMenu } = useContextMenu();
+
+  /* ── Column drag-reorder state ──────────────────────────── */
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => columns.map((c) => c.key));
+  const dragColKey = useRef<string | null>(null);
+  const [thGrabbing, setThGrabbing] = useState<string | null>(null);
+
   /* ── Multi-sort state ────────────────────────────────────── */
   const [sorts, setSorts] = useState<SortEntry[]>([]);
 
@@ -297,6 +320,22 @@ export function DataTable<T extends Record<string, unknown>>({
     : sorted.length;
   const visibleRows = sorted.slice(startIdx, endIdx);
 
+  /* ── Effective ordered user columns (respects reorderable) ─ */
+  const orderedUserColumns = useMemo<Column<T>[]>(() => {
+    if (!reorderable || columnOrder.length === 0) return columns;
+    const keyToCol = new Map(columns.map((c) => [c.key, c]));
+    const ordered: Column<T>[] = [];
+    for (const key of columnOrder) {
+      const col = keyToCol.get(key);
+      if (col) ordered.push(col);
+    }
+    // Include any columns added after initial render that aren't yet in columnOrder
+    for (const col of columns) {
+      if (!columnOrder.includes(col.key)) ordered.push(col);
+    }
+    return ordered;
+  }, [reorderable, columnOrder, columns]);
+
   /* ── Pinned column lookup ────────────────────────────────── */
   const pinnedSet = useMemo(
     () => new Set(pinnedColumns ?? []),
@@ -342,9 +381,9 @@ export function DataTable<T extends Record<string, unknown>>({
         sortable: false,
       });
     }
-    cols.push(...columns);
+    cols.push(...orderedUserColumns);
     return cols;
-  }, [columns, selectable, expandable]);
+  }, [orderedUserColumns, selectable, expandable]);
 
   /* ── Resolve column width ───────────────────────────────── */
   const getColWidth = useCallback(
@@ -396,6 +435,34 @@ export function DataTable<T extends Record<string, unknown>>({
       };
     },
     [pinnedSet, pinnedLeftOffsets, isLastPinned],
+  );
+
+  /* ── Drag-reorder handlers ──────────────────────────────── */
+  const handleDragStart = useCallback((key: string) => {
+    dragColKey.current = key;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDrop = useCallback(
+    (targetKey: string) => {
+      const srcKey = dragColKey.current;
+      if (!srcKey || srcKey === targetKey) return;
+      setColumnOrder((prev) => {
+        const order = prev.length > 0 ? prev : columns.map((c) => c.key);
+        const srcIdx = order.indexOf(srcKey);
+        const tgtIdx = order.indexOf(targetKey);
+        if (srcIdx < 0 || tgtIdx < 0) return prev;
+        const next = [...order];
+        next.splice(srcIdx, 1);
+        next.splice(tgtIdx, 0, srcKey);
+        return next;
+      });
+      dragColKey.current = null;
+    },
+    [columns],
   );
 
   /* ── Render header cell ─────────────────────────────────── */
@@ -455,6 +522,12 @@ export function DataTable<T extends Record<string, unknown>>({
           'sticky top-0 z-10 whitespace-nowrap font-medium',
           isSortable && 'cursor-pointer select-none',
         )}
+        draggable={reorderable}
+        onDragStart={reorderable ? () => handleDragStart(col.key) : undefined}
+        onDragOver={reorderable ? handleDragOver : undefined}
+        onDrop={reorderable ? () => handleDrop(col.key) : undefined}
+        onMouseDown={reorderable ? () => setThGrabbing(col.key) : undefined}
+        onMouseUp={reorderable ? () => setThGrabbing(null) : undefined}
         style={{
           height: rowHeight,
           padding: `var(--table-cell-py) var(--table-cell-px)`,
@@ -472,6 +545,11 @@ export function DataTable<T extends Record<string, unknown>>({
           position: pinnedSet.has(col.key) ? 'sticky' : undefined,
           left: pinnedSet.has(col.key) ? (pinnedLeftOffsets[col.key] ?? 0) : undefined,
           zIndex: pinnedSet.has(col.key) ? 12 : 10,
+          cursor: reorderable
+            ? thGrabbing === col.key
+              ? 'grabbing'
+              : 'grab'
+            : undefined,
           ...(isLastPinned(col.key)
             ? { boxShadow: '4px 0 8px -2px rgba(0,0,0,0.4)' }
             : {}),
@@ -669,10 +747,26 @@ export function DataTable<T extends Record<string, unknown>>({
           const condStyle = getConditionalStyle(col, row);
           const condClass = getConditionalClass(col, row);
 
+          const handleCellContextMenu = (e: React.MouseEvent) => {
+            e.preventDefault();
+            const defaultItems: ContextMenuItem[] = [
+              {
+                label: 'Drill into this value',
+                onClick: () => onDrillDown?.(row, col.key, raw),
+              },
+            ];
+            const extraItems = onCellContextMenu?.(row, col.key, raw) ?? null;
+            const allItems = extraItems
+              ? [...defaultItems, ...extraItems]
+              : defaultItems;
+            openCtxMenu(e, allItems);
+          };
+
           return (
             <td
               key={col.key}
               className={condClass}
+              onContextMenu={handleCellContextMenu}
               style={{
                 padding: `var(--table-cell-py) var(--table-cell-px)`,
                 textAlign: col.align ?? (isNumber ? 'right' : 'left'),
@@ -753,28 +847,38 @@ export function DataTable<T extends Record<string, unknown>>({
   /* ── Virtualized table ──────────────────────────────────── */
   if (virtualized) {
     return (
-      <div
-        ref={scrollRef}
-        className={clsx('overflow-auto', className)}
-        style={{ height: virtualHeight, position: 'relative' }}
-        onScroll={handleScroll}
-      >
-        <table className="w-full border-collapse" style={tableStyle}>
-          <thead>
-            <tr>{effectiveColumns.map(renderHeaderCell)}</tr>
-          </thead>
-        </table>
-        <div style={{ height: totalHeight, position: 'relative' }}>
+      <>
+        <div
+          ref={scrollRef}
+          className={clsx('overflow-auto', className)}
+          style={{ height: virtualHeight, position: 'relative' }}
+          onScroll={handleScroll}
+        >
           <table className="w-full border-collapse" style={tableStyle}>
-            <tbody>
-              {visibleRows.map((row, i) => {
-                const absoluteIdx = startIdx + i;
-                return renderRow(row, i, absoluteIdx);
-              })}
-            </tbody>
+            <thead>
+              <tr>{effectiveColumns.map(renderHeaderCell)}</tr>
+            </thead>
           </table>
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            <table className="w-full border-collapse" style={tableStyle}>
+              <tbody>
+                {visibleRows.map((row, i) => {
+                  const absoluteIdx = startIdx + i;
+                  return renderRow(row, i, absoluteIdx);
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+        {ctxMenu && (
+          <ContextMenu
+            items={ctxMenu.items}
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            onClose={closeCtxMenu}
+          />
+        )}
+      </>
     );
   }
 
@@ -797,6 +901,14 @@ export function DataTable<T extends Record<string, unknown>>({
             : sorted.map((row, idx) => renderRow(row, idx, idx))}
         </tbody>
       </table>
+      {ctxMenu && (
+        <ContextMenu
+          items={ctxMenu.items}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={closeCtxMenu}
+        />
+      )}
     </div>
   );
 }

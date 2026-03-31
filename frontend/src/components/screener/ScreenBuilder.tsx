@@ -35,6 +35,18 @@ const OPERATORS: { value: ScreenFilter['operator']; label: string }[] = [
   { value: 'between', label: 'Between' },
 ];
 
+/** Shared input styling for all filter row controls */
+const inputBase: React.CSSProperties = {
+  background: 'var(--color-surface-raised)',
+  color: 'var(--color-text-primary)',
+  border: '1px solid var(--color-surface-border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '0 var(--space-2)',
+  height: 28,
+  outline: 'none',
+  transition: 'border-color 120ms ease',
+};
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -85,7 +97,7 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
   }, [filters, onChange, availableMetrics]);
 
   return (
-    <div className="terminal-panel flex flex-col gap-3">
+    <div className="terminal-panel animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {/* Header */}
       <div
         style={{
@@ -101,18 +113,15 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
       </div>
 
       {/* Filter rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
         {filters.map((filter) => (
           <div
             key={filter.id}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '6px 8px',
-              background: 'var(--color-surface-raised)',
-              borderRadius: 4,
-              border: '1px solid var(--color-surface-border)',
+              gap: 'var(--space-2)',
+              height: 28,
             }}
           >
             {/* Metric dropdown */}
@@ -120,16 +129,17 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
               value={filter.metric}
               onChange={(e) => handleMetricChange(filter.id, e.target.value)}
               style={{
+                ...inputBase,
                 flex: 2,
                 minWidth: 120,
-                background: 'var(--color-surface-base)',
-                color: 'var(--color-text-primary)',
-                border: '1px solid var(--color-surface-border)',
-                borderRadius: 3,
-                padding: '4px 8px',
                 fontFamily: 'var(--font-ui)',
                 fontSize: 'var(--text-xs)',
-                outline: 'none',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-surface-border)';
               }}
             >
               {availableMetrics.map((m) => (
@@ -146,15 +156,17 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
                 handleOperatorChange(filter.id, e.target.value as ScreenFilter['operator'])
               }
               style={{
+                ...inputBase,
                 width: 90,
-                background: 'var(--color-surface-base)',
-                color: 'var(--color-text-primary)',
-                border: '1px solid var(--color-surface-border)',
-                borderRadius: 3,
-                padding: '4px 8px',
                 fontFamily: 'var(--font-data)',
                 fontSize: 'var(--text-xs)',
-                outline: 'none',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-surface-border)';
               }}
             >
               {OPERATORS.map((op) => (
@@ -170,16 +182,17 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
               value={filter.value}
               onChange={(e) => handleValueChange(filter.id, parseFloat(e.target.value) || 0)}
               style={{
+                ...inputBase,
                 width: 80,
-                background: 'var(--color-surface-base)',
-                color: 'var(--color-text-primary)',
-                border: '1px solid var(--color-surface-border)',
-                borderRadius: 3,
-                padding: '4px 8px',
                 fontFamily: 'var(--font-data)',
                 fontSize: 'var(--text-xs)',
                 fontVariantNumeric: 'tabular-nums',
-                outline: 'none',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-surface-border)';
               }}
             />
 
@@ -202,16 +215,17 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
                     handleValueToChange(filter.id, parseFloat(e.target.value) || 0)
                   }
                   style={{
+                    ...inputBase,
                     width: 80,
-                    background: 'var(--color-surface-base)',
-                    color: 'var(--color-text-primary)',
-                    border: '1px solid var(--color-surface-border)',
-                    borderRadius: 3,
-                    padding: '4px 8px',
                     fontFamily: 'var(--font-data)',
                     fontSize: 'var(--text-xs)',
                     fontVariantNumeric: 'tabular-nums',
-                    outline: 'none',
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--color-surface-border)';
                   }}
                 />
               </>
@@ -224,12 +238,20 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
               style={{
                 background: 'none',
                 border: 'none',
-                color: 'var(--color-text-tertiary)',
+                color: 'var(--color-signal-negative)',
                 cursor: 'pointer',
-                fontSize: 14,
+                fontSize: 'var(--text-sm)',
                 lineHeight: 1,
-                padding: '2px 4px',
+                padding: 'var(--space-1)',
+                borderRadius: 'var(--radius-sm)',
                 flexShrink: 0,
+                transition: 'background 120ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--color-surface-overlay)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
               }}
               title="Remove filter"
               aria-label={`Remove filter ${filter.metric}`}
@@ -246,23 +268,24 @@ export function ScreenBuilder({ filters, onChange, availableMetrics }: ScreenBui
         onClick={handleAdd}
         style={{
           alignSelf: 'flex-start',
-          background: 'var(--color-surface-raised)',
-          color: 'var(--color-accent-primary)',
-          border: '1px solid var(--color-surface-border)',
-          borderRadius: 4,
-          padding: '6px 14px',
+          background: 'var(--color-accent-primary)',
+          color: 'var(--color-text-primary)',
+          border: 'none',
+          borderRadius: 'var(--radius-sm)',
+          padding: '0 var(--space-3)',
+          height: 28,
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-xs)',
           fontWeight: 500,
           cursor: 'pointer',
           letterSpacing: '0.02em',
-          transition: 'background var(--transition-fast)',
+          transition: 'opacity 120ms ease',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--color-surface-overlay)';
+          e.currentTarget.style.opacity = '0.85';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'var(--color-surface-raised)';
+          e.currentTarget.style.opacity = '1';
         }}
       >
         + Add Filter

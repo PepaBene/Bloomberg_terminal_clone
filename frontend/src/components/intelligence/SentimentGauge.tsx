@@ -20,9 +20,9 @@ export interface SentimentGaugeProps {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const ZONE_RED = { from: -1, to: -0.3, color: 'var(--color-signal-negative)' };
-const ZONE_NEUTRAL = { from: -0.3, to: 0.3, color: 'var(--color-signal-neutral)' };
-const ZONE_GREEN = { from: 0.3, to: 1.0, color: 'var(--color-signal-positive)' };
+const ZONE_RED = { from: -1, to: -0.3, color: 'var(--signal-negative)' };
+const ZONE_NEUTRAL = { from: -0.3, to: 0.3, color: 'var(--signal-neutral)' };
+const ZONE_GREEN = { from: 0.3, to: 1.0, color: 'var(--signal-positive)' };
 
 const ZONES = [ZONE_RED, ZONE_NEUTRAL, ZONE_GREEN] as const;
 
@@ -33,9 +33,9 @@ const MOMENTUM_ARROWS: Record<string, string> = {
 };
 
 const MOMENTUM_COLORS: Record<string, string> = {
-  IMPROVING: 'var(--color-signal-positive)',
-  STABLE: 'var(--color-signal-neutral)',
-  DECLINING: 'var(--color-signal-negative)',
+  IMPROVING: 'var(--signal-positive)',
+  STABLE: 'var(--signal-neutral)',
+  DECLINING: 'var(--signal-negative)',
 };
 
 /* ------------------------------------------------------------------ */
@@ -68,17 +68,28 @@ export function SentimentGauge({
   const needleColor = valueColor(clamped);
   const momKey = momentum?.toUpperCase() ?? '';
   const momArrow = MOMENTUM_ARROWS[momKey] ?? '';
-  const momColor = MOMENTUM_COLORS[momKey] ?? 'var(--color-text-tertiary)';
+  const momColor = MOMENTUM_COLORS[momKey] ?? 'var(--text-tertiary)';
 
   return (
-    <div className={clsx('flex flex-col gap-2', className)}>
+    <div
+      className={clsx('animate-in', className)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-2)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-3)',
+      }}
+    >
       {/* Label */}
       {label && (
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-secondary)',
+            color: 'var(--text-secondary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -88,7 +99,7 @@ export function SentimentGauge({
       )}
 
       {/* Score + momentum */}
-      <div className="flex items-baseline gap-2">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
         <span
           style={{
             fontFamily: 'var(--font-data)',
@@ -123,7 +134,7 @@ export function SentimentGauge({
         style={{
           position: 'relative',
           height: 10,
-          borderRadius: 5,
+          borderRadius: 'var(--radius-sm)',
           overflow: 'hidden',
           display: 'flex',
         }}
@@ -152,24 +163,27 @@ export function SentimentGauge({
             position: 'absolute',
             left: `${pct}%`,
             top: '-2px',
-            width: '3px',
+            width: '2px',
             height: '14px',
-            borderRadius: '1.5px',
-            background: needleColor,
+            borderRadius: '1px',
+            background: 'var(--accent-primary)',
             transform: 'translateX(-50%)',
-            boxShadow: `0 0 6px ${needleColor}`,
-            transition: 'left 0.3s ease',
+            boxShadow: '0 0 6px var(--accent-primary)',
+            transition: 'left var(--transition-slow)',
+            animation: 'needlePulse 2s ease-in-out infinite',
           }}
         />
       </div>
 
       {/* Scale labels */}
       <div
-        className="flex items-center justify-between"
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
           fontFamily: 'var(--font-data)',
-          fontSize: '9px',
-          color: 'var(--color-text-tertiary)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-tertiary)',
           fontVariantNumeric: 'tabular-nums',
         }}
       >
@@ -177,6 +191,14 @@ export function SentimentGauge({
         <span>0</span>
         <span>+1.0</span>
       </div>
+
+      {/* Needle pulse animation */}
+      <style>{`
+        @keyframes needlePulse {
+          0%, 100% { box-shadow: 0 0 4px var(--accent-primary); }
+          50% { box-shadow: 0 0 10px var(--accent-primary); }
+        }
+      `}</style>
     </div>
   );
 }

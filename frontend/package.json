@@ -16,7 +16,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.13.2",
-    "recharts": "^2.15.3",
+    "recharts": "^3.4.1",
+    "@tauri-apps/api": "^2.5.0",
     "lightweight-charts": "^5.0.5",
     "@visx/visx": "^3.12.0",
     "d3": "^7.9.0",
@@ -30,7 +31,8 @@
     "clsx": "^2.1.1"
   },
   "devDependencies": {
-    "typescript": "~5.8.3",
+    "typescript": "^6.0.2",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@types/d3": "^7.4.3",

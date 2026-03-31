@@ -22,31 +22,21 @@ export interface TreasuryAuctionCalendarProps {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-function statusBadge(status: 'upcoming' | 'completed') {
-  const isCompleted = status === 'completed';
-  const color = isCompleted
-    ? 'var(--color-signal-positive)'
-    : 'var(--color-signal-neutral)';
-  const label = isCompleted ? 'COMPLETED' : 'UPCOMING';
+function statusBadgeClass(status: 'upcoming' | 'completed'): string {
+  return status === 'completed'
+    ? 'terminal-badge terminal-badge-positive'
+    : 'terminal-badge terminal-badge-neutral';
+}
 
-  return (
-    <span
-      style={{
-        fontFamily: 'var(--font-data)',
-        fontSize: 'var(--text-xs)',
-        fontWeight: 500,
-        color,
-        textTransform: 'uppercase',
-        letterSpacing: '0.06em',
-        padding: '2px 8px',
-        border: `1px solid ${color}`,
-        borderRadius: '9999px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
-    </span>
-  );
+function statusLabel(status: 'upcoming' | 'completed'): string {
+  return status === 'completed' ? 'COMPLETED' : 'UPCOMING';
+}
+
+/** Bid-to-cover conditional coloring: >2.5 green, <2.0 red, otherwise neutral */
+function bidToCoverColor(btc: number): string {
+  if (btc > 2.5) return 'var(--color-signal-positive)';
+  if (btc < 2.0) return 'var(--color-signal-negative)';
+  return 'var(--color-text-primary)';
 }
 
 function tailColor(tailBps: number): string {
@@ -64,53 +54,24 @@ export function TreasuryAuctionCalendar({
   className,
 }: TreasuryAuctionCalendarProps) {
   return (
-    <div className={clsx('overflow-auto', className)}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontFamily: 'var(--font-data)',
-          fontSize: 'var(--text-sm)',
-        }}
-      >
+    <div className={clsx('animate-in overflow-auto', className)}>
+      <table className="terminal-table">
         <thead>
           <tr>
-            {['Date', 'Security', 'Size', 'Bid-to-Cover', 'Tail (bps)', 'Status'].map(
-              (h) => (
-                <th
-                  key={h}
-                  style={{
-                    textAlign:
-                      h === 'Date' || h === 'Security' || h === 'Status'
-                        ? 'left'
-                        : 'right',
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--text-xs)',
-                    fontWeight: 500,
-                    color: 'var(--color-text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    padding: '6px 8px',
-                    borderBottom: '1px solid var(--color-surface-border)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
-              ),
-            )}
+            <th style={{ textAlign: 'left' }}>Date</th>
+            <th style={{ textAlign: 'left' }}>Security</th>
+            <th className="right">Size</th>
+            <th className="right">Bid-to-Cover</th>
+            <th className="right">Tail (bps)</th>
+            <th style={{ textAlign: 'left' }}>Status</th>
           </tr>
         </thead>
         <tbody>
           {auctions.map((a, i) => (
-            <tr
-              key={`${a.date}-${a.security}-${i}`}
-              style={{ borderBottom: '1px solid var(--color-surface-border)' }}
-            >
+            <tr key={`${a.date}-${a.security}-${i}`}>
+              {/* Date */}
               <td
                 style={{
-                  padding: '6px 8px',
-                  color: 'var(--color-text-primary)',
                   fontFamily: 'var(--font-ui)',
                   fontSize: 'var(--text-sm)',
                   whiteSpace: 'nowrap',
@@ -119,10 +80,9 @@ export function TreasuryAuctionCalendar({
                 {a.date}
               </td>
 
+              {/* Security */}
               <td
                 style={{
-                  padding: '6px 8px',
-                  color: 'var(--color-text-primary)',
                   fontFamily: 'var(--font-ui)',
                   fontSize: 'var(--text-sm)',
                 }}
@@ -130,25 +90,26 @@ export function TreasuryAuctionCalendar({
                 {a.security}
               </td>
 
+              {/* Size */}
               <td
+                className="right"
                 style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
-                  color: 'var(--color-text-primary)',
+                  fontFamily: 'var(--font-data)',
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 {a.size}
               </td>
 
+              {/* Bid-to-Cover -- conditional coloring */}
               <td
+                className="right"
                 style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
+                  fontFamily: 'var(--font-data)',
                   fontVariantNumeric: 'tabular-nums',
                   color:
                     a.status === 'completed' && a.bidToCover != null
-                      ? 'var(--color-text-primary)'
+                      ? bidToCoverColor(a.bidToCover)
                       : 'var(--color-text-tertiary)',
                 }}
               >
@@ -157,10 +118,11 @@ export function TreasuryAuctionCalendar({
                   : '\u2014'}
               </td>
 
+              {/* Tail */}
               <td
+                className="right"
                 style={{
-                  textAlign: 'right',
-                  padding: '6px 8px',
+                  fontFamily: 'var(--font-data)',
                   fontVariantNumeric: 'tabular-nums',
                   color:
                     a.status === 'completed' && a.tailBps != null
@@ -173,7 +135,12 @@ export function TreasuryAuctionCalendar({
                   : '\u2014'}
               </td>
 
-              <td style={{ padding: '6px 8px' }}>{statusBadge(a.status)}</td>
+              {/* Status badge */}
+              <td>
+                <span className={statusBadgeClass(a.status)}>
+                  {statusLabel(a.status)}
+                </span>
+              </td>
             </tr>
           ))}
         </tbody>

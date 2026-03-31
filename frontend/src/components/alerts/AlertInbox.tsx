@@ -34,10 +34,10 @@ const SEVERITY_ORDER: Record<string, number> = {
 };
 
 const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'var(--color-signal-negative)',
-  HIGH: 'var(--color-signal-warning)',
-  MEDIUM: 'var(--color-signal-neutral)',
-  LOW: 'var(--color-text-tertiary)',
+  CRITICAL: 'var(--signal-negative)',
+  HIGH: 'var(--signal-warning)',
+  MEDIUM: 'var(--signal-highlight)',
+  LOW: 'var(--text-tertiary)',
 };
 
 const SEVERITY_ICONS: Record<string, string> = {
@@ -100,29 +100,32 @@ export function AlertInbox({
 
   return (
     <div
-      className={clsx('flex flex-col', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
         overflow: 'hidden',
       }}
     >
       {grouped.map(([severity, items]) => {
         const sevColor =
-          SEVERITY_COLORS[severity] ?? 'var(--color-text-tertiary)';
+          SEVERITY_COLORS[severity] ?? 'var(--text-tertiary)';
 
         return (
           <div key={severity}>
-            {/* Group header */}
+            {/* Group header with 3px left border */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '6px 12px',
-                background: 'var(--color-surface-raised)',
-                borderBottom: '1px solid var(--color-surface-border)',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-1) var(--space-3)',
+                background: 'var(--surface-raised)',
+                borderBottom: '1px solid var(--surface-border)',
+                borderLeft: `3px solid ${sevColor}`,
               }}
             >
               <span
@@ -141,7 +144,8 @@ export function AlertInbox({
                 style={{
                   fontFamily: 'var(--font-data)',
                   fontSize: 'var(--text-xs)',
-                  color: 'var(--color-text-tertiary)',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--text-tertiary)',
                 }}
               >
                 {items.length}
@@ -168,16 +172,24 @@ export function AlertInbox({
       {alerts.length === 0 && (
         <div
           style={{
-            padding: '24px 16px',
+            padding: 'var(--space-6) var(--space-4)',
             textAlign: 'center',
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
           }}
         >
           No alerts
         </div>
       )}
+
+      {/* Unread dot pulse animation */}
+      <style>{`
+        @keyframes unreadPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -206,7 +218,7 @@ function AlertRow({
   return (
     <div
       style={{
-        borderBottom: '1px solid var(--color-surface-border)',
+        borderBottom: '1px solid var(--surface-border)',
       }}
     >
       {/* Summary row */}
@@ -217,22 +229,30 @@ function AlertRow({
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          background: isExpanded ? 'var(--color-surface-raised)' : 'transparent',
+          gap: 'var(--space-2)',
+          padding: 'var(--space-2) var(--space-3)',
+          background: isExpanded ? 'var(--surface-raised)' : 'transparent',
           border: 'none',
           cursor: 'pointer',
           textAlign: 'left',
+          transition: 'background var(--transition-fast)',
+        }}
+        onMouseEnter={(e) => {
+          if (!isExpanded) e.currentTarget.style.background = 'var(--surface-overlay)';
+        }}
+        onMouseLeave={(e) => {
+          if (!isExpanded) e.currentTarget.style.background = 'transparent';
         }}
       >
-        {/* Unread dot */}
+        {/* Unread dot — 6px, accent-primary, subtle pulse */}
         <span
           style={{
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: alert.isRead ? 'transparent' : color,
+            background: alert.isRead ? 'transparent' : 'var(--accent-primary)',
             flexShrink: 0,
+            animation: !alert.isRead ? 'unreadPulse 2s ease-in-out infinite' : undefined,
           }}
         />
 
@@ -254,7 +274,7 @@ function AlertRow({
             flex: 1,
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
             fontWeight: alert.isRead ? 400 : 600,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -271,10 +291,11 @@ function AlertRow({
               fontFamily: 'var(--font-data)',
               fontSize: 'var(--text-xs)',
               fontWeight: 500,
-              color: 'var(--color-accent-primary)',
-              padding: '1px 6px',
-              background: 'rgba(59, 130, 246, 0.10)',
-              borderRadius: 3,
+              fontVariantNumeric: 'tabular-nums',
+              color: 'var(--accent-primary)',
+              padding: '1px var(--space-1)',
+              background: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)',
+              borderRadius: 'var(--radius-sm)',
               whiteSpace: 'nowrap',
               flexShrink: 0,
             }}
@@ -283,12 +304,12 @@ function AlertRow({
           </span>
         )}
 
-        {/* Time */}
+        {/* Time ago */}
         <span
           style={{
             fontFamily: 'var(--font-data)',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
             whiteSpace: 'nowrap',
             flexShrink: 0,
             fontVariantNumeric: 'tabular-nums',
@@ -298,39 +319,45 @@ function AlertRow({
         </span>
       </button>
 
-      {/* Expanded detail */}
-      {isExpanded && (
+      {/* Expanded detail — smooth height transition */}
+      <div
+        style={{
+          overflow: 'hidden',
+          maxHeight: isExpanded ? '400px' : '0px',
+          transition: 'max-height 200ms ease-out',
+        }}
+      >
         <div
           style={{
-            padding: '8px 12px 12px 38px',
-            background: 'var(--color-surface-raised)',
+            padding: 'var(--space-2) var(--space-3) var(--space-3) 38px',
+            background: 'var(--surface-raised)',
           }}
         >
           <p
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-sm)',
-              color: 'var(--color-text-secondary)',
+              color: 'var(--text-secondary)',
               lineHeight: 1.5,
-              margin: '0 0 10px 0',
+              margin: '0 0 var(--space-2) 0',
             }}
           >
             {alert.description}
           </p>
-          <div className="flex gap-2">
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
             <ActionButton
               label="Acknowledge"
-              color="var(--color-accent-primary)"
+              color="var(--accent-primary)"
               onClick={() => onAcknowledge(alert.id)}
             />
             <ActionButton
               label="Dismiss"
-              color="var(--color-text-tertiary)"
+              color="var(--text-tertiary)"
               onClick={() => onDismiss(alert.id)}
             />
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -360,19 +387,19 @@ function ActionButton({
         fontSize: 'var(--text-xs)',
         fontWeight: 500,
         color,
-        background: 'var(--color-surface-base)',
+        background: 'var(--surface-base)',
         border: `1px solid ${color}`,
-        borderRadius: 4,
-        padding: '4px 12px',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-1) var(--space-3)',
         cursor: 'pointer',
         letterSpacing: '0.02em',
-        transition: 'background 0.15s',
+        transition: 'background var(--transition-fast)',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--color-surface-overlay, rgba(255,255,255,0.06))';
+        e.currentTarget.style.background = 'var(--surface-overlay)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'var(--color-surface-base)';
+        e.currentTarget.style.background = 'var(--surface-base)';
       }}
     >
       {label}

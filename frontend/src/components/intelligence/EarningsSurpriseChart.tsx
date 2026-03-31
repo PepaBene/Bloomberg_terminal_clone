@@ -68,7 +68,7 @@ function computeStreak(surprises: EarningsSurprise[]): StreakResult {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Custom tooltip                                                     */
+/*  Custom tooltip (matches ChartTooltip pattern)                      */
 /* ------------------------------------------------------------------ */
 
 interface TooltipPayloadEntry {
@@ -92,27 +92,27 @@ function SurpriseTooltip({
   return (
     <div
       style={{
-        background: CHART_THEME.colors.tooltip.bg,
-        border: `1px solid ${CHART_THEME.colors.tooltip.border}`,
-        borderRadius: 4,
-        padding: '8px 12px',
-        boxShadow: CHART_THEME.shadowFloat,
+        background: 'var(--surface-raised)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-md)',
+        padding: 'var(--space-2) var(--space-3)',
+        boxShadow: 'var(--shadow-float)',
       }}
     >
       <div
         style={{
-          fontFamily: CHART_THEME.fonts.ui,
-          fontSize: 11,
-          color: CHART_THEME.colors.tooltip.label,
-          marginBottom: 4,
+          fontFamily: 'var(--font-ui)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-secondary)',
+          marginBottom: 'var(--space-1)',
         }}
       >
         {d.quarter}
       </div>
-      <div className="flex flex-col gap-1">
-        <Row label="Actual" value={`$${d.actual.toFixed(2)}`} color={CHART_THEME.colors.tooltip.text} />
-        <Row label="Estimate" value={`$${d.estimate.toFixed(2)}`} color={CHART_THEME.colors.tooltip.label} />
-        <Row
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+        <TooltipRow label="Actual" value={`$${d.actual.toFixed(2)}`} color="var(--text-primary)" />
+        <TooltipRow label="Estimate" value={`$${d.estimate.toFixed(2)}`} color="var(--text-secondary)" />
+        <TooltipRow
           label="Surprise"
           value={`${d.surprise_pct >= 0 ? '+' : ''}${d.surprise_pct.toFixed(1)}%`}
           color={color}
@@ -122,13 +122,13 @@ function SurpriseTooltip({
   );
 }
 
-function Row({ label, value, color }: { label: string; value: string; color: string }) {
+function TooltipRow({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="flex items-center justify-between gap-4" style={{ minWidth: 120 }}>
-      <span style={{ fontFamily: CHART_THEME.fonts.ui, fontSize: 10, color: CHART_THEME.colors.tooltip.label }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', minWidth: 120 }}>
+      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
         {label}
       </span>
-      <span style={{ fontFamily: CHART_THEME.fonts.data, fontSize: 11, color, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </span>
     </div>
@@ -148,7 +148,6 @@ export function EarningsSurpriseChart({
     () =>
       surprises.map((s) => ({
         ...s,
-        // The bar shows the difference (actual - estimate)
         diff: s.actual - s.estimate,
       })),
     [surprises],
@@ -157,15 +156,26 @@ export function EarningsSurpriseChart({
   const streak = useMemo(() => computeStreak(surprises), [surprises]);
 
   return (
-    <div className={clsx('flex flex-col gap-2', className)}>
-      {/* Streak counter */}
-      <div className="flex items-center gap-2">
+    <div
+      className={clsx('animate-in', className)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-2)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-3)',
+      }}
+    >
+      {/* Header: title + streak counter */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: 'var(--color-text-secondary)',
+            color: 'var(--text-secondary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -178,12 +188,15 @@ export function EarningsSurpriseChart({
               fontFamily: 'var(--font-data)',
               fontSize: 'var(--text-xs)',
               fontWeight: 500,
+              fontVariantNumeric: 'tabular-nums',
               color: streak.type === 'beats'
-                ? CHART_THEME.colors.positive
-                : CHART_THEME.colors.negative,
-              padding: '2px 8px',
-              border: `1px solid ${streak.type === 'beats' ? CHART_THEME.colors.positive : CHART_THEME.colors.negative}`,
-              borderRadius: '9999px',
+                ? 'var(--accent-primary)'
+                : 'var(--signal-negative)',
+              padding: '2px var(--space-2)',
+              background: streak.type === 'beats'
+                ? 'color-mix(in srgb, var(--accent-primary) 15%, transparent)'
+                : 'color-mix(in srgb, var(--signal-negative) 15%, transparent)',
+              borderRadius: 'var(--radius-sm)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -216,7 +229,12 @@ export function EarningsSurpriseChart({
             content={<SurpriseTooltip />}
             cursor={{ fill: CHART_THEME.colors.accentGlow }}
           />
-          <ReferenceLine y={0} stroke={CHART_THEME.colors.surfaceBorderStrong} strokeWidth={1.5} />
+          <ReferenceLine
+            y={0}
+            stroke={CHART_THEME.colors.surfaceBorderStrong}
+            strokeWidth={1.5}
+            strokeDasharray="4 2"
+          />
           <Bar dataKey="diff" radius={[2, 2, 0, 0]} maxBarSize={32}>
             {chartData.map((entry, i) => (
               <Cell key={i} fill={surpriseColor(entry.surprise_pct)} />

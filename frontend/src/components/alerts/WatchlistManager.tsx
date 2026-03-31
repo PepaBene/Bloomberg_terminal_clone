@@ -65,22 +65,25 @@ export function WatchlistManager({
 
   return (
     <div
-      className={clsx('flex flex-col gap-3', className)}
+      className={clsx('animate-in', className)}
       style={{
-        background: 'var(--color-surface-base)',
-        border: '1px solid var(--color-surface-border)',
-        borderRadius: 'var(--border-radius-md, 4px)',
-        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-3)',
+        background: 'var(--surface-base)',
+        border: '1px solid var(--surface-border)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--space-4)',
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
-            color: 'var(--color-text-primary)',
+            color: 'var(--text-primary)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
           }}
@@ -91,7 +94,8 @@ export function WatchlistManager({
           style={{
             fontFamily: 'var(--font-data)',
             fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-tertiary)',
+            fontVariantNumeric: 'tabular-nums',
+            color: 'var(--text-tertiary)',
           }}
         >
           {entities.length} entities
@@ -103,8 +107,8 @@ export function WatchlistManager({
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr repeat(4, 48px) 60px',
-          gap: 4,
-          padding: '0 8px',
+          gap: 'var(--space-1)',
+          padding: '0 var(--space-2)',
         }}
       >
         <span style={colHeaderStyle}>Entity</span>
@@ -123,22 +127,30 @@ export function WatchlistManager({
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr repeat(4, 48px) 60px',
-            gap: 4,
+            gap: 'var(--space-1)',
             alignItems: 'center',
-            padding: '6px 8px',
-            background: 'var(--color-surface-raised)',
-            borderRadius: 4,
-            border: '1px solid var(--color-surface-border)',
+            padding: 'var(--space-1) var(--space-2)',
+            background: 'var(--surface-raised)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--surface-border)',
+            transition: 'background var(--transition-fast)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--surface-overlay)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--surface-raised)';
           }}
         >
           {/* Entity info */}
-          <div className="flex flex-col" style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span
               style={{
                 fontFamily: 'var(--font-data)',
                 fontSize: 'var(--text-sm)',
                 fontWeight: 600,
-                color: 'var(--color-accent-primary)',
+                fontVariantNumeric: 'tabular-nums',
+                color: 'var(--accent-primary)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -150,7 +162,7 @@ export function WatchlistManager({
               style={{
                 fontFamily: 'var(--font-ui)',
                 fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-secondary)',
+                color: 'var(--text-secondary)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -160,7 +172,7 @@ export function WatchlistManager({
             </span>
           </div>
 
-          {/* Alert toggles */}
+          {/* Alert toggle switches — 24px wide, accent-primary when on */}
           {ALERT_TYPES.map((at) => {
             const enabled = entity.alertsEnabled[at.key];
             return (
@@ -169,18 +181,18 @@ export function WatchlistManager({
                 type="button"
                 onClick={() => onToggleAlert?.(entity.id, at.key)}
                 style={{
-                  width: 32,
-                  height: 18,
-                  borderRadius: 9,
+                  width: 24,
+                  height: 14,
+                  borderRadius: 7,
                   background: enabled
-                    ? 'var(--color-signal-positive)'
-                    : 'var(--color-surface-overlay, rgba(255,255,255,0.06))',
-                  border: `1px solid ${enabled ? 'var(--color-signal-positive)' : 'var(--color-surface-border)'}`,
+                    ? 'var(--accent-primary)'
+                    : 'var(--surface-border-strong)',
+                  border: 'none',
                   position: 'relative',
                   cursor: 'pointer',
                   justifySelf: 'center',
                   padding: 0,
-                  transition: 'background 0.15s',
+                  transition: 'background var(--transition-fast)',
                 }}
                 title={`${at.label} alerts ${enabled ? 'enabled' : 'disabled'}`}
                 aria-label={`Toggle ${at.label} alerts for ${entity.ticker}`}
@@ -189,20 +201,20 @@ export function WatchlistManager({
                   style={{
                     position: 'absolute',
                     top: 2,
-                    left: enabled ? 16 : 2,
-                    width: 12,
-                    height: 12,
+                    left: enabled ? 12 : 2,
+                    width: 10,
+                    height: 10,
                     borderRadius: '50%',
-                    background: 'var(--color-text-primary)',
-                    transition: 'left 0.15s',
+                    background: 'var(--text-primary)',
+                    transition: 'left var(--transition-fast)',
                   }}
                 />
               </button>
             );
           })}
 
-          {/* Actions */}
-          <div className="flex items-center gap-1 justify-end">
+          {/* Actions — subtle reorder + remove */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', justifyContent: 'flex-end' }}>
             <button
               type="button"
               onClick={() => handleMoveUp(idx)}
@@ -234,10 +246,17 @@ export function WatchlistManager({
               onClick={() => onRemove(entity.id)}
               style={{
                 ...navBtnStyle,
-                color: 'var(--color-signal-negative)',
+                color: 'var(--text-tertiary)',
+                transition: 'color var(--transition-fast)',
               }}
               title="Remove"
               aria-label={`Remove ${entity.ticker}`}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--signal-negative)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-tertiary)';
+              }}
             >
               {'\u2715'}
             </button>
@@ -245,29 +264,29 @@ export function WatchlistManager({
         </div>
       ))}
 
-      {/* Add button */}
+      {/* Add button — accent-primary, full width */}
       <button
         type="button"
         onClick={onAdd}
         style={{
-          alignSelf: 'flex-start',
-          background: 'var(--color-surface-raised)',
-          color: 'var(--color-accent-primary)',
-          border: '1px solid var(--color-surface-border)',
-          borderRadius: 4,
-          padding: '6px 14px',
+          width: '100%',
+          background: 'var(--surface-raised)',
+          color: 'var(--accent-primary)',
+          border: '1px solid var(--surface-border)',
+          borderRadius: 'var(--radius-sm)',
+          padding: 'var(--space-2) var(--space-4)',
           fontFamily: 'var(--font-ui)',
           fontSize: 'var(--text-xs)',
           fontWeight: 500,
           cursor: 'pointer',
           letterSpacing: '0.02em',
-          transition: 'background var(--transition-fast, 0.1s)',
+          transition: 'background var(--transition-fast)',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--color-surface-overlay)';
+          e.currentTarget.style.background = 'var(--surface-overlay)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'var(--color-surface-raised)';
+          e.currentTarget.style.background = 'var(--surface-raised)';
         }}
       >
         + Add Entity
@@ -276,11 +295,11 @@ export function WatchlistManager({
       {entities.length === 0 && (
         <div
           style={{
-            padding: '16px 0',
+            padding: 'var(--space-4) 0',
             textAlign: 'center',
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
-            color: 'var(--color-text-tertiary)',
+            color: 'var(--text-tertiary)',
           }}
         >
           No entities in watchlist. Add one to get started.
@@ -296,9 +315,9 @@ export function WatchlistManager({
 
 const colHeaderStyle: React.CSSProperties = {
   fontFamily: 'var(--font-ui)',
-  fontSize: '9px',
+  fontSize: 'var(--text-xs)',
   fontWeight: 500,
-  color: 'var(--color-text-tertiary)',
+  color: 'var(--text-tertiary)',
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
@@ -306,9 +325,9 @@ const colHeaderStyle: React.CSSProperties = {
 const navBtnStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
-  color: 'var(--color-text-tertiary)',
+  color: 'var(--text-tertiary)',
   cursor: 'pointer',
   fontSize: 10,
   lineHeight: 1,
-  padding: '2px 3px',
+  padding: '2px var(--space-1)',
 };

@@ -488,18 +488,28 @@ async def test_dismiss_corporate_action(client: AsyncClient, session: AsyncSessi
 @pytest.mark.asyncio
 async def test_upload_preview(client: AsyncClient, session: AsyncSession):
     """POST /v4/portfolios/upload/preview returns preview."""
-    resp = await client.post("/v4/portfolios/upload/preview")
+    csv_content = "ticker,shares,cost_basis\nAAPL,100,150.00\nMSFT,50,300.00\n"
+    resp = await client.post(
+        "/v4/portfolios/upload/preview",
+        json={"csv_content": csv_content},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "total_rows" in data
+    assert data["total_rows"] == 2
     assert "preview_positions" in data
 
 
 @pytest.mark.asyncio
 async def test_upload_commit(client: AsyncClient, session: AsyncSession):
     """POST /v4/portfolios/upload/commit returns commit response."""
-    resp = await client.post("/v4/portfolios/upload/commit")
+    csv_content = "ticker,shares,cost_basis\nAAPL,100,150.00\nMSFT,50,300.00\n"
+    resp = await client.post(
+        "/v4/portfolios/upload/commit",
+        json={"csv_content": csv_content, "portfolio_name": "Upload Test Portfolio"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "portfolio_id" in data
     assert data["status"] == "COMMITTED"
+    assert data["positions_created"] == 2
