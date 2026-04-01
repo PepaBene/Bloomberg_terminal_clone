@@ -240,6 +240,98 @@ export default function CompanyIntelligence() {
         </div>
       </div>
 
+      {/* Revenue Drivers, Cost Structure, Margin Analysis */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--panel-gap)', marginTop: 'var(--panel-gap)' }}>
+        {/* Revenue Drivers */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Revenue Drivers</h2>
+          {(() => {
+            const drivers = (apiRevDrivers as any)?.drivers ?? [
+              { driver: 'iPhone Upgrades', impact: 'High', trend: 'Stable', contribution: 52.1 },
+              { driver: 'Services Attach Rate', impact: 'High', trend: 'Growing', contribution: 22.8 },
+              { driver: 'Installed Base Growth', impact: 'Medium', trend: 'Growing', contribution: 15.4 },
+              { driver: 'ASP Increases', impact: 'Medium', trend: 'Stable', contribution: 9.7 },
+            ];
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {drivers.map((d: any) => (
+                  <div key={d.driver} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                    <div>
+                      <div style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 500 }}>{d.driver}</div>
+                      <div style={{ ...labelStyle, fontSize: 'var(--text-xs)' }}>Impact: {d.impact} &middot; {d.trend}</div>
+                    </div>
+                    <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{d.contribution?.toFixed(1) ?? '—'}%</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Cost Structure */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Cost Structure</h2>
+          {(() => {
+            const costs = (apiCostStruct as any)?.items ?? [
+              { category: 'COGS', pctRevenue: 57.0, trend: 'Stable' },
+              { category: 'R&D', pctRevenue: 7.8, trend: 'Rising' },
+              { category: 'SG&A', pctRevenue: 6.5, trend: 'Stable' },
+              { category: 'D&A', pctRevenue: 2.9, trend: 'Stable' },
+            ];
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {costs.map((c: any) => (
+                  <div key={c.category}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={labelStyle}>{c.category}</span>
+                      <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{c.pctRevenue?.toFixed(1) ?? '—'}% of Rev</span>
+                    </div>
+                    <div style={{ height: '4px', background: 'var(--color-surface-border)', borderRadius: '2px' }}>
+                      <div style={{ height: '100%', width: `${Math.min(c.pctRevenue ?? 0, 100)}%`, background: 'var(--color-accent-secondary)', borderRadius: '2px' }} />
+                    </div>
+                    <div style={{ ...labelStyle, fontSize: 'var(--text-xs)', marginTop: '2px', textAlign: 'right' }}>Trend: {c.trend}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Margin Analysis */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Margin Analysis</h2>
+          {(() => {
+            const margins = (apiMargins as any)?.margins ?? [
+              { metric: 'Gross Margin', current: 46.6, prior: 45.9, fiveYrAvg: 43.2 },
+              { metric: 'Operating Margin', current: 33.2, prior: 31.4, fiveYrAvg: 29.8 },
+              { metric: 'Net Margin', current: 26.7, prior: 25.3, fiveYrAvg: 24.1 },
+              { metric: 'FCF Margin', current: 27.9, prior: 26.1, fiveYrAvg: 23.7 },
+            ];
+            return (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['Metric', 'Current', 'Prior', '5Y Avg'].map((h) => (
+                      <th key={h} style={{ ...labelStyle, textAlign: h === 'Metric' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {margins.map((m: any) => (
+                    <tr key={m.metric} style={{ height: 'var(--table-row-height)' }}>
+                      <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{m.metric}</td>
+                      <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{m.current?.toFixed(1) ?? '—'}%</td>
+                      <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.prior?.toFixed(1) ?? '—'}%</td>
+                      <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{m.fiveYrAvg?.toFixed(1) ?? '—'}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
+        </div>
+      </div>
+
       {/* Moat Assessment */}
       <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Moat Assessment</h2>

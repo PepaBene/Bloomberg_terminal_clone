@@ -539,6 +539,7 @@ Phase 10 removes every inline mock constant and replaces the `?? MOCK_*` fallbac
 | **10.0.3 Create `<LoadingSkeleton>` variants** | Skeleton loaders matching common page layouts: `table`, `card-grid`, `chart`, `kpi-row`, `detail-page`. Place in `@/components/ui/LoadingSkeleton.tsx`. |
 | **10.0.4 Create `<DataGuard>` wrapper** | HOC/wrapper that takes `{ data, isLoading, error, emptyMessage }` and renders `<LoadingSkeleton>` / `<ErrorState>` / `<EmptyState>` / `children` automatically. Reduces per-page boilerplate. Place in `@/components/ui/DataGuard.tsx`. |
 | **10.0.5 Add global error boundary** | Wrap `<AppRouter>` in a React error boundary that catches render crashes and shows a recovery UI instead of a white screen. Place in `@/components/ErrorBoundary.tsx`. |
+| **10.0.6 Remove all `as any` casts** | Every Phase 1–9 page casts API hook returns with `as any` or `as any[]` to bridge untyped responses. Define proper TypeScript interfaces for each hook's return type in `@/types/api.ts` (or per-domain files like `@/types/company.ts`, `@/types/fi.ts`, etc.), update hook signatures to return typed data, and remove all `as any` casts from page components. This restores full type safety and enables IDE autocompletion. |
 
 ### 10.1 Company Module (9 pages)
 
