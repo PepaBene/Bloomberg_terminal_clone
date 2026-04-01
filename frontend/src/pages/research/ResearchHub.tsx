@@ -6,6 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { CompanyIntelCard } from '@/components/intelligence';
 import type { IntelModule } from '@/components/intelligence';
+import { useCompanyIntelligence } from '@/hooks';
+import { useSecurityStore } from '@/stores/securityContext';
 
 // --- Skeleton ----------------------------------------------------------------
 
@@ -116,6 +118,13 @@ const CARD_ROUTES: Record<string, string> = {
 export default function ResearchHub() {
   const navigate = useNavigate();
 
+  const activeSecurity = useSecurityStore((s) => s.primary);
+  const activeEntityId = activeSecurity?.entity_id ?? 'AAPL';
+  const activeTicker = activeSecurity?.ticker ?? 'AAPL';
+  const { data: apiIntel } = useCompanyIntelligence(activeEntityId) as { data: any };
+
+  const activeModules = (apiIntel as any)?.modules ?? quickIntelModules;
+
   // Fetch module status from API
   const { data: modulesData, isLoading } = useQuery<ResearchCard[]>({
     queryKey: ['research', 'modules'],
@@ -140,10 +149,10 @@ export default function ResearchHub() {
       {/* Quick Intelligence — active security intel card */}
       <div style={{ marginBottom: 'var(--panel-gap, 8px)' }}>
         <h2 className="terminal-section-title" style={{ fontSize: 'var(--text-md)', margin: '0 0 8px 0' }}>
-          Quick Intelligence &mdash; AAPL
+          Quick Intelligence &mdash; {activeTicker}
         </h2>
         <div style={{ maxWidth: 400 }}>
-          <CompanyIntelCard modules={quickIntelModules} />
+          <CompanyIntelCard modules={activeModules} />
         </div>
       </div>
 

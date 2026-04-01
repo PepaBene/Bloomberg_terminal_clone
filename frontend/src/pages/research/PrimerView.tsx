@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------------------
 // Primer View — Company Primer Display with Sections
 // ---------------------------------------------------------------------------
+import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useCompanyPrimer, useRecentPrimers } from '@/hooks';
+import { api } from '@/api/client';
+import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -25,17 +30,41 @@ const dataQuality = [
 ];
 
 export default function PrimerView() {
+  const { entityId } = useParams<{ entityId: string }>();
+  const resolvedId = entityId ?? 'AAPL';
+  const { data: apiPrimer } = useCompanyPrimer(resolvedId) as { data: any };
+  const { data: apiRecent } = useRecentPrimers() as { data: any };
+  const [refreshing, setRefreshing] = useState(false);
+
+  const primerData = (apiPrimer as any) ?? { company, sections, dataQuality };
+  const activeSections = primerData.sections ?? sections;
+  const activeQuality = primerData.dataQuality ?? dataQuality;
+  const activeCompany = primerData.company ?? company;
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try { await api.post(RESEARCH.primers.refresh(resolvedId), {}); } catch {}
+    setRefreshing(false);
+  };
+  const handleDownload = async () => {
+    try { await api.get(RESEARCH.primers.download(resolvedId)); } catch {}
+  };
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'baseline', gap: '12px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Company Primer</h1>
-        <span style={{ ...dataStyle, color: 'var(--color-accent-primary)', fontWeight: 600 }}>{company.ticker}</span>
-        <span style={labelStyle}>{company.name}</span>
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)' }}>Data Completeness: {company.dataCompleteness}%</span>
+        <span style={{ ...dataStyle, color: 'var(--color-accent-primary)', fontWeight: 600 }}>{activeCompany.ticker}</span>
+        <span style={labelStyle}>{activeCompany.name}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)' }}>Data Completeness: {activeCompany.dataCompleteness}%</span>
+        <button className="btn-ghost" onClick={handleDownload} style={{ marginLeft: '8px' }}>Download PDF</button>
+        <button className="btn-primary" onClick={handleRefresh} disabled={refreshing} style={{ marginLeft: '4px' }}>
+          {refreshing ? 'Refreshing…' : 'Refresh Primer'}
+        </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
-          {sections.map((s) => (
+          {activeSections.map((s) => (
             <div key={s.title} style={panelStyle}>
               <h2 style={sectionTitle}>{s.title}</h2>
               <p style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', lineHeight: 1.6, margin: 0 }}>{s.content}</p>
@@ -45,7 +74,7 @@ export default function PrimerView() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Data Quality</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {dataQuality.map((d) => (
+            {activeQuality.map((d) => (
               <div key={d.field}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
                   <span style={labelStyle}>{d.field}</span>

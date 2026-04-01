@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------------------
 // Anomaly View — Anomaly Detection Results, Severity Distribution
 // ---------------------------------------------------------------------------
+import { useState } from 'react';
+import { useAnomalies, useCriticalAnomalies } from '@/hooks';
+import { api } from '@/api/client';
+import { RESEARCH } from '@/api/endpoints';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -33,6 +38,20 @@ const anomalies = [
 ];
 
 export default function AnomalyView() {
+  const { data: apiActive } = useAnomalies() as { data: any };
+  const { data: apiCritical } = useCriticalAnomalies() as { data: any };
+  const [acknowledged, setAcknowledged] = useState<Set<number>>(new Set());
+
+  const activeStats = (apiActive as any)?.stats ?? anomalyStats;
+  const activeAnomalies = (apiActive as any)?.anomalies ?? anomalies;
+
+  const handleAcknowledge = async (anomalyId: number) => {
+    try {
+      await api.post(RESEARCH.anomalies.acknowledge(String(anomalyId)), {});
+      setAcknowledged(prev => new Set(prev).add(anomalyId));
+    } catch {}
+  };
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -40,7 +59,7 @@ export default function AnomalyView() {
         <p style={{ ...labelStyle, marginTop: '4px' }}>Statistical anomalies across price, volume, sentiment, credit, and fundamentals</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {anomalyStats.map((s) => (
+        {activeStats.map((s) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{s.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: s.label === 'Critical' ? 'var(--color-signal-negative)' : 'var(--color-text-primary)' }}>{s.value}</div>
@@ -51,12 +70,12 @@ export default function AnomalyView() {
         <h2 style={sectionTitle}>Detected Anomalies</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
-            {['Time', 'Entity', 'Type', 'Severity', 'Z-Score', 'Detail'].map((h) => (
+            {['Time', 'Entity', 'Type', 'Severity', 'Z-Score', 'Detail', 'Action'].map((h) => (
               <th key={h} style={{ ...labelStyle, textAlign: h === 'Detail' ? 'left' : ['Entity', 'Type'].includes(h) ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
-            {anomalies.map((a) => (
+            {activeAnomalies.map((a) => (
               <tr key={a.id} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.time}</td>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{a.entity}</td>
@@ -66,6 +85,13 @@ export default function AnomalyView() {
                 </td>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.zScore.toFixed(1)}\u03c3</td>
                 <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.detail}</td>
+                <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)', textAlign: 'right' }}>
+                  {acknowledged.has(a.id) ? (
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-positive)' }}>Ack'd</span>
+                  ) : (
+                    <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '2px 8px' }} onClick={() => handleAcknowledge(a.id)}>Ack</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
