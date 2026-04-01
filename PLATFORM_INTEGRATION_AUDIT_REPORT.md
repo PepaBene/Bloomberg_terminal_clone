@@ -517,4 +517,170 @@ const mutation = useMutation({
 | Broken/stub interactive elements | 13 |
 | Missing frontend hooks | ~9 endpoint groups |
 | New pages needed | 6-8 |
-| Total integration tasks (Phases 0-9) | ~75 |
+| Total integration tasks (Phases 0-10) | ~90 |
+
+---
+
+## Phase 10: Remove All Mock Data — Real Empty States & Error Handling
+**Priority: FINAL — run after all pages are wired to API**
+
+### Rationale
+
+Phases 0–9 follow a "graceful migration" pattern: every page keeps its hardcoded mock data as fallback via `??` (nullish coalescing). This was intentional — it allows incremental integration without blank screens while the backend is being connected. Once **all pages are wired**, the mock data becomes misleading: users see fake numbers when the API is down or returns empty results, with no way to distinguish real data from fallback.
+
+Phase 10 removes every inline mock constant and replaces the `?? MOCK_*` fallbacks with proper empty-state UI and error-state UI, so the platform only ever shows real data or an explicit "no data" / "something went wrong" message.
+
+### 10.0 Shared Infrastructure (do first)
+
+| Task | Details |
+|------|---------|
+| **10.0.1 Create `<EmptyState>` component** | Reusable component: icon + heading + optional description + optional CTA button. Variants: `no-data` (gray), `no-results` (filter-specific), `not-configured` (needs setup). Place in `@/components/ui/EmptyState.tsx`. |
+| **10.0.2 Create `<ErrorState>` component** | Reusable component: error icon + message + "Retry" button (calls `refetch()`). Variants: `network` (connection lost), `server` (500), `not-found` (404), `forbidden` (403). Place in `@/components/ui/ErrorState.tsx`. |
+| **10.0.3 Create `<LoadingSkeleton>` variants** | Skeleton loaders matching common page layouts: `table`, `card-grid`, `chart`, `kpi-row`, `detail-page`. Place in `@/components/ui/LoadingSkeleton.tsx`. |
+| **10.0.4 Create `<DataGuard>` wrapper** | HOC/wrapper that takes `{ data, isLoading, error, emptyMessage }` and renders `<LoadingSkeleton>` / `<ErrorState>` / `<EmptyState>` / `children` automatically. Reduces per-page boilerplate. Place in `@/components/ui/DataGuard.tsx`. |
+| **10.0.5 Add global error boundary** | Wrap `<AppRouter>` in a React error boundary that catches render crashes and shows a recovery UI instead of a white screen. Place in `@/components/ErrorBoundary.tsx`. |
+
+### 10.1 Company Module (9 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.1.1 | CompanyOverview | `indices`, `watchlistQuick`, `recentFilings`, `topHolders`, `sectorPerformance`, `analystRatings`, inline score/earnings/sentiment/technical arrays | Show `<EmptyState>` per section when API returns empty; show `<ErrorState>` with retry on failure; remove all `?? mock` fallbacks |
+| 10.1.2 | FinancialStatements | `incomeData`, `balanceData`, `cashFlowData`, `ratioData` | Empty table with "No financial data available" message; error banner above table on failure |
+| 10.1.3 | ValuationDashboard | `multiplesData`, `peersData`, `dcfResult`, `footballData`, `dupontData`, `historicalMultiples` | "No valuation data" empty state per panel; disable DCF inputs when no base model returned |
+| 10.1.4 | CreditProfile | `creditOverview`, `ratingHistory`, `spreadData`, `debtMaturity`, `bondList`, `cdsData` | "No credit profile available" with suggestion to check entity has rated debt |
+| 10.1.5 | CompanyIntelligence | `businessModel`, `capitalAllocation`, `revenueDrivers`, `costStructure`, `qualityMetrics`, `moatData`, `swotData`, `porterData` | "Intelligence report not yet generated" empty state with "Generate Report" CTA |
+| 10.1.6 | OwnershipDashboard | `institutionalHolders`, `insiderTransactions`, `ownershipSummary`, `shortInterestData`, `fundHoldings` | "No ownership data" per section; "No insider activity" for empty insider table |
+| 10.1.7 | FilingsView | `recentFilings`, `filingTypes`, `filingCalendar`, `riskFactors`, `mdnaHighlights` | "No filings found" with filter-reset CTA if filters active; "Risk factors unavailable" |
+| 10.1.8 | ESGDashboard | `mockEsgData`, `mockEsgScores`, `mockControversies` | "No ESG data available" — entity may not have ESG coverage |
+| 10.1.9 | GovernanceDashboard | `mockGovernance`, `mockBoard`, `mockCompensation`, `mockProxy`, `mockProposals` | "No governance data" — entity may not be publicly traded |
+
+### 10.2 Portfolio Module (4 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.2.1 | PortfolioList | `samplePortfolios` | "No portfolios yet" with "Create Portfolio" CTA button |
+| 10.2.2 | PortfolioDetail | `positions`, `allocations`, `navHistory`, `transactions` | "Portfolio is empty — add positions to get started" with "Add Position" CTA |
+| 10.2.3 | PerformancePage | `returnsData`, `calendarReturns`, `attributionData`, `benchmarkData` | "Not enough history to calculate performance" when < 1 data point |
+| 10.2.4 | RiskPage | `varData`, `stressResults`, `factorExposure`, `correlationMatrix` | "No risk metrics available" — portfolio may be empty or too new |
+
+### 10.3 Fixed Income Module (6 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.3.1 | FIDashboard | `treasuryYields`, `keyRates`, `spreadSnapshot`, `recentIssuance`, `fiNews` | Per-widget empty states: "Yield data unavailable", "No recent issuance" |
+| 10.3.2 | BondDetail | `bondInfo`, `cashFlows`, `comparables`, `priceHistory` | "Bond not found" when CUSIP doesn't match; 404-style for invalid CUSIP |
+| 10.3.3 | CreditMarket | `cdxIndices`, `sectorSpreads`, `distressedList`, `ratingChanges` | "Credit market data loading" skeleton; "Data temporarily unavailable" on error |
+| 10.3.4 | TreasuryDashboard | `curveData`, `auctionSchedule`, `onTheRun`, `historicalCurves` | "Yield curve data unavailable" with retry |
+| 10.3.5 | IssuanceMonitor | `newIssues`, `pipeline`, `pricingHistory` | "No new issuance today" — show last available date |
+| 10.3.6 | FIIntelligence | `crossAssetSignals`, `issuerIntel`, `narratives` | "Intelligence briefing not yet generated" |
+
+### 10.4 Research Module (8 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.4.1 | ResearchHub | `quickIntel`, `recentPrimers`, `recentBriefings` | "No recent research" with links to generate primers/briefings |
+| 10.4.2 | PrimerView | `primerContent`, `primerMeta` | "No primer available for this entity — click Generate to create one" |
+| 10.4.3 | BriefingView | `briefingContent`, `marketOverview` | "No briefing for today — click Generate" with last-available date shown |
+| 10.4.4 | AnomalyView | `activeAnomalies`, `anomalyHistory` | "No anomalies detected" (this is actually good news — style accordingly with a green check) |
+| 10.4.5 | SemanticSearch | `searchResults` | "Enter a query to search" (initial state); "No results found" (after search) |
+| 10.4.6 | ThesisBuilder | `thesisContent`, `supportingData` | "No thesis yet — describe your investment thesis to get started" |
+| 10.4.7 | AnalystQA | `chatHistory`, `suggestedQuestions` | "Ask a question about any company, sector, or market" (initial state) |
+| 10.4.8 | ThemesDashboard | `activeThemes`, `themeHistory` | "No active themes detected" |
+
+### 10.5 Screener Module (2 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.5.1 | ScreenerDashboard | `screenResults`, `prebuiltScreens`, `recentScreens` | "Add criteria and run screen" (initial); "No matches found — try relaxing filters" (empty result) |
+| 10.5.2 | FIScreenerDashboard | `fiBondResults`, `fiPrebuiltScreens` | Same pattern as equity screener |
+
+### 10.6 Macro & Global Module (7 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.6.1 | MacroDashboard | `gdpData`, `inflationData`, `employmentData`, `indicators`, `pmiData` | Per-indicator empty states; "Data delayed" warning if stale > 24h |
+| 10.6.2 | CentralBankMonitor | `centralBanks`, `meetingCalendar`, `rateDecisions` | "No upcoming meetings" with last-decision summary |
+| 10.6.3 | YieldCurveDeepDive | `curveSnapshots`, `forwardCurves`, `realCurves`, `spreadHistory` | "Yield curve data unavailable" with retry; "Select curves to compare" initial state |
+| 10.6.4 | GlobalDashboard | `globalIndices`, `fxRates`, `commodityPrices`, `heatmapData` | Per-widget empty states matching FI dashboard pattern |
+| 10.6.5 | CountryRisk | `countryScores`, `riskBreakdown`, `sovereignSpreads` | "Select a country to view risk profile" initial state |
+| 10.6.6 | CommodityDashboard | `commodityPrices`, `supplyDemand`, `seasonality` | "Commodity data unavailable" with retry |
+| 10.6.7 | PoliticalMonitor | `events`, `riskMap`, `electionCalendar` | "No active political events" with date of last update |
+
+### 10.7 Remaining Pages (7 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.7.1 | RiskDashboard | `portfolioRisk`, `varSummary`, `concentrationData` | "No portfolio selected" initial state; "Select a portfolio to view risk" |
+| 10.7.2 | FlowsDashboard | `institutionalFlows`, `sectorFlows`, `whaleAlerts` | "No flow data available for this period" |
+| 10.7.3 | QuantDashboard | `factorReturns`, `correlationData`, `regressionResults`, `backtestResults` | "Configure and run analysis" initial state; "No results" after empty run |
+| 10.7.4 | AlertsView | `activeAlerts`, `alertHistory`, `alertRules` | "No alerts — configure alert rules to get started" with "Create Rule" CTA |
+| 10.7.5 | NewsView | `newsItems` | "No news matching your filters" with filter-reset CTA; "Breaking news unavailable" on error |
+| 10.7.6 | WatchlistView | `watchlistItems`, `earningsCalendar`, `SEARCH_SUGGESTIONS` | "Your watchlist is empty — add securities to start monitoring" with "Add" CTA |
+| 10.7.7 | SectorView + IndustryDetail | `sectorData`, `industryBreakdown`, `sectorPerformance` | "Select a sector" initial; "No industry data available" |
+
+### 10.8 Home & Settings (3 pages)
+
+| Task | Page | Mock Data to Remove | Empty/Error Handling to Add |
+|------|------|---------------------|-----------------------------|
+| 10.8.1 | MorningBrief (Home) | `marketSnapshot`, `topMovers`, `briefingContent`, `watchlistSummary` | "Morning briefing is loading..." skeleton; "Briefing generation failed — showing last available" on error with stale timestamp |
+| 10.8.2 | Settings | `currentTheme`, `notifications` config | Settings page keeps local defaults (theme=dark, notifications=all-on) — these are user preferences, not mock data. Only remove if a user preferences API is wired. |
+| 10.8.3 | CustomData | `customDataSets`, `uploadHistory` | "No custom data uploaded — drag & drop a CSV to get started" |
+
+### Implementation Pattern for Phase 10
+
+Every page transformation follows this pattern:
+
+```typescript
+// BEFORE (Phases 0-9 pattern):
+const MOCK_ITEMS = [{ ticker: 'AAPL', price: 178.72, ... }, ...];
+
+export default function SomePage() {
+  const { data: apiData, isLoading } = useSomeHook(entityId);
+  const items = apiData?.items ?? MOCK_ITEMS;  // ← fallback hides failures
+  return <Table data={items} />;
+}
+
+// AFTER (Phase 10 pattern):
+export default function SomePage() {
+  const { data: apiData, isLoading, error, refetch } = useSomeHook(entityId);
+
+  if (isLoading) return <LoadingSkeleton variant="table" />;
+  if (error) return <ErrorState error={error} onRetry={refetch} />;
+  if (!apiData?.items?.length) return <EmptyState icon="table" heading="No data available" />;
+
+  return <Table data={apiData.items} />;
+}
+```
+
+For pages with multiple independent data sections, use `<DataGuard>` per section rather than one guard for the whole page:
+
+```typescript
+export default function DashboardPage() {
+  const scores = useCompositeScores(id);
+  const earnings = useEarningsSurprises(id);
+  const sentiment = useSentimentHistory(id);
+
+  return (
+    <div>
+      <DataGuard query={scores} skeleton="kpi-row" emptyMessage="No scores available">
+        <ScoresGrid data={scores.data} />
+      </DataGuard>
+      <DataGuard query={earnings} skeleton="table" emptyMessage="No earnings data">
+        <EarningsTable data={earnings.data} />
+      </DataGuard>
+      <DataGuard query={sentiment} skeleton="chart" emptyMessage="No sentiment data">
+        <SentimentChart data={sentiment.data} />
+      </DataGuard>
+    </div>
+  );
+}
+```
+
+### Checklist Before Starting Phase 10
+
+- [ ] All pages from Phases 1-9 are wired to API hooks (no page still purely mock-only)
+- [ ] Backend is running and returning real responses (even if empty)
+- [ ] `<EmptyState>`, `<ErrorState>`, `<LoadingSkeleton>`, `<DataGuard>` components are built and tested (task 10.0)
+- [ ] Global error boundary is in place (task 10.0.5)
+
+### Total Phase 10 Tasks: ~48 page transformations + 5 infrastructure tasks = **53 tasks**
