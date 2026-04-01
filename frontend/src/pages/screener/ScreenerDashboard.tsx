@@ -4,6 +4,9 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
+import { useScreenPrebuilt, useScreenHistory } from '@/hooks';
+import { api } from '@/api/client';
+import { ANALYTICS } from '@/api/endpoints';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -69,8 +72,58 @@ const RESULT_COLUMNS: ScreenResultColumn[] = [
 
 export default function ScreenerDashboard() {
   const [filters, setFilters] = useState<ScreenFilter[]>([]);
+  const [backendResults, setBackendResults] = useState<Record<string, unknown>[] | null>(null);
+  const [screening, setScreening] = useState(false);
+  const [screenName, setScreenName] = useState('');
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showLoadModal, setShowLoadModal] = useState(false);
 
-  // Derive filtered results from mock data based on ScreenBuilder filters
+  // --- API hooks ---
+  const { data: apiPrebuilt } = useScreenPrebuilt() as { data: any };
+  const { data: apiHistory, refetch: refetchHistory } = useScreenHistory() as { data: any };
+
+  // --- Run screen against backend ---
+  const handleRunScreen = useCallback(async () => {
+    if (filters.length === 0) { setBackendResults(null); return; }
+    setScreening(true);
+    try {
+      const payload = { filters: filters.map(f => ({ metric: f.metric, operator: f.operator, value: f.value, valueTo: f.valueTo })) };
+      const res = await api.post(ANALYTICS.screen, payload);
+      setBackendResults((res as any)?.results ?? (res as any)?.data ?? []);
+    } catch { setBackendResults(null); }
+    setScreening(false);
+  }, [filters]);
+
+  // --- Save screen ---
+  const handleSaveScreen = useCallback(async () => {
+    if (!screenName.trim()) return;
+    try {
+      await api.post(ANALYTICS.screenSave, { name: screenName, filters });
+      setShowSaveModal(false);
+      setScreenName('');
+      refetchHistory();
+    } catch { /* ignore */ }
+  }, [screenName, filters, refetchHistory]);
+
+  // --- Load prebuilt screen ---
+  const handleLoadPrebuilt = useCallback((screen: any) => {
+    if (screen?.filters) {
+      setFilters(screen.filters);
+      setBackendResults(null);
+    }
+    setShowLoadModal(false);
+  }, []);
+
+  // --- Load saved screen from history ---
+  const handleLoadSaved = useCallback((screen: any) => {
+    if (screen?.filters) {
+      setFilters(screen.filters);
+      setBackendResults(null);
+    }
+    setShowLoadModal(false);
+  }, []);
+
+  // Derive filtered results from mock data based on ScreenBuilder filters (local fallback)
   const filtered = useMemo(() => {
     if (filters.length === 0) return MOCK_STOCKS;
     return MOCK_STOCKS.filter((stock) => {
@@ -90,25 +143,40 @@ export default function ScreenerDashboard() {
 
   const handleFiltersChange = useCallback((newFilters: ScreenFilter[]) => {
     setFilters(newFilters);
+    setBackendResults(null); // reset backend results on filter change
   }, []);
 
-  // Convert to generic records for ScreenResults
+  // Use backend results if available, otherwise fall back to local filtering
   const resultRows = useMemo(
-    () => filtered.map((s) => ({ ...s } as unknown as Record<string, unknown>)),
-    [filtered],
+    () => backendResults ?? filtered.map((s) => ({ ...s } as unknown as Record<string, unknown>)),
+    [backendResults, filtered],
   );
+  const totalCount = backendResults ? (backendResults.length) : MOCK_STOCKS.length;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
       {/* Header */}
-      <div style={{ marginBottom: '16px' }}>
-        <h1 className="terminal-section-title" style={{ fontSize: 'var(--text-xl)', margin: 0 }}>
-          Equity Screener
-        </h1>
-        <p className="terminal-label" style={{ marginTop: '4px' }}>
-          Build custom screens with flexible filters
-        </p>
+      <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="terminal-section-title" style={{ fontSize: 'var(--text-xl)', margin: 0 }}>
+            Equity Screener
+          </h1>
+          <p className="terminal-label" style={{ marginTop: '4px' }}>
+            Build custom screens with flexible filters
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn-ghost" onClick={() => setShowLoadModal(true)}>
+            Load Screen
+          </button>
+          <button className="btn-ghost" onClick={() => setShowSaveModal(true)} disabled={filters.length === 0}>
+            Save Screen
+          </button>
+          <button className="btn-primary" onClick={handleRunScreen} disabled={screening || filters.length === 0}>
+            {screening ? 'Screening…' : 'Run Screen'}
+          </button>
+        </div>
       </div>
 
       {/* ScreenBuilder replaces inline filter controls */}
@@ -121,12 +189,82 @@ export default function ScreenerDashboard() {
       </div>
 
       {/* LivePreviewCount between builder and results */}
-      <LivePreviewCount count={filtered.length} total={MOCK_STOCKS.length} />
+      <LivePreviewCount count={resultRows.length} total={totalCount} />
 
       {/* ScreenResults replaces inline results table */}
       <div style={{ marginTop: 'var(--panel-gap)' }}>
         <ScreenResults results={resultRows} columns={RESULT_COLUMNS} />
       </div>
+
+      {/* Prebuilt Screens */}
+      {(apiPrebuilt as any)?.screens?.length > 0 && (
+        <div className="terminal-card" style={{ marginTop: 'var(--panel-gap)', padding: '12px' }}>
+          <h3 className="terminal-section-title" style={{ fontSize: 'var(--text-sm)', marginBottom: '8px' }}>Prebuilt Screens</h3>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {((apiPrebuilt as any).screens as any[]).map((s: any, i: number) => (
+              <button key={i} className="btn-ghost" onClick={() => handleLoadPrebuilt(s)} style={{ fontSize: 'var(--text-xs)' }}>
+                {s.name ?? `Screen ${i + 1}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Save Screen Modal */}
+      {showSaveModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="terminal-card" style={{ padding: '24px', minWidth: '360px' }}>
+            <h3 className="terminal-section-title" style={{ marginBottom: '12px' }}>Save Screen</h3>
+            <input
+              type="text"
+              className="terminal-input"
+              placeholder="Screen name"
+              value={screenName}
+              onChange={e => setScreenName(e.target.value)}
+              style={{ width: '100%', marginBottom: '12px' }}
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn-ghost" onClick={() => setShowSaveModal(false)}>Cancel</button>
+              <button className="btn-primary" onClick={handleSaveScreen} disabled={!screenName.trim()}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Screen Modal */}
+      {showLoadModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="terminal-card" style={{ padding: '24px', minWidth: '420px', maxHeight: '60vh', overflow: 'auto' }}>
+            <h3 className="terminal-section-title" style={{ marginBottom: '12px' }}>Load Screen</h3>
+
+            {(apiPrebuilt as any)?.screens?.length > 0 && (
+              <>
+                <h4 className="terminal-label" style={{ marginBottom: '8px' }}>Prebuilt</h4>
+                {((apiPrebuilt as any).screens as any[]).map((s: any, i: number) => (
+                  <div key={`pre-${i}`} className="terminal-row" style={{ padding: '6px 8px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }} onClick={() => handleLoadPrebuilt(s)}>
+                    {s.name ?? `Prebuilt ${i + 1}`}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {(apiHistory as any)?.screens?.length > 0 && (
+              <>
+                <h4 className="terminal-label" style={{ marginTop: '12px', marginBottom: '8px' }}>Saved</h4>
+                {((apiHistory as any).screens as any[]).map((s: any, i: number) => (
+                  <div key={`saved-${i}`} className="terminal-row" style={{ padding: '6px 8px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }} onClick={() => handleLoadSaved(s)}>
+                    {s.name ?? `Saved ${i + 1}`}
+                  </div>
+                ))}
+              </>
+            )}
+
+            <div style={{ marginTop: '12px', textAlign: 'right' }}>
+              <button className="btn-ghost" onClick={() => setShowLoadModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
