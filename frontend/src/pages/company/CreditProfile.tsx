@@ -6,6 +6,9 @@ import { BondInventoryTable } from '@/components/company/BondInventoryTable';
 import { MaturityWallChart } from '@/components/company/MaturityWallChart';
 import { EquityCreditDivergence } from '@/components/company/EquityCreditDivergence';
 import { TimeSeriesChart } from '@/components/charts';
+import { useParams } from 'react-router-dom';
+import { useSecurityStore } from '@/stores/securityContext';
+import { useCreditRatings, useCreditSpreads, useDefaultProbability, useCDS, useCDSCurve, useBondsByIssuer, useDebtMaturity } from '@/hooks';
 import type { CreditRatio } from '@/components/company/CreditRatioPanel';
 import type { BondRecord } from '@/components/company/BondInventoryTable';
 import type { MaturityBucket } from '@/components/company/MaturityWallChart';
@@ -151,6 +154,24 @@ const leverageTrajectory: { date: string; value: number; debtToEbitda: number; i
 // --- Component ---------------------------------------------------------------
 
 export default function CreditProfile() {
+  const { entityId } = useParams<{ entityId: string }>();
+  const primary = useSecurityStore((s) => s.primary);
+  const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
+
+  // Wire hooks
+  const { data: apiRatings } = useCreditRatings(resolvedId);
+  const { data: apiSpreads } = useCreditSpreads(resolvedId);
+  const { data: apiDefaultProb } = useDefaultProbability(resolvedId);
+  const { data: apiCDS } = useCDS(resolvedId);
+  const { data: apiCDSCurve } = useCDSCurve(resolvedId);
+  const { data: apiBonds } = useBondsByIssuer(resolvedId);
+  const { data: apiDebtMat } = useDebtMaturity(resolvedId);
+
+  // Use API data with mock fallback
+  const activeRatings = (apiRatings as any[]) ?? ratings;
+  const activeSpreads = (apiSpreads as any[]) ?? spreadHistory;
+  const activeBonds = (apiBonds as any[]) ?? bondInventory;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -208,7 +229,7 @@ export default function CreditProfile() {
               </tr>
             </thead>
             <tbody>
-              {ratings.map((r) => (
+              {activeRatings.map((r) => (
                 <tr key={r.agency} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.agency}</td>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{r.rating}</td>
@@ -232,7 +253,7 @@ export default function CreditProfile() {
               </tr>
             </thead>
             <tbody>
-              {spreadHistory.map((s) => (
+              {activeSpreads.map((s) => (
                 <tr key={s.date} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{s.date}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.spread}</td>
@@ -252,11 +273,66 @@ export default function CreditProfile() {
 
       {/* Bond Inventory Table */}
       <div style={{ marginBottom: 'var(--panel-gap)' }}>
-        <BondInventoryTable bonds={bondInventory} />
+        <BondInventoryTable bonds={activeBonds} />
       </div>
 
       {/* Equity vs Credit Divergence */}
       <EquityCreditDivergence data={equityCreditData} entityName={company.name} height={300} />
+
+      {/* Default Probability */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginTop: 'var(--panel-gap)' }}>
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Default Probability</h2>
+          {apiDefaultProb ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {(['1y', '3y', '5y', '10y'] as const).map((tenor) => {
+                const prob = (apiDefaultProb as any)?.[tenor];
+                return (
+                  <div key={tenor} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                    <span style={labelStyle}>{tenor.toUpperCase()} PD</span>
+                    <span style={{ ...dataStyle, fontWeight: 600, color: (prob ?? 0) > 0.02 ? 'var(--color-signal-warning)' : 'var(--color-signal-positive)' }}>
+                      {prob != null ? `${(prob * 100).toFixed(3)}%` : '—'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[{ tenor: '1Y PD', value: '0.012%' }, { tenor: '3Y PD', value: '0.058%' }, { tenor: '5Y PD', value: '0.142%' }, { tenor: '10Y PD', value: '0.385%' }].map((item) => (
+                <div key={item.tenor} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                  <span style={labelStyle}>{item.tenor}</span>
+                  <span style={{ ...dataStyle, fontWeight: 600, color: 'var(--color-signal-positive)' }}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* CDS Spreads */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>CDS Spreads</h2>
+          {apiCDS ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {Object.entries(apiCDS as Record<string, any>).map(([tenor, data]) => (
+                <div key={tenor} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                  <span style={labelStyle}>{tenor}</span>
+                  <span style={{ ...dataStyle, fontWeight: 600 }}>{typeof data === 'number' ? `${data} bps` : `${data?.spread ?? '—'} bps`}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[{ tenor: '1Y CDS', spread: '18 bps' }, { tenor: '3Y CDS', spread: '25 bps' }, { tenor: '5Y CDS', spread: '32 bps' }, { tenor: '10Y CDS', spread: '48 bps' }].map((item) => (
+                <div key={item.tenor} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                  <span style={labelStyle}>{item.tenor}</span>
+                  <span style={{ ...dataStyle, fontWeight: 600 }}>{item.spread}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Covenant Analysis */}
       <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>

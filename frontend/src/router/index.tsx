@@ -9,6 +9,8 @@ const ValuationDashboard = lazy(() => import('@/pages/company/ValuationDashboard
 const OwnershipDashboard = lazy(() => import('@/pages/company/OwnershipDashboard'));
 const CreditProfile = lazy(() => import('@/pages/company/CreditProfile'));
 const CompanyIntelligence = lazy(() => import('@/pages/company/CompanyIntelligence'));
+const ESGDashboard = lazy(() => import('@/pages/company/ESGDashboard'));
+const GovernanceDashboard = lazy(() => import('@/pages/company/GovernanceDashboard'));
 const FilingsView = lazy(() => import('@/pages/company/FilingsView'));
 const ScreenerDashboard = lazy(() => import('@/pages/screener/ScreenerDashboard'));
 const FIScreenerDashboard = lazy(() => import('@/pages/screener/FIScreenerDashboard'));
@@ -71,6 +73,10 @@ export function AppRouter() {
         <Route path="/company/filings" element={<FilingsView />} />
         <Route path="/company/credit" element={<CreditProfile />} />
         <Route path="/company/intelligence" element={<CompanyIntelligence />} />
+        <Route path="/company/esg" element={<ESGDashboard />} />
+        <Route path="/company/governance" element={<GovernanceDashboard />} />
+        <Route path="/company/:entityId/esg" element={<ESGDashboard />} />
+        <Route path="/company/:entityId/governance" element={<GovernanceDashboard />} />
 
         {/* Screener */}
         <Route path="/screener" element={<ScreenerDashboard />} />

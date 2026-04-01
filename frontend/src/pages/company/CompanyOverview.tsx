@@ -11,6 +11,8 @@ import type { CandlestickDataPoint, ScoreItem } from '@/components/charts';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { SentimentGauge } from '@/components/intelligence';
+import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores } from '@/hooks';
+import { TimeSeriesChart } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -271,6 +273,12 @@ export default function CompanyOverview() {
   });
   const newsItems = newsRaw ?? MOCK_NEWS;
 
+  // New hooks for Phase 1
+  const { data: sentimentHistory } = useSentimentHistory(resolvedId);
+  const { data: earningsSurprises } = useEarningsSurprises(resolvedId);
+  const { data: technicalSignals } = useTechnicalSignals(resolvedId);
+  const { data: compositeScores } = useCompositeScores(resolvedId);
+
   const isLoading = loadingCompany || loadingKpis || loadingQuarterly || loadingQuality;
 
   return (
@@ -419,6 +427,63 @@ export default function CompanyOverview() {
               scores={BENEISH_BREAKDOWN}
             />
           </div>
+
+          {/* Composite Scores */}
+          {compositeScores && (
+            <div className="terminal-panel">
+              <h2 className="terminal-section-title">Composite Scores</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                {(['quality', 'value', 'growth', 'momentum', 'volatility'] as const).map((key) => {
+                  const score = (compositeScores as any)?.[key];
+                  return (
+                    <div key={key} style={{ textAlign: 'center', padding: '8px', background: 'var(--color-surface-raised)', borderRadius: '4px' }}>
+                      <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', textTransform: 'capitalize', marginBottom: '4px' }}>{key}</div>
+                      <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 700, color: (score ?? 50) >= 70 ? 'var(--color-signal-positive)' : (score ?? 50) >= 40 ? 'var(--color-text-primary)' : 'var(--color-signal-negative)' }}>
+                        {score ?? '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Earnings Surprises */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Earnings Surprises</h2>
+            {(() => {
+              const surprises = (earningsSurprises as any[]) ?? [
+                { period: 'Q1 2026', epsEstimate: 2.10, epsActual: 2.18, surprise: 3.81, revenueEstimate: 117800, revenueActual: 119500, revSurprise: 1.44 },
+                { period: 'Q4 2025', epsEstimate: 1.60, epsActual: 1.64, surprise: 2.50, revenueEstimate: 93200, revenueActual: 94930, revSurprise: 1.86 },
+                { period: 'Q3 2025', epsEstimate: 1.43, epsActual: 1.46, surprise: 2.10, revenueEstimate: 84500, revenueActual: 85777, revSurprise: 1.51 },
+                { period: 'Q2 2025', epsEstimate: 1.35, epsActual: 1.40, surprise: 3.70, revenueEstimate: 80500, revenueActual: 81797, revSurprise: 1.61 },
+              ];
+              return (
+                <table className="terminal-table">
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th className="right">EPS Est</th>
+                      <th className="right">EPS Act</th>
+                      <th className="right">Surprise</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {surprises.map((s: any) => (
+                      <tr key={s.period}>
+                        <td style={{ fontWeight: 500 }}>{s.period}</td>
+                        <td className="right">${s.epsEstimate?.toFixed(2)}</td>
+                        <td className="right" style={{ fontWeight: 600 }}>${s.epsActual?.toFixed(2)}</td>
+                        <td className="right" style={{ color: (s.surprise ?? 0) >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 600 }}>
+                          {s.surprise != null ? `${s.surprise >= 0 ? '+' : ''}${s.surprise.toFixed(1)}%` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
         </div>
 
         {/* Right Column */}
@@ -515,6 +580,56 @@ export default function CompanyOverview() {
               momentum="IMPROVING"
               label={`${company.ticker} Market Sentiment`}
             />
+          </div>
+
+          {/* Sentiment Trend */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Sentiment Trend (30D)</h2>
+            {sentimentHistory ? (
+              <TimeSeriesChart
+                data={sentimentHistory as any[]}
+                series={[{ key: 'sentiment', color: '#3B82F6', name: 'Sentiment', type: 'line' }]}
+                height={160}
+                showGrid
+                showTooltip
+              />
+            ) : (
+              <div style={{ height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                  Sentiment history available when API is connected
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Technical Signals */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Technical Signals</h2>
+            {(() => {
+              const signals = (technicalSignals as any)?.signals ?? [
+                { name: 'RSI (14)', value: '58.2', signal: 'Neutral' },
+                { name: 'MACD', value: '1.24', signal: 'Bullish' },
+                { name: 'SMA 50', value: '$174.30', signal: 'Above' },
+                { name: 'SMA 200', value: '$170.15', signal: 'Above' },
+                { name: 'Bollinger Bands', value: 'Mid', signal: 'Neutral' },
+              ];
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {signals.map((s: any) => (
+                    <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>{s.name}</span>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)' }}>{s.value}</span>
+                        <span style={{
+                          fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', fontWeight: 500,
+                          color: s.signal === 'Bullish' || s.signal === 'Above' ? 'var(--color-signal-positive)' : s.signal === 'Bearish' || s.signal === 'Below' ? 'var(--color-signal-negative)' : 'var(--color-text-tertiary)',
+                        }}>{s.signal}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Top Holders */}
