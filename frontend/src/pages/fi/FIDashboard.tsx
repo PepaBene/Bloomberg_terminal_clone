@@ -2,6 +2,7 @@
 // Fixed Income Dashboard
 // ---------------------------------------------------------------------------
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { YieldCurveChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
@@ -93,7 +94,16 @@ const NEW_ISSUES: NewIssue[] = [
 
 // --- Component ---------------------------------------------------------------
 
+const QUICK_LINK_ROUTES: Record<string, string> = {
+  'Treasury Dashboard': '/fi/treasuries',
+  'Credit Market Deep Dive': '/fi/credit',
+  'Bond Screener': '/screener/fi',
+  'Issuance Monitor': '/fi/issuance',
+};
+
 export default function FIDashboard() {
+  const navigate = useNavigate();
+
   // Fetch yield curve
   const { data: yieldData, isLoading: loadingYield } = useQuery<YieldTenor[]>({
     queryKey: ['fi', 'yield-curve'],
@@ -192,6 +202,7 @@ export default function FIDashboard() {
               {['Treasury Dashboard', 'Credit Market Deep Dive', 'Bond Screener', 'Issuance Monitor'].map((label) => (
                 <div
                   key={label}
+                  onClick={() => navigate(QUICK_LINK_ROUTES[label])}
                   style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-sm)',

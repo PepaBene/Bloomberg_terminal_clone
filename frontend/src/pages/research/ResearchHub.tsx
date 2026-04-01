@@ -2,6 +2,7 @@
 // AI Research Hub
 // ---------------------------------------------------------------------------
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { CompanyIntelCard } from '@/components/intelligence';
 import type { IntelModule } from '@/components/intelligence';
@@ -103,7 +104,18 @@ function statusBadgeClass(status: ResearchCard['status']): string {
 
 // --- Component ---------------------------------------------------------------
 
+const CARD_ROUTES: Record<string, string> = {
+  primer: '/research/primers',
+  briefing: '/research/briefings',
+  anomaly: '/research/anomalies',
+  search: '/research/search',
+  thesis: '/research/thesis',
+  qa: '/research/qa',
+};
+
 export default function ResearchHub() {
+  const navigate = useNavigate();
+
   // Fetch module status from API
   const { data: modulesData, isLoading } = useQuery<ResearchCard[]>({
     queryKey: ['research', 'modules'],
@@ -191,6 +203,10 @@ export default function ResearchHub() {
 
               {/* Launch Button */}
               <button
+                onClick={() => {
+                  const route = CARD_ROUTES[card.id];
+                  if (route) navigate(route);
+                }}
                 style={{
                   fontFamily: 'var(--font-ui)',
                   fontSize: 'var(--text-sm)',

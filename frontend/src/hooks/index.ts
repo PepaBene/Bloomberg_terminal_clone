@@ -310,6 +310,50 @@ export {
   useWatchlistHeatmap,
 } from './usePortfolio';
 
+// Phase 0: Missing Domain Hooks
+export {
+  // Capital Structure
+  useCapitalStructure,
+  useCapitalStructureDebt,
+  useCapitalStructureEquity,
+  useCapitalStructureHistory,
+  // Debt Maturity
+  useDebtMaturity,
+  useDebtMaturitySchedule,
+  useRefinancingRisk,
+  // Corporate Actions
+  useCorporateActions,
+  useCorporateActionsCalendar,
+  useCorporateActionsUpcoming,
+  // IPO
+  useIpoUpcoming,
+  useIpoRecent,
+  useIpoDetail,
+  useIpoPipeline,
+  useIpoPerformance,
+  useIpoCalendar,
+  // Fund Holdings
+  useFundHoldings,
+  useFundNPort,
+  useFundTopHoldings,
+  useFundSectorAllocation,
+  // Money Market
+  useMoneyMarketRates,
+  useMoneyMarketSOFR,
+  useMoneyMarketEFFR,
+  useMoneyMarketRepo,
+  useMoneyMarketTBills,
+  useMoneyMarketHistory,
+  // Exports
+  useExportTemplates,
+  useExportTemplate,
+  useScheduledReports,
+  useGenerateReport,
+  useExportCsv,
+  useExportExcel,
+  useExportPdf,
+} from './useMissingDomains';
+
 // Fixed Income
 export {
   // Yield Curve

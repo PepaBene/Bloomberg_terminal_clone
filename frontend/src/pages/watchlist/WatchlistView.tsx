@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Watchlist View — Watchlist Management, Monitoring Alerts, Earnings Calendar
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { WatchlistManager, EarningsCalendarWidget } from '@/components/alerts';
 import type { WatchlistEntity, EarningsEvent } from '@/components/alerts';
 
@@ -23,6 +23,21 @@ const earningsCalendar = [
   { date: '2026-04-25', ticker: 'AAPL', name: 'Apple', time: 'AMC', epsEst: '$1.62', impliedMove: '3.8%' },
   { date: '2026-04-25', ticker: 'GOOGL', name: 'Alphabet', time: 'AMC', epsEst: '$1.89', impliedMove: '5.1%' },
   { date: '2026-04-30', ticker: 'AMZN', name: 'Amazon', time: 'AMC', epsEst: '$1.05', impliedMove: '6.2%' },
+];
+
+// --- Search Suggestions (offline fallback) -----------------------------------
+
+const SEARCH_SUGGESTIONS = [
+  { ticker: 'TSLA', name: 'Tesla Inc.' },
+  { ticker: 'AMD', name: 'Advanced Micro Devices' },
+  { ticker: 'NFLX', name: 'Netflix Inc.' },
+  { ticker: 'V', name: 'Visa Inc.' },
+  { ticker: 'DIS', name: 'Walt Disney Co.' },
+  { ticker: 'BA', name: 'Boeing Co.' },
+  { ticker: 'CRM', name: 'Salesforce Inc.' },
+  { ticker: 'INTC', name: 'Intel Corp.' },
+  { ticker: 'PYPL', name: 'PayPal Holdings' },
+  { ticker: 'UBER', name: 'Uber Technologies' },
 ];
 
 // --- Component Data ----------------------------------------------------------
@@ -50,9 +65,38 @@ const earningsEvents: EarningsEvent[] = earningsCalendar.map((e, i) => ({
 
 export default function WatchlistView() {
   const [entities, setEntities] = useState<WatchlistEntity[]>(initialEntities);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when dialog opens
+  useEffect(() => {
+    if (showSearch) searchInputRef.current?.focus();
+  }, [showSearch]);
+
+  const filteredSuggestions = SEARCH_SUGGESTIONS.filter(
+    (s) =>
+      !entities.some((e) => e.ticker === s.ticker) &&
+      (s.ticker.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.name.toLowerCase().includes(searchQuery.toLowerCase())),
+  );
+
+  const addEntity = useCallback((ticker: string, name: string) => {
+    setEntities((prev) => [
+      ...prev,
+      {
+        id: `w-${Date.now()}`,
+        ticker,
+        name,
+        alertsEnabled: { price: true, filing: false, earnings: false, score: false },
+      },
+    ]);
+    setShowSearch(false);
+    setSearchQuery('');
+  }, []);
 
   const handleAdd = useCallback(() => {
-    // placeholder — would open an entity search dialog
+    setShowSearch(true);
   }, []);
 
   const handleRemove = useCallback((id: string) => {
@@ -97,6 +141,70 @@ export default function WatchlistView() {
           watchlistTickers={entities.map((e) => e.ticker)}
         />
       </div>
+
+      {/* Entity Search Dialog */}
+      {showSearch && (
+        <div
+          onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            paddingTop: '15vh', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '420px', background: 'var(--color-surface-base)',
+              border: '1px solid var(--color-surface-border)', borderRadius: '8px',
+              padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px',
+            }}
+          >
+            <h3 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
+              Add Security to Watchlist
+            </h3>
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by ticker or name..."
+              style={{
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)',
+                padding: '8px 12px', borderRadius: '4px',
+                border: '1px solid var(--color-surface-border)',
+                background: 'var(--color-surface-raised)', color: 'var(--color-text-primary)',
+                outline: 'none',
+              }}
+            />
+            <div style={{ maxHeight: '240px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {filteredSuggestions.length === 0 && (
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: '8px' }}>
+                  No results found
+                </span>
+              )}
+              {filteredSuggestions.map((s) => (
+                <div
+                  key={s.ticker}
+                  onClick={() => addEntity(s.ticker, s.name)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '8px 10px', borderRadius: '4px', cursor: 'pointer',
+                    background: 'transparent',
+                  }}
+                  onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-raised)'; }}
+                  onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                >
+                  <div>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{s.name}</span>
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>+ Add</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

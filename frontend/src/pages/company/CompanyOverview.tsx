@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
 import { CandlestickChart, BarChartComponent, GaugeChart, ScoreBreakdown } from '@/components/charts';
@@ -221,6 +221,7 @@ function StockCandlestick() {
 // --- Component ---------------------------------------------------------------
 
 export default function CompanyOverview() {
+  const navigate = useNavigate();
   const { entityId } = useParams<{ entityId: string }>();
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
@@ -497,7 +498,10 @@ export default function CompanyOverview() {
               </tbody>
             </table>
             <div style={{ marginTop: '8px', textAlign: 'right' }}>
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}>
+              <span
+                onClick={() => navigate('/company/filings')}
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+              >
                 View All &rarr;
               </span>
             </div>
@@ -534,7 +538,10 @@ export default function CompanyOverview() {
               </tbody>
             </table>
             <div style={{ marginTop: '8px', textAlign: 'right' }}>
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}>
+              <span
+                onClick={() => navigate('/company/ownership')}
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)', cursor: 'pointer' }}
+              >
                 View All &rarr;
               </span>
             </div>

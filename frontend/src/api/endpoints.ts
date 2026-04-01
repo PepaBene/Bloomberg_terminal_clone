@@ -618,6 +618,75 @@ export const MARKET_DATA = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Capital Structure & Debt
+// ---------------------------------------------------------------------------
+
+export const CAPITAL_STRUCTURE = {
+  overview: (entityId: string) => `/v1/entities/${entityId}/capital-structure`,
+  debtBreakdown: (entityId: string) => `/v1/entities/${entityId}/capital-structure/debt`,
+  equityBreakdown: (entityId: string) => `/v1/entities/${entityId}/capital-structure/equity`,
+  history: (entityId: string) => `/v1/entities/${entityId}/capital-structure/history`,
+} as const;
+
+export const DEBT_MATURITY = {
+  profile: (entityId: string) => `/v1/entities/${entityId}/debt-maturity`,
+  schedule: (entityId: string) => `/v1/entities/${entityId}/debt-maturity/schedule`,
+  refinancingRisk: (entityId: string) => `/v1/entities/${entityId}/debt-maturity/refinancing-risk`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Corporate Actions
+// ---------------------------------------------------------------------------
+
+export const CORPORATE_ACTIONS = {
+  byEntity: (entityId: string) => `/v1/entities/${entityId}/corporate-actions`,
+  calendar: '/v1/corporate-actions/calendar',
+  upcoming: '/v1/corporate-actions/upcoming',
+  dividends: (entityId: string) => `/v1/entities/${entityId}/corporate-actions/dividends`,
+  splits: (entityId: string) => `/v1/entities/${entityId}/corporate-actions/splits`,
+  spinoffs: (entityId: string) => `/v1/entities/${entityId}/corporate-actions/spinoffs`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// IPO Monitor
+// ---------------------------------------------------------------------------
+
+export const IPO = {
+  upcoming: '/v3/ipo/upcoming',
+  recent: '/v3/ipo/recent',
+  detail: (ipoId: string) => `/v3/ipo/${ipoId}`,
+  pipeline: '/v3/ipo/pipeline',
+  performance: '/v3/ipo/performance',
+  calendar: '/v3/ipo/calendar',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Fund Holdings
+// ---------------------------------------------------------------------------
+
+export const FUND_HOLDINGS = {
+  byFund: (fundId: string) => `/v1/funds/${fundId}/holdings`,
+  nPort: (fundId: string) => `/v1/funds/${fundId}/n-port`,
+  topHoldings: (fundId: string) => `/v1/funds/${fundId}/top-holdings`,
+  sectorAllocation: (fundId: string) => `/v1/funds/${fundId}/sector-allocation`,
+  overlap: '/v1/funds/overlap',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Money Market
+// ---------------------------------------------------------------------------
+
+export const MONEY_MARKET = {
+  rates: '/v1/money-market/rates',
+  sofr: '/v1/money-market/sofr',
+  effr: '/v1/money-market/effr',
+  repoRates: '/v1/money-market/repo',
+  tBills: '/v1/money-market/t-bills',
+  commercialPaper: '/v1/money-market/commercial-paper',
+  history: (rateType: string) => `/v1/money-market/${rateType}/history`,
+} as const;
+
+// ---------------------------------------------------------------------------
 // M&A / Deals
 // ---------------------------------------------------------------------------
 

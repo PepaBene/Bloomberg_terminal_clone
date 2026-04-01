@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Settings — User Preferences, API Keys, Notifications, Theme
 // ---------------------------------------------------------------------------
+import { useState, useCallback } from 'react';
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -31,7 +33,39 @@ const apiKeys = [
   { name: 'Custom Data Source', status: 'Not Configured', key: '-' },
 ];
 
+const THEME_OPTIONS = ['Dark (Default)', 'Light', 'System'] as const;
+
+const THEME_CSS_MAP: Record<string, Record<string, string>> = {
+  'Dark (Default)': { '--color-surface-base': '#0a0a0f', '--color-text-primary': '#e8e6e3' },
+  'Light':          { '--color-surface-base': '#f5f5f5', '--color-text-primary': '#1a1a1a' },
+  'System':         {},
+};
+
 export default function Settings() {
+  const [activeTheme, setActiveTheme] = useState<string>('Dark (Default)');
+  const [notifState, setNotifState] = useState(() =>
+    Object.fromEntries(notifications.map((n) => [n.label, n.enabled])),
+  );
+
+  const handleThemeChange = useCallback((theme: string) => {
+    setActiveTheme(theme);
+    const vars = THEME_CSS_MAP[theme];
+    if (vars && Object.keys(vars).length > 0) {
+      Object.entries(vars).forEach(([prop, val]) => {
+        document.documentElement.style.setProperty(prop, val);
+      });
+    } else {
+      // System: remove overrides so OS preference applies
+      Object.keys(THEME_CSS_MAP['Dark (Default)']).forEach((prop) => {
+        document.documentElement.style.removeProperty(prop);
+      });
+    }
+  }, []);
+
+  const toggleNotification = useCallback((label: string) => {
+    setNotifState((prev) => ({ ...prev, [label]: !prev[label] }));
+  }, []);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -50,13 +84,17 @@ export default function Settings() {
           <div style={{ marginTop: '12px' }}>
             <h2 style={sectionTitle}>Theme</h2>
             <div style={{ display: 'flex', gap: '8px' }}>
-              {['Dark (Default)', 'Light', 'System'].map((t) => (
-                <span key={t} style={{
-                  fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '4px 12px', borderRadius: '3px',
-                  background: t === 'Dark (Default)' ? 'var(--color-accent-primary)' : 'var(--color-surface-overlay)',
-                  color: t === 'Dark (Default)' ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                }}>{t}</span>
+              {THEME_OPTIONS.map((t) => (
+                <span
+                  key={t}
+                  onClick={() => handleThemeChange(t)}
+                  style={{
+                    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '4px 12px', borderRadius: '3px',
+                    background: t === activeTheme ? 'var(--color-accent-primary)' : 'var(--color-surface-overlay)',
+                    color: t === activeTheme ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                  }}
+                >{t}</span>
               ))}
             </div>
           </div>
@@ -67,8 +105,16 @@ export default function Settings() {
           {notifications.map((n) => (
             <div key={n.label} style={rowStyle}>
               <span style={labelStyle}>{n.label}</span>
-              <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 500, color: n.enabled ? 'var(--color-signal-positive)' : 'var(--color-text-tertiary)' }}>
-                {n.enabled ? 'ON' : 'OFF'}
+              <span
+                onClick={() => toggleNotification(n.label)}
+                style={{
+                  fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 500,
+                  color: notifState[n.label] ? 'var(--color-signal-positive)' : 'var(--color-text-tertiary)',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                {notifState[n.label] ? 'ON' : 'OFF'}
               </span>
             </div>
           ))}

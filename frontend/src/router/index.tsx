@@ -47,6 +47,7 @@ const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
 const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
+const NotFound = lazy(() => import('@/pages/global/NotFound'));
 
 function LoadingFallback() {
   return (
@@ -131,6 +132,9 @@ export function AppRouter() {
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />
+
+        {/* 404 Catch-all */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
   );
