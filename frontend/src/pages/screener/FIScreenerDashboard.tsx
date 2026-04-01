@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
 import { api } from '@/api/client';
+import { FI } from '@/api/endpoints';
 
 // --- Mock Data ---------------------------------------------------------------
 
@@ -66,7 +67,7 @@ export default function FIScreenerDashboard() {
 
   const handleRunScreen = useCallback(async () => {
     try {
-      const result = await api.post('/v1/fi/screen/bonds', { filters });
+      const result = await api.post(FI.screen, { filters });
       setBackendResults((result as any)?.results ?? null);
     } catch { setBackendResults(null); }
   }, [filters]);
