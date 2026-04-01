@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { EarningsSurpriseChart, TranscriptViewer } from '@/components/intelligence';
 import type { EarningsSurprise, TranscriptSection } from '@/components/intelligence';
+import { useFIBriefing, useCreditSpreads, useNewIssuance, useDistressedCredit } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -90,6 +91,15 @@ const transcriptSections: TranscriptSection[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function FIIntelligence() {
+  const { data: apiBriefing } = useFIBriefing();
+  const { data: apiSpreads } = useCreditSpreads();
+  const { data: apiIssues } = useNewIssuance();
+  const { data: apiDistressed } = useDistressedCredit();
+
+  const liveSignals = (apiBriefing as any)?.signals ?? crossAssetSignals;
+  const liveFallenAngels = (apiDistressed as any)?.fallenAngels ?? fallenAngelWatch;
+  const liveIssuanceIntel = (apiIssues as any)?.recent ?? issuanceIntel;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -104,7 +114,7 @@ export default function FIIntelligence() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Cross-Asset Signals</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {crossAssetSignals.map((s) => (
+            {liveSignals.map((s) => (
               <div key={s.signal} style={{ padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{s.signal}</span>
@@ -131,7 +141,7 @@ export default function FIIntelligence() {
               </tr>
             </thead>
             <tbody>
-              {fallenAngelWatch.map((f) => (
+              {liveFallenAngels.map((f) => (
                 <tr key={f.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
                     <div style={{ fontWeight: 500 }}>{f.issuer}</div>
@@ -173,7 +183,7 @@ export default function FIIntelligence() {
               </tr>
             </thead>
             <tbody>
-              {issuanceIntel.map((d) => (
+              {liveIssuanceIntel.map((d) => (
                 <tr key={d.issuer} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{d.date}</td>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.issuer}</td>

@@ -6,6 +6,15 @@ import { YieldCurveChart, TimeSeriesChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
 import { SpreadHistoryChart as FISpreadHistoryChart } from '@/components/fi';
 import type { SpreadDataPoint } from '@/components/fi';
+import {
+  useYieldCurve,
+  useYieldCurveHistory,
+  useYieldCurveForward,
+  useRealYieldCurve,
+  useBreakevenCurve,
+  useSwapCurve,
+  useYieldCurveSpreads,
+} from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -115,7 +124,41 @@ function SpreadHistoryChart() {
 
 // --- Component ---------------------------------------------------------------
 
+// --- Mock Forward Rates (fallback) -------------------------------------------
+
+const mockForwardRates = [
+  { horizon: '1Y1Y', rate: 4.15 },
+  { horizon: '1Y2Y', rate: 4.08 },
+  { horizon: '2Y1Y', rate: 3.95 },
+  { horizon: '1Y5Y', rate: 4.22 },
+  { horizon: '5Y5Y', rate: 4.48 },
+];
+
+// --- Mock Swap Rates (fallback) ----------------------------------------------
+
+const mockSwapRates = [
+  { tenor: '2Y', rate: 4.48 },
+  { tenor: '5Y', rate: 4.12 },
+  { tenor: '10Y', rate: 4.25 },
+  { tenor: '30Y', rate: 4.50 },
+];
+
 export default function YieldCurveDeepDive() {
+  const { data: apiCurve } = useYieldCurve();
+  const { data: apiHistory } = useYieldCurveHistory();
+  const { data: apiForward } = useYieldCurveForward();
+  const { data: apiReal } = useRealYieldCurve();
+  const { data: apiBreakeven } = useBreakevenCurve();
+  const { data: apiSwap } = useSwapCurve();
+  const { data: apiSpreads } = useYieldCurveSpreads();
+
+  const curvePoints = (apiCurve as any)?.points ?? CURVE_TODAY;
+  const curveComparisonData = (apiHistory as any)?.comparison ?? curveComparison;
+  const keySpreadsData = (apiSpreads as any[]) ?? keySpreads;
+  const realYieldsData = (apiReal as any[]) ?? realYields;
+  const forwardRatesData = (apiForward as any[]) ?? mockForwardRates;
+  const swapRatesData = (apiSwap as any[]) ?? mockSwapRates;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -129,7 +172,7 @@ export default function YieldCurveDeepDive() {
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Yield Curve (Current vs Historical)</h2>
         <YieldCurveChart
-          current={CURVE_TODAY}
+          current={curvePoints}
           prior={CURVE_1M}
           priorLabel="1 Month Ago"
           height={300}
@@ -179,7 +222,7 @@ export default function YieldCurveDeepDive() {
               </tr>
             </thead>
             <tbody>
-              {curveComparison.map((c) => (
+              {curveComparisonData.map((c: any) => (
                 <tr key={c.tenor} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{c.tenor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.today.toFixed(2)}</td>
@@ -206,7 +249,7 @@ export default function YieldCurveDeepDive() {
                 </tr>
               </thead>
               <tbody>
-                {keySpreads.map((s) => (
+                {keySpreadsData.map((s: any) => (
                   <tr key={s.spread} style={{ height: 'var(--table-row-height)' }}>
                     <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.spread}</td>
                     <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{s.value}</td>
@@ -232,7 +275,7 @@ export default function YieldCurveDeepDive() {
                 </tr>
               </thead>
               <tbody>
-                {realYields.map((r) => (
+                {realYieldsData.map((r: any) => (
                   <tr key={r.tenor} style={{ height: 'var(--table-row-height)' }}>
                     <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{r.tenor}</td>
                     <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.nominal.toFixed(2)}%</td>
@@ -244,6 +287,50 @@ export default function YieldCurveDeepDive() {
             </table>
           </div>
         </div>
+      </div>
+
+      {/* Forward Rates */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Forward Rates (%)</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Horizon', 'Implied Rate'].map((h) => (
+                <th key={h} style={{ ...labelStyle, textAlign: h === 'Horizon' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {forwardRatesData.map((f: any) => (
+              <tr key={f.horizon} style={{ height: 'var(--table-row-height)' }}>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.horizon}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{Number(f.rate).toFixed(2)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Swap Curve */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Swap Curve (%)</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Tenor', 'Swap Rate'].map((h) => (
+                <th key={h} style={{ ...labelStyle, textAlign: h === 'Tenor' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {swapRatesData.map((s: any) => (
+              <tr key={s.tenor} style={{ height: 'var(--table-row-height)' }}>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.tenor}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{Number(s.rate).toFixed(2)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
