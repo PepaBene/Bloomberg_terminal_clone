@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { GDPChart, InflationChart, EmploymentChart, MacroIndicatorTable } from '@/components/macro';
 import type { GDPDataPoint, InflationDataPoint, NFPDataPoint, UnemploymentDataPoint, MacroIndicator } from '@/components/macro';
+import { useMacroDashboardData, useMacroGDP, useInflation, useMacroPMI, useMacroConsumerConfidence, useMacroIndicators } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -24,6 +25,11 @@ const labelStyle: React.CSSProperties = {
   fontFamily: 'var(--font-ui)',
   fontSize: 'var(--text-sm)',
   color: 'var(--color-text-secondary)',
+};
+
+const dataStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-data)',
+  color: 'var(--color-text-primary)',
 };
 
 // --- Mock Data ---------------------------------------------------------------
@@ -117,6 +123,20 @@ const macroIndicators: MacroIndicator[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function MacroDashboard() {
+  const { data: apiDashboard } = useMacroDashboardData() as { data: any };
+  const { data: apiGdp } = useMacroGDP() as { data: any };
+  const { data: apiInflation } = useInflation() as { data: any };
+  const { data: apiPmi } = useMacroPMI() as { data: any };
+  const { data: apiConsumer } = useMacroConsumerConfidence() as { data: any };
+  const { data: apiIndicators } = useMacroIndicators() as { data: any };
+
+  const activeKPIs = (apiDashboard as any)?.kpis ?? headlineKPIs;
+  const activeGdp = (apiGdp as any)?.data ?? gdpData;
+  const activeInflation = (apiInflation as any)?.data ?? inflationData;
+  const activeNfp = (apiDashboard as any)?.nfp ?? nfpData;
+  const activeUnemployment = (apiDashboard as any)?.unemployment ?? unemploymentData;
+  const activeIndicators = (apiIndicators as any)?.indicators ?? macroIndicators;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -128,7 +148,7 @@ export default function MacroDashboard() {
 
       {/* Headline KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {headlineKPIs.map((k) => (
+        {activeKPIs.map((k: any) => (
           <div key={k.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{k.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{k.value}</div>
@@ -140,25 +160,61 @@ export default function MacroDashboard() {
         {/* GDPChart */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>GDP Growth Comparison</h2>
-          <GDPChart data={gdpData} height={280} />
+          <GDPChart data={activeGdp} height={280} />
         </div>
 
         {/* InflationChart */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Inflation Trends</h2>
-          <InflationChart data={inflationData} target={2.0} height={280} />
+          <InflationChart data={activeInflation} target={2.0} height={280} />
         </div>
 
         {/* EmploymentChart */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Employment Data</h2>
-          <EmploymentChart nfpData={nfpData} unemploymentData={unemploymentData} />
+          <EmploymentChart nfpData={activeNfp} unemploymentData={activeUnemployment} />
         </div>
 
         {/* MacroIndicatorTable */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Recent Economic Releases</h2>
-          <MacroIndicatorTable indicators={macroIndicators} />
+          <MacroIndicatorTable indicators={activeIndicators} />
+        </div>
+      </div>
+
+      {/* PMI & Consumer Confidence */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginTop: 'var(--panel-gap)' }}>
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>PMI Indicators</h2>
+          {((apiPmi as any)?.data ?? [
+            { sector: 'Manufacturing', value: 48.2, prior: 49.1, direction: 'Contraction' },
+            { sector: 'Services', value: 52.8, prior: 51.9, direction: 'Expansion' },
+            { sector: 'Composite', value: 51.4, prior: 50.8, direction: 'Expansion' },
+          ]).map((p: any) => (
+            <div key={p.sector} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+              <span style={labelStyle}>{p.sector}</span>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color: p.value >= 50 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)' }}>{p.value}</span>
+                <span style={{ ...dataStyle, fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Prior: {p.prior}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Consumer Confidence</h2>
+          {((apiConsumer as any)?.data ?? [
+            { metric: 'Conference Board', value: 104.7, prior: 106.1, change: -1.4 },
+            { metric: 'U. of Michigan', value: 76.5, prior: 79.4, change: -2.9 },
+            { metric: 'Expectations', value: 72.3, prior: 74.8, change: -2.5 },
+          ]).map((c: any) => (
+            <div key={c.metric} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+              <span style={labelStyle}>{c.metric}</span>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{c.value}</span>
+                <span style={{ ...dataStyle, fontSize: 'var(--text-xs)', color: c.change >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)' }}>{c.change >= 0 ? '+' : ''}{c.change}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
