@@ -704,6 +704,18 @@ export const DEALS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Backtesting
+// ---------------------------------------------------------------------------
+
+export const BACKTESTING = {
+  strategies: '/v2/analytics/backtest/strategies',
+  run: '/v2/analytics/backtest/run',
+  result: (backtestId: string) => `/v2/analytics/backtest/${backtestId}`,
+  history: '/v2/analytics/backtest/history',
+  compare: '/v2/analytics/backtest/compare',
+} as const;
+
+// ---------------------------------------------------------------------------
 // User / System
 // ---------------------------------------------------------------------------
 

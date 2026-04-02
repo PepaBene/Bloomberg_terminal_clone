@@ -48,6 +48,9 @@ const ThemesDashboard = lazy(() => import('@/pages/research/ThemesDashboard'));
 const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
 const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
+const DealsView = lazy(() => import('@/pages/deals/DealsView'));
+const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
+const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
 const NotFound = lazy(() => import('@/pages/global/NotFound'));
 
@@ -133,8 +136,13 @@ export function AppRouter() {
         <Route path="/flows" element={<FlowsDashboard />} />
         <Route path="/custom" element={<CustomData />} />
 
+        {/* Deals & IPO */}
+        <Route path="/deals" element={<DealsView />} />
+        <Route path="/market/ipo" element={<IPOMonitor />} />
+
         {/* Quant */}
         <Route path="/quant" element={<QuantDashboard />} />
+        <Route path="/quant/backtest" element={<BacktestDashboard />} />
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />

@@ -12,6 +12,8 @@ import {
   FUND_HOLDINGS,
   MONEY_MARKET,
   EXPORTS,
+  DEALS,
+  BACKTESTING,
 } from '@/api/endpoints';
 
 // ---------------------------------------------------------------------------
@@ -200,4 +202,62 @@ export function useExportExcel() {
 
 export function useExportPdf() {
   return useApiMutation(EXPORTS.exportPdf);
+}
+
+// ---------------------------------------------------------------------------
+// M&A / Deals
+// ---------------------------------------------------------------------------
+
+export function useDeals() {
+  return useApiQuery(['deals'], DEALS.list);
+}
+
+export function useDealDetail(dealId: string | undefined) {
+  return useApiQuery(['deals', dealId], DEALS.detail(dealId!), undefined, {
+    enabled: !!dealId,
+  });
+}
+
+export function useDealsPipeline() {
+  return useApiQuery(['deals', 'pipeline'], DEALS.pipeline);
+}
+
+export function useDealsCompleted() {
+  return useApiQuery(['deals', 'completed'], DEALS.completed);
+}
+
+export function useDealsRumored() {
+  return useApiQuery(['deals', 'rumored'], DEALS.rumored);
+}
+
+export function useDealsStatistics() {
+  return useApiQuery(['deals', 'statistics'], DEALS.statistics);
+}
+
+export function useDealsByEntity(entityId: string | undefined) {
+  return useApiQuery(['deals', 'entity', entityId], DEALS.byEntity(entityId!), undefined, {
+    enabled: !!entityId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Backtesting
+// ---------------------------------------------------------------------------
+
+export function useBacktestStrategies() {
+  return useApiQuery(['backtest', 'strategies'], BACKTESTING.strategies);
+}
+
+export function useBacktestResult(backtestId: string | undefined) {
+  return useApiQuery(['backtest', backtestId], BACKTESTING.result(backtestId!), undefined, {
+    enabled: !!backtestId,
+  });
+}
+
+export function useBacktestHistory() {
+  return useApiQuery(['backtest', 'history'], BACKTESTING.history);
+}
+
+export function useRunBacktest() {
+  return useApiMutation(BACKTESTING.run, [['backtest']]);
 }

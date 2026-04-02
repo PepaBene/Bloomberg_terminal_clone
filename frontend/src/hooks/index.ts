@@ -352,6 +352,19 @@ export {
   useExportCsv,
   useExportExcel,
   useExportPdf,
+  // Deals
+  useDeals,
+  useDealDetail,
+  useDealsPipeline,
+  useDealsCompleted,
+  useDealsRumored,
+  useDealsStatistics,
+  useDealsByEntity,
+  // Backtesting
+  useBacktestStrategies,
+  useBacktestResult,
+  useBacktestHistory,
+  useRunBacktest,
 } from './useMissingDomains';
 
 // Fixed Income
