@@ -4,7 +4,8 @@
 import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { AUTH } from '@/api/endpoints';
+import { AUTH, CUSTOM_CLASSIFICATIONS } from '@/api/endpoints';
+import { useCustomClassifications } from '@/hooks';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -44,7 +45,17 @@ const THEME_CSS_MAP: Record<string, Record<string, string>> = {
   'System':         {},
 };
 
+const MOCK_CLASSIFICATIONS = [
+  { id: 'cls-1', name: 'Core Holdings', description: 'Long-term strategic positions', entityCount: 12 },
+  { id: 'cls-2', name: 'Watchlist - Potential', description: 'Securities under evaluation', entityCount: 8 },
+  { id: 'cls-3', name: 'Income Focus', description: 'Dividend and yield-oriented', entityCount: 15 },
+  { id: 'cls-4', name: 'High Risk', description: 'Speculative or volatile positions', entityCount: 5 },
+];
+
 export default function Settings() {
+  const { data: apiClassifications } = useCustomClassifications() as { data: any };
+  const classifications = (apiClassifications as any[]) ?? MOCK_CLASSIFICATIONS;
+
   const { data: apiProfile } = useQuery({ queryKey: ['auth', 'profile'], queryFn: () => api.get(AUTH.profile), retry: 0 }) as { data: any };
   const { data: apiKeysData, refetch: refetchKeys } = useQuery({ queryKey: ['auth', 'apiKeys'], queryFn: () => api.get(AUTH.apiKeys), retry: 0 }) as { data: any; refetch: any };
 
@@ -179,6 +190,37 @@ export default function Settings() {
                         }}
                       >Revoke</span>
                     )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Custom Classifications</h2>
+          <p style={{ ...labelStyle, marginBottom: '12px' }}>Manage custom entity groupings and categories</p>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              {['Name', 'Description', 'Entities', ''].map((h) => (
+                <th key={h} style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {classifications.map((c: any) => (
+                <tr key={c.id} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{c.name}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.description}</td>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.entityCount}</td>
+                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
+                    <span
+                      onClick={() => { api.delete(CUSTOM_CLASSIFICATIONS.delete(c.id)).catch(() => {}); }}
+                      style={{
+                        fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: '3px',
+                        background: 'var(--color-surface-overlay)', color: 'var(--color-text-secondary)',
+                        cursor: 'pointer', userSelect: 'none',
+                      }}
+                    >Remove</span>
                   </td>
                 </tr>
               ))}

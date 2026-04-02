@@ -2,7 +2,7 @@
 // Fixed Income Dashboard
 // ---------------------------------------------------------------------------
 import { useNavigate } from 'react-router-dom';
-import { useYieldCurve, useCreditSpreads, useNewIssuance, useFIBriefing } from '@/hooks';
+import { useYieldCurve, useCreditSpreads, useNewIssuance, useFIBriefing, useAgencyBonds } from '@/hooks';
 import { YieldCurveChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
 import { KeySpreadsPanel, NewIssueTable } from '@/components/fi';
@@ -91,6 +91,14 @@ const NEW_ISSUES: NewIssue[] = [
   { issuer: 'JPMorgan Chase',    coupon: 5.000, maturity: '2031-03-01', size: '$3.0B', rating: 'A+',   spread: 95,  initialTalk: 100, status: 'upcoming' },
 ];
 
+const MOCK_AGENCY_BONDS = [
+  { issuer: 'FHLB', coupon: 4.875, maturity: '2027-03-15', size: '$5.0B', spread: 12, rating: 'AAA' },
+  { issuer: 'FNMA', coupon: 4.625, maturity: '2029-06-01', size: '$3.5B', spread: 18, rating: 'AAA' },
+  { issuer: 'FHLMC', coupon: 4.750, maturity: '2028-09-15', size: '$4.0B', spread: 15, rating: 'AAA' },
+  { issuer: 'TVA', coupon: 4.500, maturity: '2031-03-01', size: '$2.0B', spread: 22, rating: 'AAA' },
+  { issuer: 'FFCB', coupon: 4.375, maturity: '2026-12-15', size: '$2.5B', spread: 10, rating: 'AAA' },
+];
+
 // --- Component ---------------------------------------------------------------
 
 const QUICK_LINK_ROUTES: Record<string, string> = {
@@ -108,10 +116,12 @@ export default function FIDashboard() {
   const { data: apiSpreads } = useCreditSpreads();
   const { data: apiNewIssues } = useNewIssuance();
   const { data: apiBriefing } = useFIBriefing();
+  const { data: apiAgency } = useAgencyBonds();
 
   const yieldCurve = (apiYield as any[]) ?? MOCK_YIELD_CURVE;
   const spreads = (apiSpreads as any)?.spreads ?? KEY_SPREADS;
   const newIssues = (apiNewIssues as any[]) ?? NEW_ISSUES;
+  const agencyBonds = (apiAgency as any[]) ?? MOCK_AGENCY_BONDS;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -249,6 +259,35 @@ export default function FIDashboard() {
           </div>
         ) : null;
       })()}
+
+      {/* Agency Bonds */}
+      <div className="terminal-panel" style={{ marginTop: 'var(--panel-gap)' }}>
+        <h2 className="terminal-section-title">Agency Bonds</h2>
+        <table className="terminal-table">
+          <thead>
+            <tr>
+              <th>Issuer</th>
+              <th className="right">Coupon</th>
+              <th className="right">Maturity</th>
+              <th className="right">Size</th>
+              <th className="right">Spread (bps)</th>
+              <th className="right">Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agencyBonds.map((b: any, i: number) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600 }}>{b.issuer}</td>
+                <td className="right">{Number(b.coupon).toFixed(3)}%</td>
+                <td className="right">{b.maturity}</td>
+                <td className="right">{b.size}</td>
+                <td className="right">+{b.spread}</td>
+                <td className="right" style={{ color: 'var(--color-signal-positive)' }}>{b.rating}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

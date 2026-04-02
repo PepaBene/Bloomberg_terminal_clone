@@ -14,6 +14,8 @@ import {
   EXPORTS,
   DEALS,
   BACKTESTING,
+  FI_AGENCY,
+  CUSTOM_CLASSIFICATIONS,
 } from '@/api/endpoints';
 
 // ---------------------------------------------------------------------------
@@ -260,4 +262,48 @@ export function useBacktestHistory() {
 
 export function useRunBacktest() {
   return useApiMutation(BACKTESTING.run, [['backtest']]);
+}
+
+// ---------------------------------------------------------------------------
+// FI Agency Bonds
+// ---------------------------------------------------------------------------
+
+export function useAgencyBonds() {
+  return useApiQuery(['fi', 'agency'], FI_AGENCY.list);
+}
+
+export function useAgencyBondDetail(cusip: string | undefined) {
+  return useApiQuery(['fi', 'agency', cusip], FI_AGENCY.detail(cusip!), undefined, {
+    enabled: !!cusip,
+  });
+}
+
+export function useAgencyBondSpreads() {
+  return useApiQuery(['fi', 'agency', 'spreads'], FI_AGENCY.spreads);
+}
+
+export function useAgencyNewIssues() {
+  return useApiQuery(['fi', 'agency', 'new-issues'], FI_AGENCY.newIssues);
+}
+
+// ---------------------------------------------------------------------------
+// Custom Classifications
+// ---------------------------------------------------------------------------
+
+export function useCustomClassifications() {
+  return useApiQuery(['classifications', 'custom'], CUSTOM_CLASSIFICATIONS.list);
+}
+
+export function useCustomClassification(id: string | undefined) {
+  return useApiQuery(['classifications', 'custom', id], CUSTOM_CLASSIFICATIONS.detail(id!), undefined, {
+    enabled: !!id,
+  });
+}
+
+export function useCreateClassification() {
+  return useApiMutation(CUSTOM_CLASSIFICATIONS.create, [['classifications']]);
+}
+
+export function useDeleteClassification() {
+  return useApiMutation(CUSTOM_CLASSIFICATIONS.list, [['classifications']]);
 }

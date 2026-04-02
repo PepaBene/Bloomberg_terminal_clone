@@ -51,6 +51,7 @@ const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
 const DealsView = lazy(() => import('@/pages/deals/DealsView'));
 const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
 const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
+const CustomIndexBuilder = lazy(() => import('@/pages/quant/CustomIndexBuilder'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
 const NotFound = lazy(() => import('@/pages/global/NotFound'));
 
@@ -143,6 +144,7 @@ export function AppRouter() {
         {/* Quant */}
         <Route path="/quant" element={<QuantDashboard />} />
         <Route path="/quant/backtest" element={<BacktestDashboard />} />
+        <Route path="/quant/index-builder" element={<CustomIndexBuilder />} />
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />

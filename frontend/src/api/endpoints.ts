@@ -704,6 +704,31 @@ export const DEALS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// FI Agency Bonds
+// ---------------------------------------------------------------------------
+
+export const FI_AGENCY = {
+  list: '/v1/fi/agency',
+  detail: (cusip: string) => `/v1/fi/agency/${cusip}`,
+  byIssuer: (issuerId: string) => `/v1/fi/agency/issuer/${issuerId}`,
+  spreads: '/v1/fi/agency/spreads',
+  newIssues: '/v1/fi/agency/new-issues',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Custom Classifications
+// ---------------------------------------------------------------------------
+
+export const CUSTOM_CLASSIFICATIONS = {
+  list: '/v1/classifications/custom',
+  create: '/v1/classifications/custom',
+  detail: (id: string) => `/v1/classifications/custom/${id}`,
+  update: (id: string) => `/v1/classifications/custom/${id}`,
+  delete: (id: string) => `/v1/classifications/custom/${id}`,
+  assign: (id: string) => `/v1/classifications/custom/${id}/assign`,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Backtesting
 // ---------------------------------------------------------------------------
 

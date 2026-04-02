@@ -11,6 +11,7 @@ import {
   useYieldCurveForward,
   useRealYieldCurve,
   useBreakevenCurve,
+  useMoneyMarketRates,
 } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
@@ -128,6 +129,15 @@ const breakevenData = [
   { tenor: '30Y', breakeven: 2.40, chg: 0.02 },
 ];
 
+const moneyMarketRates = [
+  { name: 'SOFR', rate: 5.31, chg: 0.00 },
+  { name: 'EFFR', rate: 5.33, chg: 0.00 },
+  { name: 'Repo (O/N)', rate: 5.30, chg: -0.01 },
+  { name: '3M T-Bill', rate: 5.28, chg: -0.02 },
+  { name: '6M T-Bill', rate: 5.12, chg: -0.03 },
+  { name: 'Commercial Paper (A1/P1)', rate: 5.35, chg: 0.01 },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function TreasuryDashboard() {
@@ -138,6 +148,7 @@ export default function TreasuryDashboard() {
   const { data: apiForward } = useYieldCurveForward();
   const { data: apiReal } = useRealYieldCurve();
   const { data: apiBreakeven } = useBreakevenCurve();
+  const { data: apiMoneyMarket } = useMoneyMarketRates();
 
   const activeCurve = (apiCurve as any[]) ?? curveData;
   const activeSpreads = (apiSpreads as any[]) ?? keySpreads;
@@ -145,6 +156,7 @@ export default function TreasuryDashboard() {
   const activeForward = (apiForward as any[]) ?? forwardCurveData;
   const activeReal = (apiReal as any[]) ?? realYieldData;
   const activeBreakeven = (apiBreakeven as any[]) ?? breakevenData;
+  const activeMoneyMarket = (apiMoneyMarket as any[]) ?? moneyMarketRates;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -281,6 +293,31 @@ export default function TreasuryDashboard() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Money Market Rates */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Money Market Rates</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Instrument', 'Rate', 'Chg (bps)'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Instrument' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeMoneyMarket.map((m: any) => (
+                <tr key={m.name} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{m.name}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{Number(m.rate).toFixed(2)}%</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: chgColor(m.chg) }}>
+                    {m.chg > 0 ? '+' : ''}{(m.chg * 100).toFixed(1)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

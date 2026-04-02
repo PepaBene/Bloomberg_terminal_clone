@@ -365,6 +365,16 @@ export {
   useBacktestResult,
   useBacktestHistory,
   useRunBacktest,
+  // FI Agency
+  useAgencyBonds,
+  useAgencyBondDetail,
+  useAgencyBondSpreads,
+  useAgencyNewIssues,
+  // Custom Classifications
+  useCustomClassifications,
+  useCustomClassification,
+  useCreateClassification,
+  useDeleteClassification,
 } from './useMissingDomains';
 
 // Fixed Income

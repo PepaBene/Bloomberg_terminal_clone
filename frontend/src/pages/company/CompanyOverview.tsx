@@ -11,7 +11,7 @@ import type { CandlestickDataPoint, ScoreItem } from '@/components/charts';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { SentimentGauge } from '@/components/intelligence';
-import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores } from '@/hooks';
+import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useCorporateActionsUpcoming } from '@/hooks';
 import { TimeSeriesChart } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
@@ -121,6 +121,13 @@ const ALTMAN_BREAKDOWN: ScoreItem[] = [
   { name: 'EBIT / Assets', score: 1, max: 1, description: '0.34' },
   { name: 'Mkt Cap / Total Liabilities', score: 1, max: 1, description: '9.82' },
   { name: 'Revenue / Assets', score: 1, max: 1, description: '1.11' },
+];
+
+const MOCK_CORP_ACTIONS = [
+  { date: '2026-04-25', type: 'Earnings', description: 'Q2 2026 Earnings Release', status: 'Upcoming' },
+  { date: '2026-05-08', type: 'Dividend', description: 'Quarterly Dividend $0.25/share — Ex-Date', status: 'Upcoming' },
+  { date: '2026-05-15', type: 'Dividend', description: 'Quarterly Dividend $0.25/share — Pay Date', status: 'Upcoming' },
+  { date: '2026-03-15', type: 'Buyback', description: '$90B share repurchase program authorized', status: 'Active' },
 ];
 
 const BENEISH_BREAKDOWN: ScoreItem[] = [
@@ -278,6 +285,7 @@ export default function CompanyOverview() {
   const { data: earningsSurprises } = useEarningsSurprises(resolvedId);
   const { data: technicalSignals } = useTechnicalSignals(resolvedId);
   const { data: compositeScores } = useCompositeScores(resolvedId);
+  const { data: corpActions } = useCorporateActionsUpcoming();
 
   const isLoading = loadingCompany || loadingKpis || loadingQuarterly || loadingQuality;
 
@@ -483,6 +491,25 @@ export default function CompanyOverview() {
                 </table>
               );
             })()}
+          </div>
+
+          {/* Corporate Actions Timeline */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Corporate Actions</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {((corpActions as any[]) ?? MOCK_CORP_ACTIONS).map((a: any, i: number) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', minWidth: '80px' }}>{a.date}</span>
+                  <span style={{
+                    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', fontWeight: 600, padding: '1px 6px', borderRadius: '2px',
+                    color: a.type === 'Earnings' ? 'var(--color-accent-primary)' : a.type === 'Dividend' ? 'var(--color-signal-positive)' : 'var(--color-text-secondary)',
+                    background: a.type === 'Earnings' ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)' : a.type === 'Dividend' ? 'color-mix(in srgb, var(--color-signal-positive) 15%, transparent)' : 'var(--color-surface-overlay)',
+                  }}>{a.type}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', flex: 1 }}>{a.description}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: a.status === 'Active' ? 'var(--color-signal-positive)' : 'var(--color-text-tertiary)' }}>{a.status}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
