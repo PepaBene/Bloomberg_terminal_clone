@@ -43,10 +43,6 @@ class Settings(BaseSettings):
     POLYGON_API_KEY: str = ""
     POLYGON_RATE_LIMIT: int = 5  # requests per second (free tier)
 
-    # Estimates vendor (paid — schema-only until configured)
-    ESTIMATES_VENDOR: str = ""
-    ESTIMATES_API_KEY: str = ""
-
     # JWT / Authentication
     # SECURITY: Override in .env or environment variables
     JWT_SECRET_KEY: str = "CHANGE-ME-IN-PRODUCTION-USE-32B+"

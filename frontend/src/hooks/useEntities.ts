@@ -204,24 +204,6 @@ export function useEntityRatios(entityId: string | undefined) {
   });
 }
 
-export function useEstimates(entityId: string | undefined) {
-  return useApiQuery(['fundamentals', entityId, 'estimates'], FUNDAMENTALS.estimates(entityId!), undefined, {
-    enabled: !!entityId,
-  });
-}
-
-export function useEstimatesConsensus(entityId: string | undefined) {
-  return useApiQuery(['fundamentals', entityId, 'estimates', 'consensus'], FUNDAMENTALS.estimatesConsensus(entityId!), undefined, {
-    enabled: !!entityId,
-  });
-}
-
-export function useEstimatesHistory(entityId: string | undefined) {
-  return useApiQuery(['fundamentals', entityId, 'estimates', 'history'], FUNDAMENTALS.estimatesHistory(entityId!), undefined, {
-    enabled: !!entityId,
-  });
-}
-
 export function useRevenueBreakdown(entityId: string | undefined) {
   return useApiQuery(['fundamentals', entityId, 'revenue-breakdown'], FUNDAMENTALS.revenueBreakdown(entityId!), undefined, {
     enabled: !!entityId,

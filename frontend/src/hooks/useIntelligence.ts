@@ -197,18 +197,6 @@ export function useEarningsCalendar() {
   return useApiQuery(['earnings', 'calendar'], EARNINGS.calendar);
 }
 
-export function useEarningsEstimates(entityId: string | undefined) {
-  return useApiQuery(['earnings', entityId, 'estimates'], EARNINGS.estimates(entityId!), undefined, {
-    enabled: !!entityId,
-  });
-}
-
-export function useEarningsRevisions(entityId: string | undefined) {
-  return useApiQuery(['earnings', entityId, 'revisions'], EARNINGS.revisions(entityId!), undefined, {
-    enabled: !!entityId,
-  });
-}
-
 export function useEarningsQuality(entityId: string | undefined) {
   return useApiQuery(['earnings', entityId, 'quality'], EARNINGS.quality(entityId!), undefined, {
     enabled: !!entityId,

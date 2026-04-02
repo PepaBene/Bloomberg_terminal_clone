@@ -110,13 +110,6 @@ def create_app() -> FastAPI:
         logger.warning("Fundamentals router not available; skipping.")
 
     try:
-        from src.api.routers.estimates import router as estimates_router
-
-        app.include_router(estimates_router, prefix="/v1")
-    except ImportError:
-        logger.warning("Estimates router not available; skipping.")
-
-    try:
         from src.api.routers.ownership import router as ownership_router
 
         app.include_router(ownership_router, prefix="/v1")

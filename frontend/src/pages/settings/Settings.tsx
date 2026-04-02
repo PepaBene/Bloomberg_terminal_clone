@@ -31,10 +31,10 @@ const notifications = [
 ];
 
 const apiKeys = [
-  { name: 'Bloomberg API', status: 'Connected', key: 'blp_****_7f2a' },
   { name: 'SEC EDGAR', status: 'Connected', key: 'edgar_****_9b1c' },
   { name: 'Federal Reserve (FRED)', status: 'Connected', key: 'fred_****_4d8e' },
-  { name: 'Custom Data Source', status: 'Not Configured', key: '-' },
+  { name: 'Polygon.io', status: 'Connected', key: 'poly_****_3a7f' },
+  { name: 'OpenFIGI', status: 'Connected', key: 'figi_****_8c2d' },
 ];
 
 const THEME_OPTIONS = ['Dark (Default)', 'Light', 'System'] as const;

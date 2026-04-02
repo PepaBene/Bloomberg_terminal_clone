@@ -58,9 +58,6 @@ export {
   useFilings,
   useSegments,
   useEntityRatios,
-  useEstimates,
-  useEstimatesConsensus,
-  useEstimatesHistory,
   useRevenueBreakdown,
   useGeographicBreakdown,
   useQuarterlyTrends,
@@ -135,8 +132,6 @@ export {
   useEarningsSurprises,
   useEarningsGuidance,
   useEarningsCalendar,
-  useEarningsEstimates,
-  useEarningsRevisions,
   useEarningsQuality,
   useEarningsSeasonality,
   // Company Intelligence

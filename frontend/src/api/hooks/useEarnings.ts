@@ -78,24 +78,6 @@ export function useEarningsCalendarByDate(date: string, options?: { enabled?: bo
 // Estimates & Revisions
 // ---------------------------------------------------------------------------
 
-export function useEarningsEstimates(entityId: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['earnings', 'estimates', entityId],
-    queryFn: () => api.get(EARNINGS.estimates(entityId)),
-    enabled: options?.enabled ?? !!entityId,
-    staleTime: STALE_24H,
-  });
-}
-
-export function useEarningsRevisions(entityId: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['earnings', 'revisions', entityId],
-    queryFn: () => api.get(EARNINGS.revisions(entityId)),
-    enabled: options?.enabled ?? !!entityId,
-    staleTime: STALE_24H,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Quality & Seasonality
 // ---------------------------------------------------------------------------

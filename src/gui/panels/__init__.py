@@ -9,7 +9,6 @@ from src.gui.panels.cacs_panel import CacsPanel
 from src.gui.panels.dashboard import DashboardPanel
 from src.gui.panels.des_panel import DESPanel
 from src.gui.panels.ecfc_panel import ECFCPanel
-from src.gui.panels.ern_panel import ErnPanel
 from src.gui.panels.esg_panel import EsgPanel
 from src.gui.panels.fa_panel import FAPanel
 from src.gui.panels.gp_panel import GPPanel
@@ -36,7 +35,6 @@ __all__ = [
     "DashboardPanel",
     "DESPanel",
     "ECFCPanel",
-    "ErnPanel",
     "EsgPanel",
     "FAPanel",
     "GPPanel",

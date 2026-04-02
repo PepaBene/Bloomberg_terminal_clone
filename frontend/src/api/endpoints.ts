@@ -54,9 +54,6 @@ export const FUNDAMENTALS = {
   filings: (entityId: string) => `/v1/entities/${entityId}/filings`,
   segments: (entityId: string) => `/v1/entities/${entityId}/segments`,
   ratios: (entityId: string) => `/v1/entities/${entityId}/ratios`,
-  estimates: (entityId: string) => `/v1/entities/${entityId}/estimates`,
-  estimatesConsensus: (entityId: string) => `/v1/entities/${entityId}/estimates/consensus`,
-  estimatesHistory: (entityId: string) => `/v1/entities/${entityId}/estimates/history`,
   revenueBreakdown: (entityId: string) => `/v1/entities/${entityId}/revenue-breakdown`,
   geographicBreakdown: (entityId: string) => `/v1/entities/${entityId}/geographic-breakdown`,
   quarterlyTrends: (entityId: string) => `/v1/entities/${entityId}/quarterly-trends`,
@@ -335,8 +332,6 @@ export const EARNINGS = {
   guidance: (entityId: string) => `/v3/earnings/${entityId}/guidance`,
   calendar: '/v3/earnings/calendar',
   calendarByDate: (date: string) => `/v3/earnings/calendar/${date}`,
-  estimates: (entityId: string) => `/v3/earnings/${entityId}/estimates`,
-  revisions: (entityId: string) => `/v3/earnings/${entityId}/revisions`,
   quality: (entityId: string) => `/v3/earnings/${entityId}/quality`,
   seasonality: (entityId: string) => `/v3/earnings/${entityId}/seasonality`,
 } as const;
