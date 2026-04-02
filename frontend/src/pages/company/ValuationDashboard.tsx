@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------------------
 // Valuation Dashboard — DCF Inputs, Multiples, Peer Valuation
 // ---------------------------------------------------------------------------
+import { useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { useSecurityStore } from '@/stores/securityContext';
+import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useDCFSensitivity, useFootballField } from '@/hooks';
+import { api } from '@/api/client';
 import { RatioDashboard } from '@/components/company/RatioDashboard';
 import type { DuPontData, MultiplesPoint } from '@/components/company/RatioDashboard';
 import { MultiplesOverTime, PeerScatter, DCFPanel, SensitivityMatrix } from '@/components/valuation';
@@ -136,6 +141,45 @@ const priceMatrix = [
 // --- Component ---------------------------------------------------------------
 
 export default function ValuationDashboard() {
+  const { entityId } = useParams<{ entityId: string }>();
+  const primary = useSecurityStore((s) => s.primary);
+  const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
+
+  // Wire hooks
+  const { data: apiDupont } = useDuPont(resolvedId);
+  const { data: apiMultiples } = useMultiplesHistory(resolvedId);
+  const { data: apiPeers } = usePeerComparison(resolvedId);
+  const { data: apiDcf } = useDCFModel(resolvedId);
+  const { data: apiSensitivity } = useDCFSensitivity(resolvedId);
+  const { data: apiFootball } = useFootballField(resolvedId);
+
+  // Use API data with mock fallback
+  const activeDupont = (apiDupont as any) ?? dupontData;
+  const activeMultiplesHistory = (apiMultiples as any[]) ?? multiplesHistory;
+  const activePeers = (apiPeers as any[]) ?? peerScatterData;
+  const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? dcfAssumptions;
+  const activeDcfResult = (apiDcf as any)?.result ?? dcfResult;
+
+  // Editable DCF inputs
+  const [editableWacc, setEditableWacc] = useState<number>(activeDcfAssumptions.wacc);
+  const [editableGrowth, setEditableGrowth] = useState<number>(activeDcfAssumptions.terminalGrowth);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleDCFRecalculate = useCallback(async () => {
+    if (!resolvedId) return;
+    setIsSubmitting(true);
+    try {
+      await api.post(`/v2/analytics/securities/${resolvedId}/dcf`, {
+        wacc: editableWacc,
+        terminalGrowth: editableGrowth,
+      });
+    } catch {
+      // Silently fail — mock mode
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [resolvedId, editableWacc, editableGrowth]);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -147,7 +191,7 @@ export default function ValuationDashboard() {
 
       {/* DuPont Decomposition + Multiples History via RatioDashboard */}
       <div style={{ marginBottom: 'var(--panel-gap)' }}>
-        <RatioDashboard dupont={dupontData} multiplesHistory={multiplesHistory} />
+        <RatioDashboard dupont={activeDupont} multiplesHistory={activeMultiplesHistory} />
       </div>
 
       {/* MultiplesOverTime (5Y history) */}
@@ -163,7 +207,7 @@ export default function ValuationDashboard() {
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Peer Comparison: P/E vs Revenue Growth</h2>
         <PeerScatter
-          peers={peerScatterData}
+          peers={activePeers}
           xLabel="Revenue Growth (%)"
           yLabel="P/E Ratio"
           highlightTicker="AAPL"
@@ -171,9 +215,55 @@ export default function ValuationDashboard() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
+        {/* Editable DCF Inputs */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>DCF Model Inputs</h2>
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end' }}>
+            <div>
+              <label style={labelStyle}>WACC (%)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={(editableWacc * 100).toFixed(1)}
+                onChange={(e) => setEditableWacc(parseFloat(e.target.value) / 100)}
+                style={{
+                  display: 'block', marginTop: '4px', width: '120px', padding: '6px 10px', borderRadius: '4px',
+                  border: '1px solid var(--color-surface-border)', background: 'var(--color-surface-raised)',
+                  color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)',
+                }}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Terminal Growth (%)</label>
+              <input
+                type="number"
+                step="0.001"
+                value={(editableGrowth * 100).toFixed(1)}
+                onChange={(e) => setEditableGrowth(parseFloat(e.target.value) / 100)}
+                style={{
+                  display: 'block', marginTop: '4px', width: '120px', padding: '6px 10px', borderRadius: '4px',
+                  border: '1px solid var(--color-surface-border)', background: 'var(--color-surface-raised)',
+                  color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)',
+                }}
+              />
+            </div>
+            <button
+              onClick={handleDCFRecalculate}
+              disabled={isSubmitting}
+              style={{
+                padding: '6px 20px', borderRadius: '4px', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer',
+                background: 'var(--color-accent-primary)', color: '#fff',
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500,
+              }}
+            >
+              {isSubmitting ? 'Calculating...' : 'Recalculate'}
+            </button>
+          </div>
+        </div>
+
         {/* DCFPanel Component */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <DCFPanel assumptions={dcfAssumptions} result={dcfResult} />
+          <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} />
         </div>
 
         {/* SensitivityMatrix below DCF */}

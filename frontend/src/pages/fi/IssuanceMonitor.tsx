@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { NewIssueTable } from '@/components/fi';
 import type { NewIssue } from '@/components/fi';
+import { useNewIssuance, useNewIssuancePipeline, useFIBriefing } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -67,6 +68,14 @@ const recentIssues: NewIssue[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function IssuanceMonitor() {
+  const { data: apiIssues } = useNewIssuance();
+  const { data: apiPipeline } = useNewIssuancePipeline();
+  const { data: apiBriefing } = useFIBriefing();
+
+  const liveWeeklyStats = (apiIssues as any)?.stats ?? weeklyStats;
+  const liveRecentIssues = (apiIssues as any[]) ?? recentIssues;
+  const livePipeline = (apiPipeline as any[]) ?? pipeline;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -78,7 +87,7 @@ export default function IssuanceMonitor() {
 
       {/* Weekly Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {weeklyStats.map((s) => (
+        {liveWeeklyStats.map((s) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{s.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{s.value}</div>
@@ -90,7 +99,7 @@ export default function IssuanceMonitor() {
         {/* NewIssueTable replaces inline issuance table */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Recent Issues</h2>
-          <NewIssueTable issues={recentIssues} />
+          <NewIssueTable issues={liveRecentIssues} />
         </div>
 
         {/* Pipeline */}
@@ -105,7 +114,7 @@ export default function IssuanceMonitor() {
               </tr>
             </thead>
             <tbody>
-              {pipeline.map((p) => (
+              {livePipeline.map((p) => (
                 <tr key={p.issuer} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{p.expected}</td>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{p.issuer}</td>

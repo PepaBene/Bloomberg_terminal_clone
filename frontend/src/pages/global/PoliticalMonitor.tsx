@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { BillTracker, SanctionsTable } from '@/components/global';
 import type { BillRecord, SanctionRecord } from '@/components/global';
+import { useGeopoliticalEvents } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -118,6 +119,12 @@ const sanctionRecords: SanctionRecord[] = [
 
 export default function PoliticalMonitor() {
   const [activeTab, setActiveTab] = useState<SectionTab>('Legislation');
+  const { data: eventsData } = useGeopoliticalEvents();
+
+  const activeElectionEvents = eventsData ?? electionEvents;
+  const activeRegulatoryActions = eventsData ?? regulatoryActions;
+  const activeBillRecords = eventsData ?? billRecords;
+  const activeSanctionRecords = eventsData ?? sanctionRecords;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -165,7 +172,7 @@ export default function PoliticalMonitor() {
       {/* Legislation Tab - BillTracker cards */}
       {activeTab === 'Legislation' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)' }}>
-          {billRecords.map((bill) => (
+          {activeBillRecords.map((bill) => (
             <BillTracker key={bill.id} bill={bill} />
           ))}
         </div>
@@ -195,7 +202,7 @@ export default function PoliticalMonitor() {
               </tr>
             </thead>
             <tbody>
-              {regulatoryActions.map((ra, i) => (
+              {activeRegulatoryActions.map((ra, i) => (
                 <tr key={i} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)', fontSize: 'var(--text-sm)' }}>{ra.agency}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.type}</td>
@@ -225,7 +232,7 @@ export default function PoliticalMonitor() {
       {activeTab === 'Sanctions' && (
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Active Sanctions Programs</h2>
-          <SanctionsTable sanctions={sanctionRecords} />
+          <SanctionsTable sanctions={activeSanctionRecords} />
         </div>
       )}
 
@@ -253,7 +260,7 @@ export default function PoliticalMonitor() {
               </tr>
             </thead>
             <tbody>
-              {electionEvents.map((e, i) => (
+              {activeElectionEvents.map((e, i) => (
                 <tr key={i} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{e.country}</td>
                   <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.date}</td>

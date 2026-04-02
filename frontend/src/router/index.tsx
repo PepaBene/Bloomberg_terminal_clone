@@ -9,6 +9,8 @@ const ValuationDashboard = lazy(() => import('@/pages/company/ValuationDashboard
 const OwnershipDashboard = lazy(() => import('@/pages/company/OwnershipDashboard'));
 const CreditProfile = lazy(() => import('@/pages/company/CreditProfile'));
 const CompanyIntelligence = lazy(() => import('@/pages/company/CompanyIntelligence'));
+const ESGDashboard = lazy(() => import('@/pages/company/ESGDashboard'));
+const GovernanceDashboard = lazy(() => import('@/pages/company/GovernanceDashboard'));
 const FilingsView = lazy(() => import('@/pages/company/FilingsView'));
 const ScreenerDashboard = lazy(() => import('@/pages/screener/ScreenerDashboard'));
 const FIScreenerDashboard = lazy(() => import('@/pages/screener/FIScreenerDashboard'));
@@ -46,7 +48,12 @@ const ThemesDashboard = lazy(() => import('@/pages/research/ThemesDashboard'));
 const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
 const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
+const DealsView = lazy(() => import('@/pages/deals/DealsView'));
+const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
+const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
+const CustomIndexBuilder = lazy(() => import('@/pages/quant/CustomIndexBuilder'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
+const NotFound = lazy(() => import('@/pages/global/NotFound'));
 
 function LoadingFallback() {
   return (
@@ -70,6 +77,10 @@ export function AppRouter() {
         <Route path="/company/filings" element={<FilingsView />} />
         <Route path="/company/credit" element={<CreditProfile />} />
         <Route path="/company/intelligence" element={<CompanyIntelligence />} />
+        <Route path="/company/esg" element={<ESGDashboard />} />
+        <Route path="/company/governance" element={<GovernanceDashboard />} />
+        <Route path="/company/:entityId/esg" element={<ESGDashboard />} />
+        <Route path="/company/:entityId/governance" element={<GovernanceDashboard />} />
 
         {/* Screener */}
         <Route path="/screener" element={<ScreenerDashboard />} />
@@ -126,11 +137,20 @@ export function AppRouter() {
         <Route path="/flows" element={<FlowsDashboard />} />
         <Route path="/custom" element={<CustomData />} />
 
+        {/* Deals & IPO */}
+        <Route path="/deals" element={<DealsView />} />
+        <Route path="/market/ipo" element={<IPOMonitor />} />
+
         {/* Quant */}
         <Route path="/quant" element={<QuantDashboard />} />
+        <Route path="/quant/backtest" element={<BacktestDashboard />} />
+        <Route path="/quant/index-builder" element={<CustomIndexBuilder />} />
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />
+
+        {/* 404 Catch-all */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
   );

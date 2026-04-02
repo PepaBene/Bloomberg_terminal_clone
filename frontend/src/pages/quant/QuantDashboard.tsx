@@ -2,6 +2,8 @@
 // Quant Dashboard — Factor Performance, Momentum Signals, Volatility Surface
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCorrelation, useFactorExposure, useTechnicalSignals } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -97,7 +99,15 @@ function signalBg(signal: string): string {
 // --- Component ---------------------------------------------------------------
 
 export default function QuantDashboard() {
+  const navigate = useNavigate();
   const [selectedTenor, setSelectedTenor] = useState('3M');
+
+  const { data: apiCorrelation } = useCorrelation() as { data: any };
+  const { data: apiFactors } = useFactorExposure(undefined) as { data: any };
+  const { data: apiSignals } = useTechnicalSignals(undefined) as { data: any };
+
+  const activeFactorPerf = (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
+  const activeMomentum = (apiSignals as any)?.signals ?? momentumSignals;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -120,7 +130,7 @@ export default function QuantDashboard() {
             </tr>
           </thead>
           <tbody>
-            {factorPerformance.map((f) => (
+            {activeFactorPerf.map((f: any) => (
               <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(f.mtd) }}>{f.mtd >= 0 ? '+' : ''}{f.mtd.toFixed(2)}%</td>
@@ -148,7 +158,7 @@ export default function QuantDashboard() {
               </tr>
             </thead>
             <tbody>
-              {momentumSignals.map((s) => (
+              {activeMomentum.map((s: any) => (
                 <tr key={s.ticker} style={{ height: 'var(--table-row-height)', background: signalBg(s.signal) }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: scoreColor(s.score), fontWeight: 600 }}>{s.score}</td>
@@ -216,6 +226,22 @@ export default function QuantDashboard() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Backtester Link */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={sectionTitle}>Strategy Backtester</h2>
+          <p style={{ ...labelStyle, margin: 0 }}>Build, test, and compare quantitative strategies with historical data</p>
+        </div>
+        <span
+          onClick={() => navigate('/quant/backtest')}
+          style={{
+            fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', padding: '8px 20px', borderRadius: '4px',
+            background: 'var(--color-accent-primary)', color: 'var(--color-text-inverse)',
+            cursor: 'pointer', userSelect: 'none', fontWeight: 600,
+          }}
+        >Open Backtester</span>
       </div>
     </div>
   );

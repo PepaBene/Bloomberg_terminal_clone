@@ -36,7 +36,6 @@ SHORTCUTS: dict[str, str] = {
     "financials":   "F5",
     "chart":        "F6",
     "ownership":    "F7",
-    "estimates":    "F8",
     "esg":          "F9",
     "macro":        "F10",
 

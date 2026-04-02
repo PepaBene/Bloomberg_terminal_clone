@@ -4,6 +4,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
+import { api } from '@/api/client';
+import { FI } from '@/api/endpoints';
 
 // --- Mock Data ---------------------------------------------------------------
 
@@ -61,6 +63,14 @@ const BOND_COLUMNS: ScreenResultColumn[] = [
 
 export default function FIScreenerDashboard() {
   const [filters, setFilters] = useState<ScreenFilter[]>([]);
+  const [backendResults, setBackendResults] = useState<BondRow[] | null>(null);
+
+  const handleRunScreen = useCallback(async () => {
+    try {
+      const result = await api.post(FI.screen, { filters });
+      setBackendResults((result as any)?.results ?? null);
+    } catch { setBackendResults(null); }
+  }, [filters]);
 
   const filtered = useMemo(() => {
     if (filters.length === 0) return mockBonds;
@@ -83,9 +93,11 @@ export default function FIScreenerDashboard() {
     setFilters(newFilters);
   }, []);
 
+  const displayData = backendResults ?? filtered;
+
   const resultRows = useMemo(
-    () => filtered.map((b) => ({ ...b } as Record<string, unknown>)),
-    [filtered],
+    () => displayData.map((b) => ({ ...b } as Record<string, unknown>)),
+    [displayData],
   );
 
   return (
@@ -110,8 +122,28 @@ export default function FIScreenerDashboard() {
         />
       </div>
 
+      {/* Run Screen button */}
+      <div style={{ marginBottom: 'var(--panel-gap)' }}>
+        <button
+          onClick={handleRunScreen}
+          style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+            padding: '8px 20px',
+            background: 'var(--color-accent)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Run Screen
+        </button>
+      </div>
+
       {/* LivePreviewCount between builder and results */}
-      <LivePreviewCount count={filtered.length} total={mockBonds.length} />
+      <LivePreviewCount count={displayData.length} total={mockBonds.length} />
 
       {/* ScreenResults replaces inline results table */}
       <div style={{ marginTop: 'var(--panel-gap)' }}>

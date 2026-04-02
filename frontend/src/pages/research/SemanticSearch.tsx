@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------------
 // Semantic Search — Search Interface with Results and Filters
 // ---------------------------------------------------------------------------
+import { useState } from 'react';
+import { api } from '@/api/client';
+import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
@@ -18,6 +21,24 @@ const results = [
 ];
 
 export default function SemanticSearch() {
+  const [searchQuery, setSearchQuery] = useState(query);
+  const [searchResults, setSearchResults] = useState<typeof results | null>(null);
+  const [activeFilter, setActiveFilter] = useState('All Sources');
+  const [searching, setSearching] = useState(false);
+
+  const displayResults = searchResults ?? results;
+  const displayCount = searchResults?.length ?? resultCount;
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const res = await api.post(RESEARCH.search.query, { query: searchQuery, filter: activeFilter });
+      setSearchResults((res as any)?.results ?? []);
+    } catch { setSearchResults(null); }
+    setSearching(false);
+  };
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -25,19 +46,28 @@ export default function SemanticSearch() {
       </div>
       {/* Search Box */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <div style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', background: 'var(--color-surface-overlay)', border: '1px solid var(--color-surface-border)', borderRadius: '3px', padding: '8px 12px' }}>{query}</div>
-        <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: 'pointer' }}>Search</div>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          placeholder="Search filings, transcripts, research..."
+          style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', background: 'var(--color-surface-overlay)', border: '1px solid var(--color-surface-border)', borderRadius: '3px', padding: '8px 12px' }}
+        />
+        <button onClick={handleSearch} disabled={searching} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: 'pointer', border: 'none' }}>
+          {searching ? 'Searching…' : 'Search'}
+        </button>
       </div>
       {/* Filters */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: 'var(--panel-gap)' }}>
         {filters.map((f) => (
-          <span key={f} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '3px 8px', borderRadius: '3px', background: f === 'All Sources' ? 'var(--color-accent-primary)' : 'var(--color-surface-overlay)', color: f === 'All Sources' ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)', cursor: 'pointer' }}>{f}</span>
+          <span key={f} onClick={() => setActiveFilter(f)} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '3px 8px', borderRadius: '3px', background: f === activeFilter ? 'var(--color-accent-primary)' : 'var(--color-surface-overlay)', color: f === activeFilter ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)', cursor: 'pointer' }}>{f}</span>
         ))}
-        <span style={{ marginLeft: 'auto', ...labelStyle }}>{resultCount} results</span>
+        <span style={{ marginLeft: 'auto', ...labelStyle }}>{displayCount} results</span>
       </div>
       {/* Results */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
-        {results.map((r) => (
+        {displayResults.map((r) => (
           <div key={r.rank} style={panelStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>

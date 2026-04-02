@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react';
 import { CommodityPriceChart } from '@/components/global';
 import type { CommodityPricePoint } from '@/components/global';
+import { useCommodities } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -121,8 +122,11 @@ const categories: CommodityCategory[] = ['Energy', 'Precious Metals', 'Industria
 
 export default function CommodityDashboard() {
   const [activeCategory, setActiveCategory] = useState<CommodityCategory>('Energy');
+  const { data: commoditiesData } = useCommodities();
 
-  const filteredCommodities = commodities.filter((c) => c.category === activeCategory);
+  const activeCommodities = commoditiesData ?? commodities;
+
+  const filteredCommodities = activeCommodities.filter((c: CommodityRow) => c.category === activeCategory);
   const exposedCompanies = exposureMap[activeCategory];
 
   // Generate 6 months of price data for the first commodity in the active category

@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
 // Fixed Income Dashboard
 // ---------------------------------------------------------------------------
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { useNavigate } from 'react-router-dom';
+import { useYieldCurve, useCreditSpreads, useNewIssuance, useFIBriefing, useAgencyBonds } from '@/hooks';
 import { YieldCurveChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
 import { KeySpreadsPanel, NewIssueTable } from '@/components/fi';
@@ -91,16 +91,37 @@ const NEW_ISSUES: NewIssue[] = [
   { issuer: 'JPMorgan Chase',    coupon: 5.000, maturity: '2031-03-01', size: '$3.0B', rating: 'A+',   spread: 95,  initialTalk: 100, status: 'upcoming' },
 ];
 
+const MOCK_AGENCY_BONDS = [
+  { issuer: 'FHLB', coupon: 4.875, maturity: '2027-03-15', size: '$5.0B', spread: 12, rating: 'AAA' },
+  { issuer: 'FNMA', coupon: 4.625, maturity: '2029-06-01', size: '$3.5B', spread: 18, rating: 'AAA' },
+  { issuer: 'FHLMC', coupon: 4.750, maturity: '2028-09-15', size: '$4.0B', spread: 15, rating: 'AAA' },
+  { issuer: 'TVA', coupon: 4.500, maturity: '2031-03-01', size: '$2.0B', spread: 22, rating: 'AAA' },
+  { issuer: 'FFCB', coupon: 4.375, maturity: '2026-12-15', size: '$2.5B', spread: 10, rating: 'AAA' },
+];
+
 // --- Component ---------------------------------------------------------------
 
+const QUICK_LINK_ROUTES: Record<string, string> = {
+  'Treasury Dashboard': '/fi/treasuries',
+  'Credit Market Deep Dive': '/fi/credit',
+  'Bond Screener': '/screener/fi',
+  'Issuance Monitor': '/fi/issuance',
+};
+
 export default function FIDashboard() {
-  // Fetch yield curve
-  const { data: yieldData, isLoading: loadingYield } = useQuery<YieldTenor[]>({
-    queryKey: ['fi', 'yield-curve'],
-    queryFn: () => api.get('/v4/fi/yield-curve'),
-    retry: 0,
-  });
-  const yieldCurve = yieldData ?? MOCK_YIELD_CURVE;
+  const navigate = useNavigate();
+
+  // Fetch data via hooks (with mock fallbacks)
+  const { data: apiYield, isLoading: loadingYield } = useYieldCurve();
+  const { data: apiSpreads } = useCreditSpreads();
+  const { data: apiNewIssues } = useNewIssuance();
+  const { data: apiBriefing } = useFIBriefing();
+  const { data: apiAgency } = useAgencyBonds();
+
+  const yieldCurve = (apiYield as any[]) ?? MOCK_YIELD_CURVE;
+  const spreads = (apiSpreads as any)?.spreads ?? KEY_SPREADS;
+  const newIssues = (apiNewIssues as any[]) ?? NEW_ISSUES;
+  const agencyBonds = (apiAgency as any[]) ?? MOCK_AGENCY_BONDS;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -172,7 +193,7 @@ export default function FIDashboard() {
           {/* NewIssueTable replaces inline issuance table */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Recent Issuance</h2>
-            <NewIssueTable issues={NEW_ISSUES} />
+            <NewIssueTable issues={newIssues} />
           </div>
         </div>
 
@@ -182,7 +203,7 @@ export default function FIDashboard() {
           {/* KeySpreadsPanel */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Key Spreads</h2>
-            <KeySpreadsPanel spreads={KEY_SPREADS} />
+            <KeySpreadsPanel spreads={spreads} />
           </div>
 
           {/* Quick Links */}
@@ -192,6 +213,7 @@ export default function FIDashboard() {
               {['Treasury Dashboard', 'Credit Market Deep Dive', 'Bond Screener', 'Issuance Monitor'].map((label) => (
                 <div
                   key={label}
+                  onClick={() => navigate(QUICK_LINK_ROUTES[label])}
                   style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-sm)',
@@ -208,6 +230,63 @@ export default function FIDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* AI Market Narrative */}
+      {(() => {
+        const MOCK_BRIEFING =
+          'Fixed income markets are experiencing a broad rally as Treasury yields decline across the curve. ' +
+          'The 2s10s spread remains inverted at -34 bps, reflecting persistent recession concerns even as the Fed holds rates steady. ' +
+          'Investment-grade credit spreads have tightened to 92 bps over Treasuries, near the 22nd percentile of their historical range, ' +
+          'suggesting relatively rich valuations. New issuance remains robust with strong demand for high-quality corporate paper, ' +
+          'while high-yield spreads at 328 bps indicate cautious risk appetite. The front end of the curve continues to price in ' +
+          'rate cuts by mid-year, with the 3m10y inversion at -108 bps reinforcing expectations for monetary policy easing.';
+        const briefingText = (apiBriefing as any)?.text ?? (apiBriefing as any)?.narrative ?? MOCK_BRIEFING;
+        return briefingText ? (
+          <div className="terminal-panel" style={{ marginTop: 'var(--panel-gap)' }}>
+            <h2 className="terminal-section-title">AI Market Narrative</h2>
+            <p
+              style={{
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-sm)',
+                lineHeight: 1.6,
+                color: 'var(--color-text-primary)',
+                margin: 0,
+              }}
+            >
+              {briefingText}
+            </p>
+          </div>
+        ) : null;
+      })()}
+
+      {/* Agency Bonds */}
+      <div className="terminal-panel" style={{ marginTop: 'var(--panel-gap)' }}>
+        <h2 className="terminal-section-title">Agency Bonds</h2>
+        <table className="terminal-table">
+          <thead>
+            <tr>
+              <th>Issuer</th>
+              <th className="right">Coupon</th>
+              <th className="right">Maturity</th>
+              <th className="right">Size</th>
+              <th className="right">Spread (bps)</th>
+              <th className="right">Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agencyBonds.map((b: any, i: number) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600 }}>{b.issuer}</td>
+                <td className="right">{Number(b.coupon).toFixed(3)}%</td>
+                <td className="right">{b.maturity}</td>
+                <td className="right">{b.size}</td>
+                <td className="right">+{b.spread}</td>
+                <td className="right" style={{ color: 'var(--color-signal-positive)' }}>{b.rating}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

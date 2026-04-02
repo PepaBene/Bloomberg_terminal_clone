@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { KeySpreadsPanel, SpreadHistoryChart } from '@/components/fi';
 import type { SpreadRow, SpreadDataPoint } from '@/components/fi';
+import { useCreditSpreads, useDistressedCredit, useFIIndices, useFIBriefing } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -97,6 +98,24 @@ const creditSpreadHistory = generateCreditSpreadHistory();
 // --- Component ---------------------------------------------------------------
 
 export default function CreditMarket() {
+  const { data: apiSpreads } = useCreditSpreads();
+  const { data: apiDistressed } = useDistressedCredit();
+  const { data: apiIndices } = useFIIndices();
+  const { data: apiBriefing } = useFIBriefing();
+
+  const indicesData = (apiIndices as any[]) ?? spreadIndices;
+  const sectorsData = (apiSpreads as any)?.sectors ?? sectorSpreads;
+  const regimeData = (apiSpreads as any)?.regime ?? creditRegime;
+
+  const distressed = (apiDistressed as any[]) ?? [
+    { issuer: 'Rite Aid Corp', rating: 'CCC', spread: 1850, defaultProb: 42.5 },
+    { issuer: 'Community Health', rating: 'CCC+', spread: 1420, defaultProb: 28.8 },
+    { issuer: 'Carvana Co', rating: 'CCC', spread: 1680, defaultProb: 35.2 },
+  ];
+
+  const briefingText = (apiBriefing as any)?.text ??
+    'Investment-grade spreads remain well-contained at 92bps, reflecting continued demand for quality credit amid a stable macro backdrop. High-yield markets are constructive with the distressed ratio holding near cycle lows at 4.2%. Sector rotation favors Technology and Consumer credits while Energy spreads face headwinds from recent commodity volatility.';
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -108,7 +127,7 @@ export default function CreditMarket() {
 
       {/* Regime KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {creditRegime.map((r) => (
+        {regimeData.map((r: any) => (
           <div key={r.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{r.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: r.value === 'Risk-On' ? 'var(--color-signal-positive)' : 'var(--color-text-primary)' }}>{r.value}</div>
@@ -141,7 +160,7 @@ export default function CreditMarket() {
               </tr>
             </thead>
             <tbody>
-              {spreadIndices.map((s) => (
+              {indicesData.map((s: any) => (
                 <tr key={s.index} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.index}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{s.spread}</td>
@@ -167,7 +186,7 @@ export default function CreditMarket() {
               </tr>
             </thead>
             <tbody>
-              {sectorSpreads.map((s) => (
+              {sectorsData.map((s: any) => (
                 <tr key={s.sector} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.sector}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.igOas}</td>
@@ -179,6 +198,38 @@ export default function CreditMarket() {
           </table>
         </div>
       </div>
+
+      {/* Distressed Credits */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Distressed Credits</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Issuer', 'Rating', 'Spread', 'Prob Default %'].map((h) => (
+                <th key={h} style={{ ...labelStyle, textAlign: h === 'Issuer' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {distressed.map((d: any) => (
+              <tr key={d.issuer} style={{ height: 'var(--table-row-height)' }}>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.issuer}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-negative)' }}>{d.rating}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.spread}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-negative)' }}>{d.defaultProb}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* AI Credit Briefing */}
+      {(apiBriefing || briefingText) && (
+        <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+          <h2 style={sectionTitle}>AI Credit Briefing</h2>
+          <p style={{ ...labelStyle, fontSize: 'var(--text-base)', lineHeight: 1.6, margin: 0 }}>{briefingText}</p>
+        </div>
+      )}
     </div>
   );
 }

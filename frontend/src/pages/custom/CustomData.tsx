@@ -2,6 +2,8 @@
 // Custom Data — CSV Upload Zone, Field Mapping UI, Import History
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
+import { api } from '@/api/client';
+import { useQuery } from '@tanstack/react-query';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -54,6 +56,14 @@ export default function CustomData() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
 
+  const { data: apiHistory } = useQuery({
+    queryKey: ['custom-data', 'history'],
+    queryFn: () => api.get('/v1/custom-data/history'),
+    retry: 0,
+  }) as { data: any };
+
+  const activeHistory = (apiHistory as any)?.history ?? importHistory;
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -68,7 +78,15 @@ export default function CustomData() {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      setUploadedFile(files[0]?.name ?? null);
+      const file = files[0];
+      setUploadedFile(file?.name ?? null);
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        api.post('/v1/custom-data/upload', formData).catch(() => {
+          /* upload failed — keep local preview */
+        });
+      }
     }
   }, []);
 
@@ -184,7 +202,7 @@ export default function CustomData() {
               ))}
             </tr></thead>
             <tbody>
-              {importHistory.map((r, i) => (
+              {activeHistory.map((r: any, i: number) => (
                 <tr key={i} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{r.date}</td>
                   <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-accent-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.filename}</td>

@@ -25,7 +25,6 @@ PANEL_CODES: dict[str, str] = {
     "FA":   "financials",
     "GP":   "price_chart",
     "OWN":  "ownership",
-    "ERN":  "estimates",
     "ESG":  "esg",
     "CACS": "corporate_actions",
     "SPLC": "relationships",

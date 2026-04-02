@@ -2,6 +2,7 @@
 // Risk Dashboard — VaR, Stress Tests, Factor Exposure
 // ---------------------------------------------------------------------------
 import { BarChartComponent, DonutChart } from '@/components/charts';
+import { useCorrelation, useFactorExposure } from '@/hooks';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -62,6 +63,15 @@ const SECTOR_CONCENTRATION = [
 ];
 
 export default function RiskDashboard() {
+  const { data: apiCorrelation } = useCorrelation() as { data: any };
+  const { data: apiFactors } = useFactorExposure(undefined) as { data: any };
+
+  const activeKPIs = (apiCorrelation as any)?.kpis ?? riskKPIs;
+  const activeStress = (apiCorrelation as any)?.stressTests ?? stressTests;
+  const activeFactors = (apiFactors as any)?.factors ?? factorExposure;
+  const activeVarDecomp = (apiCorrelation as any)?.varDecomposition ?? VAR_DECOMPOSITION;
+  const activeSectorConc = (apiCorrelation as any)?.sectorConcentration ?? SECTOR_CONCENTRATION;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -69,7 +79,7 @@ export default function RiskDashboard() {
         <p style={{ ...labelStyle, marginTop: '4px' }}>Portfolio-level VaR, stress testing, and factor exposure analysis</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {riskKPIs.map((k) => (
+        {activeKPIs.map((k) => (
           <div key={k.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{k.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{k.value}</div>
@@ -81,7 +91,7 @@ export default function RiskDashboard() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>VaR Decomposition by Position ($K)</h2>
           <BarChartComponent
-            data={VAR_DECOMPOSITION}
+            data={activeVarDecomp}
             xKey="position"
             bars={[{ key: 'var95', color: '#E05252', name: 'VaR 95% ($K)' }]}
             height={250}
@@ -91,7 +101,7 @@ export default function RiskDashboard() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Concentration by Sector</h2>
           <DonutChart
-            data={SECTOR_CONCENTRATION}
+            data={activeSectorConc}
             height={250}
             centerLabel="Sectors"
             centerValue="7"
@@ -109,7 +119,7 @@ export default function RiskDashboard() {
               ))}
             </tr></thead>
             <tbody>
-              {stressTests.map((s) => (
+              {activeStress.map((s) => (
                 <tr key={s.scenario} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.scenario}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-negative)', fontWeight: 600 }}>{s.portfolioReturn.toFixed(1)}%</td>
@@ -129,7 +139,7 @@ export default function RiskDashboard() {
               ))}
             </tr></thead>
             <tbody>
-              {factorExposure.map((f) => (
+              {activeFactors.map((f) => (
                 <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.factor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{f.exposure >= 0 ? '+' : ''}{f.exposure.toFixed(2)}</td>

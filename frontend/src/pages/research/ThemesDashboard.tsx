@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------------
 // Themes Dashboard — Macro Themes with Sector Sensitivity Heatmap
 // ---------------------------------------------------------------------------
+import { useResearchThemes } from '@/hooks';
+import { api } from '@/api/client';
+import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -30,6 +33,12 @@ const heatmapData = [
 ];
 
 export default function ThemesDashboard() {
+  const { data: apiThemes } = useResearchThemes() as { data: any };
+
+  const activeThemes = (apiThemes as any)?.themes ?? themes;
+  const activeHeatmap = (apiThemes as any)?.heatmap ?? heatmapData;
+  const activeSectors = (apiThemes as any)?.sectors ?? sectors;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -41,7 +50,7 @@ export default function ThemesDashboard() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Active Themes</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {themes.map((t) => (
+            {activeThemes.map((t) => (
               <div key={t.name} style={{ padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{t.name}</span>
@@ -69,12 +78,12 @@ export default function ThemesDashboard() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
               <th style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>Theme</th>
-              {sectors.map((s) => (
+              {activeSectors.map((s) => (
                 <th key={s} style={{ ...labelStyle, textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)', fontSize: 'var(--text-xs)' }}>{s}</th>
               ))}
             </tr></thead>
             <tbody>
-              {heatmapData.map((row) => (
+              {activeHeatmap.map((row) => (
                 <tr key={row.theme} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{row.theme}</td>
                   {row.values.map((v, i) => (

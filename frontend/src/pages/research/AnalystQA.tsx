@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------------
 // Analyst Q&A — Chat-Style Interface with Suggested Questions
 // ---------------------------------------------------------------------------
+import { useState } from 'react';
+import { api } from '@/api/client';
+import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -41,6 +44,35 @@ const chatHistory = [
 ];
 
 export default function AnalystQA() {
+  const [messages, setMessages] = useState(chatHistory);
+  const [input, setInput] = useState('');
+  const [asking, setAsking] = useState(false);
+
+  const handleAsk = async () => {
+    if (!input.trim() || asking) return;
+    const userMsg = { role: 'user' as const, text: input, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    setMessages(prev => [...prev, userMsg]);
+    const question = input;
+    setInput('');
+    setAsking(true);
+    try {
+      const isFollowUp = messages.length > chatHistory.length;
+      const endpoint = isFollowUp ? RESEARCH.qa.followUp : RESEARCH.qa.ask;
+      const res = await api.post(endpoint, { question });
+      const answer = {
+        role: 'assistant' as const,
+        text: (res as any)?.answer ?? (res as any)?.text ?? 'No response available.',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sources: (res as any)?.sources ?? [],
+        confidence: (res as any)?.confidence ?? 0,
+      };
+      setMessages(prev => [...prev, answer]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant' as const, text: 'Error: Unable to get response.', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), sources: [], confidence: 0 }]);
+    }
+    setAsking(false);
+  };
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -50,7 +82,7 @@ export default function AnalystQA() {
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', flex: 1, alignItems: 'start' }}>
         {/* Chat Area */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {chatHistory.map((msg, i) => (
+          {messages.map((msg, i) => (
             <div key={i} style={{ ...panelStyle, background: msg.role === 'user' ? 'var(--color-surface-overlay)' : 'var(--color-surface-base)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', fontWeight: 600, color: msg.role === 'user' ? 'var(--color-accent-primary)' : 'var(--color-signal-positive)' }}>
@@ -72,8 +104,17 @@ export default function AnalystQA() {
           ))}
           {/* Input Box */}
           <div style={{ ...panelStyle, display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <div style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', background: 'var(--color-surface-overlay)', border: '1px solid var(--color-surface-border)', borderRadius: '3px', padding: '8px 12px' }}>Ask a question about any company, sector, or market...</div>
-            <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: 'pointer' }}>Ask</div>
+            <input
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAsk()}
+              placeholder="Ask a question about any company, sector, or market..."
+              style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', background: 'var(--color-surface-overlay)', border: '1px solid var(--color-surface-border)', borderRadius: '3px', padding: '8px 12px' }}
+            />
+            <button onClick={handleAsk} disabled={asking} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: 'pointer', border: 'none' }}>
+              {asking ? 'Asking…' : 'Ask'}
+            </button>
           </div>
         </div>
         {/* Suggested Questions */}
@@ -81,7 +122,7 @@ export default function AnalystQA() {
           <h2 style={sectionTitle}>Suggested Questions</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {suggestedQuestions.map((q, i) => (
-              <div key={i} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-accent-primary)', padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px', cursor: 'pointer', lineHeight: 1.4 }}>{q}</div>
+              <div key={i} onClick={() => setInput(q)} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-accent-primary)', padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px', cursor: 'pointer', lineHeight: 1.4 }}>{q}</div>
             ))}
           </div>
         </div>

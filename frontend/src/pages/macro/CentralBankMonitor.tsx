@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { FedRateHistory, MacroIndicatorTable } from '@/components/macro';
 import type { FedRatePoint, MacroIndicator } from '@/components/macro';
+import { useCentralBanks, useMacroDashboardData } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -100,6 +101,15 @@ const recentReleases: MacroIndicator[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function CentralBankMonitor() {
+  const { data: apiCentralBanks } = useCentralBanks() as { data: any };
+  const { data: apiMacro } = useMacroDashboardData() as { data: any };
+
+  const activeBanks = (apiCentralBanks as any)?.banks ?? centralBanks;
+  const activeDotPlot = (apiCentralBanks as any)?.dotPlot ?? fedDotPlot;
+  const activePricing = (apiCentralBanks as any)?.marketPricing ?? marketPricing;
+  const activeRateData = (apiCentralBanks as any)?.rateHistory ?? fedRateData;
+  const activeReleases = (apiMacro as any)?.releases ?? recentReleases;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -111,7 +121,7 @@ export default function CentralBankMonitor() {
 
       {/* Central Bank Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {centralBanks.map((cb) => (
+        {activeBanks.map((cb) => (
           <div key={cb.bank} style={panelStyle}>
             <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>{cb.bank}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '8px' }}>{cb.rate}</div>
@@ -134,7 +144,7 @@ export default function CentralBankMonitor() {
       {/* FedRateHistory Chart */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Fed Funds Rate History (5Y)</h2>
-        <FedRateHistory data={fedRateData} />
+        <FedRateHistory data={activeRateData} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
@@ -150,7 +160,7 @@ export default function CentralBankMonitor() {
               </tr>
             </thead>
             <tbody>
-              {fedDotPlot.map((d) => (
+              {activeDotPlot.map((d) => (
                 <tr key={d.year} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.year}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{d.median.toFixed(3)}%</td>
@@ -174,7 +184,7 @@ export default function CentralBankMonitor() {
               </tr>
             </thead>
             <tbody>
-              {marketPricing.map((m) => (
+              {activePricing.map((m) => (
                 <tr key={m.meeting} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{m.meeting}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-positive)' }}>{m.prob25Cut}%</td>
@@ -190,7 +200,7 @@ export default function CentralBankMonitor() {
         {/* MacroIndicatorTable for recent releases */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Recent Economic Releases</h2>
-          <MacroIndicatorTable indicators={recentReleases} />
+          <MacroIndicatorTable indicators={activeReleases} />
         </div>
       </div>
     </div>

@@ -3,6 +3,9 @@
 // ---------------------------------------------------------------------------
 import { FilingDiffViewer, InsiderActivityTable } from '@/components/intelligence';
 import type { InsiderTransaction, InsiderSignal, DiffSection } from '@/components/intelligence';
+import { useParams } from 'react-router-dom';
+import { useSecurityStore } from '@/stores/securityContext';
+import { useFilingEvents, useFilingDiffs, useFilingInsiders, useFilingRiskFactors, useFilingMDNA } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -94,6 +97,21 @@ const diffSections: DiffSection[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function FilingsView() {
+  const { entityId } = useParams<{ entityId: string }>();
+  const primary = useSecurityStore((s) => s.primary);
+  const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
+
+  const { data: apiFilings } = useFilingEvents(resolvedId);
+  const { data: apiDiffs } = useFilingDiffs(resolvedId);
+  const { data: apiInsiders } = useFilingInsiders(resolvedId);
+  const { data: apiRiskFactors } = useFilingRiskFactors(resolvedId);
+  const { data: apiMDNA } = useFilingMDNA(resolvedId);
+
+  const activeFilings = (apiFilings as any[]) ?? filings;
+  const activeDiffs = (apiDiffs as any)?.sections ?? diffSections;
+  const activeInsiders = (apiInsiders as any)?.transactions ?? insiderTxData;
+  const activeSignals = (apiInsiders as any)?.signals ?? insiderSignals;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -117,7 +135,7 @@ export default function FilingsView() {
                 </tr>
               </thead>
               <tbody>
-                {filings.map((f, i) => (
+                {activeFilings.map((f: any, i: number) => (
                   <tr key={i} style={{ height: 'var(--table-row-height)' }}>
                     <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{f.date}</td>
                     <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
@@ -135,7 +153,7 @@ export default function FilingsView() {
           {/* Insider Transactions — powered by InsiderActivityTable */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Insider Transactions</h2>
-            <InsiderActivityTable transactions={insiderTxData} signals={insiderSignals} />
+            <InsiderActivityTable transactions={activeInsiders} signals={activeSignals} />
           </div>
         </div>
 
@@ -144,9 +162,67 @@ export default function FilingsView() {
           <div style={panelStyle}>
             <h2 style={sectionTitle}>10-K Diff: FY2025 vs FY2024</h2>
             <p style={{ ...labelStyle, marginBottom: '12px' }}>Material section changes detected</p>
-            <FilingDiffViewer sections={diffSections} mode="side-by-side" />
+            <FilingDiffViewer sections={activeDiffs} mode="side-by-side" />
           </div>
         </div>
+      </div>
+
+      {/* Risk Factors */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Risk Factors Summary</h2>
+        {apiRiskFactors ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {(apiRiskFactors as any[]).map((rf: any, i: number) => (
+              <div key={i} style={{ padding: '10px', background: 'var(--color-surface-raised)', borderRadius: '4px', borderLeft: `3px solid ${rf.severity === 'high' ? 'var(--color-signal-negative)' : rf.severity === 'medium' ? 'var(--color-signal-warning)' : 'var(--color-text-tertiary)'}` }}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{rf.title ?? rf.category}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{rf.summary ?? rf.description}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {[
+              { title: 'Regulatory & Antitrust Risk', severity: 'high', summary: 'Multiple jurisdictions pursuing antitrust actions against App Store practices. EU DMA compliance costs estimated at $500M+.' },
+              { title: 'China Revenue Concentration', severity: 'high', summary: 'Greater China represents ~19% of revenue. Geopolitical tensions and local competition from Huawei pose ongoing risk.' },
+              { title: 'AI Integration Execution', severity: 'medium', summary: 'Delayed AI feature rollout relative to competitors. On-device AI strategy may limit capability vs cloud-first approaches.' },
+              { title: 'Supply Chain Concentration', severity: 'medium', summary: 'Heavy reliance on TSMC for advanced chips. Any disruption to Taiwan manufacturing could impact production.' },
+            ].map((rf, i) => (
+              <div key={i} style={{ padding: '10px', background: 'var(--color-surface-raised)', borderRadius: '4px', borderLeft: `3px solid ${rf.severity === 'high' ? 'var(--color-signal-negative)' : 'var(--color-signal-warning)'}` }}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{rf.title}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{rf.summary}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* MD&A Highlights */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>MD&A Highlights</h2>
+        {apiMDNA ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {(apiMDNA as any[]).map((item: any, i: number) => (
+              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.topic}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '4px', lineHeight: 1.5 }}>{item.summary}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[
+              { topic: 'Revenue Growth Drivers', summary: 'Services segment grew 14.1% YoY to $96B, now 22.8% of revenue. iPhone revenue grew modestly at 3.8% driven by Pro models and emerging markets.' },
+              { topic: 'Margin Expansion', summary: 'Gross margin expanded 180bps to 45.3% driven by mix shift toward higher-margin Services. Operating leverage improving as R&D growth decelerates.' },
+              { topic: 'Capital Return', summary: 'Returned $105.3B to shareholders through $90.1B in buybacks and $15.2B in dividends. Net cash position declined to $49B from $58B.' },
+              { topic: 'Emerging Opportunities', summary: 'Vision Pro launched with revenue tracking above internal forecasts. Apple Intelligence features rolled out across product line. India revenue growth exceeding 25%.' },
+            ].map((item, i) => (
+              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.topic}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '4px', lineHeight: 1.5 }}>{item.summary}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

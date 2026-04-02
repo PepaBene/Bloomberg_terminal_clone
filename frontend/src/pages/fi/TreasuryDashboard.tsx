@@ -3,6 +3,16 @@
 // ---------------------------------------------------------------------------
 import { TreasuryAuctionCalendar, SpreadHistoryChart } from '@/components/fi';
 import type { AuctionRecord, SpreadDataPoint } from '@/components/fi';
+import {
+  useYieldCurve,
+  useYieldCurveSpreads,
+  useTreasuryAuction,
+  useTreasuriesOnTheRun,
+  useYieldCurveForward,
+  useRealYieldCurve,
+  useBreakevenCurve,
+  useMoneyMarketRates,
+} from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -101,9 +111,53 @@ function generate10YSpreadHistory(): SpreadDataPoint[] {
 
 const spreadHistory = generate10YSpreadHistory();
 
+const forwardCurveData = [
+  { horizon: '1Y Forward', rate2Y: 4.15, rate5Y: 3.95, rate10Y: 4.10 },
+  { horizon: '2Y Forward', rate2Y: 3.85, rate5Y: 3.78, rate10Y: 4.02 },
+  { horizon: '5Y Forward', rate2Y: 3.52, rate5Y: 3.60, rate10Y: 3.88 },
+];
+
+const realYieldData = [
+  { tenor: '5Y', realYield: 1.82, chg: -0.02 },
+  { tenor: '10Y', realYield: 1.96, chg: -0.03 },
+  { tenor: '30Y', realYield: 2.12, chg: -0.01 },
+];
+
+const breakevenData = [
+  { tenor: '5Y', breakeven: 2.36, chg: 0.01 },
+  { tenor: '10Y', breakeven: 2.32, chg: -0.01 },
+  { tenor: '30Y', breakeven: 2.40, chg: 0.02 },
+];
+
+const moneyMarketRates = [
+  { name: 'SOFR', rate: 5.31, chg: 0.00 },
+  { name: 'EFFR', rate: 5.33, chg: 0.00 },
+  { name: 'Repo (O/N)', rate: 5.30, chg: -0.01 },
+  { name: '3M T-Bill', rate: 5.28, chg: -0.02 },
+  { name: '6M T-Bill', rate: 5.12, chg: -0.03 },
+  { name: 'Commercial Paper (A1/P1)', rate: 5.35, chg: 0.01 },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function TreasuryDashboard() {
+  const { data: apiCurve } = useYieldCurve();
+  const { data: apiSpreads } = useYieldCurveSpreads();
+  const { data: apiAuctions } = useTreasuryAuction();
+  const { data: apiOnTheRun } = useTreasuriesOnTheRun();
+  const { data: apiForward } = useYieldCurveForward();
+  const { data: apiReal } = useRealYieldCurve();
+  const { data: apiBreakeven } = useBreakevenCurve();
+  const { data: apiMoneyMarket } = useMoneyMarketRates();
+
+  const activeCurve = (apiCurve as any[]) ?? curveData;
+  const activeSpreads = (apiSpreads as any[]) ?? keySpreads;
+  const activeAuctions = (apiAuctions as any[]) ?? auctionRecords;
+  const activeForward = (apiForward as any[]) ?? forwardCurveData;
+  const activeReal = (apiReal as any[]) ?? realYieldData;
+  const activeBreakeven = (apiBreakeven as any[]) ?? breakevenData;
+  const activeMoneyMarket = (apiMoneyMarket as any[]) ?? moneyMarketRates;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -115,7 +169,7 @@ export default function TreasuryDashboard() {
 
       {/* Key Spreads KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {keySpreads.map((s) => (
+        {activeSpreads.map((s: any) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{s.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
@@ -138,7 +192,7 @@ export default function TreasuryDashboard() {
               </tr>
             </thead>
             <tbody>
-              {curveData.map((c) => (
+              {activeCurve.map((c: any) => (
                 <tr key={c.tenor} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{c.tenor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.yield.toFixed(2)}%</td>
@@ -178,13 +232,94 @@ export default function TreasuryDashboard() {
         {/* TreasuryAuctionCalendar Component */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Auction Calendar</h2>
-          <TreasuryAuctionCalendar auctions={auctionRecords} />
+          <TreasuryAuctionCalendar auctions={activeAuctions} />
         </div>
 
         {/* SpreadHistoryChart: 10Y OAS history */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>10Y Spread History (12M)</h2>
           <SpreadHistoryChart data={spreadHistory} benchmarkSpread={42} height={250} />
+        </div>
+
+        {/* Forward Curve */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Forward Curve</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Horizon', '2Y Rate', '5Y Rate', '10Y Rate'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Horizon' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeForward.map((f: any) => (
+                <tr key={f.horizon} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.horizon}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{Number(f.rate2Y).toFixed(2)}%</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{Number(f.rate5Y).toFixed(2)}%</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{Number(f.rate10Y).toFixed(2)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Real vs Breakeven Yields */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Real vs Breakeven Yields</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Tenor', 'Real Yield', 'Chg', 'Breakeven', 'Chg'].map((h, i) => (
+                  <th key={`${h}-${i}`} style={{ ...labelStyle, textAlign: h === 'Tenor' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeReal.map((r: any, idx: number) => {
+                const b = activeBreakeven[idx] as any;
+                return (
+                  <tr key={r.tenor} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{r.tenor}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{Number(r.realYield).toFixed(2)}%</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: chgColor(r.chg) }}>
+                      {r.chg > 0 ? '+' : ''}{(r.chg * 100).toFixed(1)}
+                    </td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{b ? `${Number(b.breakeven).toFixed(2)}%` : '—'}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: b ? chgColor(b.chg) : 'inherit' }}>
+                      {b ? `${b.chg > 0 ? '+' : ''}${(b.chg * 100).toFixed(1)}` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Money Market Rates */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>Money Market Rates</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Instrument', 'Rate', 'Chg (bps)'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Instrument' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeMoneyMarket.map((m: any) => (
+                <tr key={m.name} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{m.name}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{Number(m.rate).toFixed(2)}%</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: chgColor(m.chg) }}>
+                    {m.chg > 0 ? '+' : ''}{(m.chg * 100).toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

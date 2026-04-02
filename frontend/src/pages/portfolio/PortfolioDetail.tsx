@@ -1,8 +1,22 @@
 // ---------------------------------------------------------------------------
 // Portfolio Detail — Single Portfolio View
 // ---------------------------------------------------------------------------
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import { DonutChart, TimeSeriesChart } from '@/components/charts';
+import {
+  usePortfolio,
+  usePortfolioPositions,
+  usePortfolioNav,
+  usePortfolioNavHistory,
+  usePortfolioAllocations,
+  usePortfolioAllocationsBySector,
+  usePortfolioSnapshot,
+  useAddPosition,
+} from '@/hooks';
+import { api } from '@/api/client';
+import { PORTFOLIOS } from '@/api/endpoints';
+import { ReportExportModal } from '@/components/ReportExportModal';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -138,24 +152,96 @@ function NavHistoryChart() {
 // --- Component ---------------------------------------------------------------
 
 export default function PortfolioDetail() {
+  const { portfolioId } = useParams<{ portfolioId: string }>();
+
+  // API hooks — data falls back to mock constants via ?? below
+  const { data: apiPortfolio } = usePortfolio(portfolioId);
+  const { data: apiPositions } = usePortfolioPositions(portfolioId);
+  const { data: apiNav } = usePortfolioNav(portfolioId);
+  const { data: apiNavHistory } = usePortfolioNavHistory(portfolioId);
+  const { data: apiAllocations } = usePortfolioAllocationsBySector(portfolioId);
+  const { data: apiSnapshot } = usePortfolioSnapshot(portfolioId);
+
+  // Fallback: prefer API data, fall back to hardcoded mock data
+  const activePortfolio = (apiPortfolio as any) ?? portfolio;
+  const activeHoldings = (apiPositions as any[]) ?? holdings;
+  const activeAllocations = (apiAllocations as any[]) ?? SECTOR_ALLOCATION;
+
+  // --- Export modal state ---
+  const [showExport, setShowExport] = useState(false);
+
+  // --- Add Position modal state ---
+  const [showAddPosition, setShowAddPosition] = useState(false);
+  const [positionTicker, setPositionTicker] = useState('');
+  const [positionShares, setPositionShares] = useState('');
+  const [positionPrice, setPositionPrice] = useState('');
+  const [positionSubmitting, setPositionSubmitting] = useState(false);
+
+  const handleAddPosition = useCallback(async () => {
+    if (!portfolioId || !positionTicker || !positionShares || !positionPrice) return;
+    setPositionSubmitting(true);
+    try {
+      await api.post(`/v4/portfolios/${portfolioId}/positions`, {
+        ticker: positionTicker,
+        shares: Number(positionShares),
+        price: Number(positionPrice),
+      });
+      setShowAddPosition(false);
+      setPositionTicker('');
+      setPositionShares('');
+      setPositionPrice('');
+    } catch (e) {
+      console.error('Failed to add position', e);
+    } finally {
+      setPositionSubmitting(false);
+    }
+  }, [portfolioId, positionTicker, positionShares, positionPrice]);
+
+  // --- What-If Analysis state ---
+  const [whatIfScenario, setWhatIfScenario] = useState('market_drop_10');
+  const [whatIfResults, setWhatIfResults] = useState<{ projectedNavChange?: number; projectedPnl?: number } | null>(null);
+  const [whatIfRunning, setWhatIfRunning] = useState(false);
+
+  const handleRunScenario = useCallback(async () => {
+    if (!portfolioId) return;
+    setWhatIfRunning(true);
+    setWhatIfResults(null);
+    try {
+      const res = await api.post(`/v4/portfolios/${portfolioId}/what-if`, { scenario: whatIfScenario });
+      setWhatIfResults(res.data as any);
+    } catch (e) {
+      console.error('What-if analysis failed', e);
+    } finally {
+      setWhatIfRunning(false);
+    }
+  }, [portfolioId, whatIfScenario]);
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
       {/* Header */}
       <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'baseline', gap: '16px', flexWrap: 'wrap' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
-          {portfolio.name}
+          {activePortfolio.name}
         </h1>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
           <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            {formatCurrency(portfolio.nav)}
+            {formatCurrency(activePortfolio.nav)}
           </span>
-          <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-md)', color: signalColor(portfolio.dayChange) }}>
-            {formatPct(portfolio.dayChange)} ({portfolio.dayChangeDollar >= 0 ? '+' : ''}{formatCurrency(portfolio.dayChangeDollar)})
+          <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-md)', color: signalColor(activePortfolio.dayChange) }}>
+            {formatPct(activePortfolio.dayChange)} ({activePortfolio.dayChangeDollar >= 0 ? '+' : ''}{formatCurrency(activePortfolio.dayChangeDollar)})
           </span>
         </div>
-        <span style={{ ...labelStyle }}>Inception: <span style={{ fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>{portfolio.inception}</span></span>
+        <span style={{ ...labelStyle }}>Inception: <span style={{ fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>{activePortfolio.inception}</span></span>
+        <button
+          style={{ marginLeft: 'auto', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', background: 'var(--color-accent-primary)', border: 'none', borderRadius: '3px', padding: '6px 14px', cursor: 'pointer' }}
+          onClick={() => setShowExport(true)}
+        >
+          Export Report
+        </button>
       </div>
+
+      <ReportExportModal isOpen={showExport} onClose={() => setShowExport(false)} portfolioId={portfolioId} />
 
       {/* Performance Metrics Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
@@ -195,7 +281,7 @@ export default function PortfolioDetail() {
               </tr>
             </thead>
             <tbody>
-              {holdings.map((h) => (
+              {activeHoldings.map((h: any) => (
                 <tr key={h.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{h.ticker}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)', whiteSpace: 'nowrap' }}>{h.name}</td>
@@ -218,10 +304,10 @@ export default function PortfolioDetail() {
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Sector Allocation</h2>
             <DonutChart
-              data={SECTOR_ALLOCATION}
+              data={activeAllocations}
               height={240}
               centerLabel="Sectors"
-              centerValue="7"
+              centerValue={String(activeAllocations.length)}
               showLegend
             />
           </div>
@@ -237,10 +323,10 @@ export default function PortfolioDetail() {
             <h2 style={sectionTitle}>Summary</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {[
-                { label: 'Total Positions', value: String(holdings.length) },
-                { label: 'Total Market Value', value: formatCurrency(holdings.reduce((s, h) => s + h.marketValue, 0)) },
-                { label: 'Total Unrealized P&L', value: formatCurrency(holdings.reduce((s, h) => s + h.unrealizedPnl, 0)) },
-                { label: 'Largest Position', value: `${holdings.reduce((max, h) => h.weight > max.weight ? h : max, holdings[0]!.weight > 0 ? holdings[0]! : holdings[0]!).ticker} (${holdings.reduce((max, h) => h.weight > max.weight ? h : max, holdings[0]!).weight.toFixed(1)}%)` },
+                { label: 'Total Positions', value: String(activeHoldings.length) },
+                { label: 'Total Market Value', value: formatCurrency(activeHoldings.reduce((s: number, h: any) => s + h.marketValue, 0)) },
+                { label: 'Total Unrealized P&L', value: formatCurrency(activeHoldings.reduce((s: number, h: any) => s + h.unrealizedPnl, 0)) },
+                { label: 'Largest Position', value: activeHoldings.length > 0 ? `${activeHoldings.reduce((max: any, h: any) => h.weight > max.weight ? h : max, activeHoldings[0]!).ticker} (${activeHoldings.reduce((max: any, h: any) => h.weight > max.weight ? h : max, activeHoldings[0]!).weight.toFixed(1)}%)` : 'N/A' },
               ].map((item) => (
                 <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <span style={labelStyle}>{item.label}</span>
@@ -250,6 +336,224 @@ export default function PortfolioDetail() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Add Position Button */}
+      <div style={{ marginTop: 'var(--panel-gap)' }}>
+        <button
+          onClick={() => setShowAddPosition(true)}
+          style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-sm)',
+            padding: '8px 16px',
+            background: 'var(--color-accent-primary)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Add Position
+        </button>
+      </div>
+
+      {/* Add Position Modal */}
+      {showAddPosition && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowAddPosition(false)}
+        >
+          <div
+            style={{
+              ...panelStyle,
+              minWidth: '340px',
+              maxWidth: '420px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={sectionTitle}>Add Position</h2>
+            <label style={labelStyle}>
+              Ticker
+              <input
+                type="text"
+                value={positionTicker}
+                onChange={(e) => setPositionTicker(e.target.value.toUpperCase())}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  marginTop: '4px',
+                  padding: '6px 8px',
+                  fontFamily: 'var(--font-data)',
+                  fontSize: 'var(--text-sm)',
+                  background: 'var(--color-surface-base)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-surface-border)',
+                  borderRadius: '3px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </label>
+            <label style={labelStyle}>
+              Shares
+              <input
+                type="number"
+                value={positionShares}
+                onChange={(e) => setPositionShares(e.target.value)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  marginTop: '4px',
+                  padding: '6px 8px',
+                  fontFamily: 'var(--font-data)',
+                  fontSize: 'var(--text-sm)',
+                  background: 'var(--color-surface-base)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-surface-border)',
+                  borderRadius: '3px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </label>
+            <label style={labelStyle}>
+              Price
+              <input
+                type="number"
+                step="0.01"
+                value={positionPrice}
+                onChange={(e) => setPositionPrice(e.target.value)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  marginTop: '4px',
+                  padding: '6px 8px',
+                  fontFamily: 'var(--font-data)',
+                  fontSize: 'var(--text-sm)',
+                  background: 'var(--color-surface-base)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-surface-border)',
+                  borderRadius: '3px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </label>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+              <button
+                onClick={() => setShowAddPosition(false)}
+                style={{
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 'var(--text-sm)',
+                  padding: '6px 14px',
+                  background: 'transparent',
+                  color: 'var(--color-text-secondary)',
+                  border: '1px solid var(--color-surface-border)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddPosition}
+                disabled={positionSubmitting || !positionTicker || !positionShares || !positionPrice}
+                style={{
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 'var(--text-sm)',
+                  padding: '6px 14px',
+                  background: 'var(--color-accent-primary)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: positionSubmitting ? 'wait' : 'pointer',
+                  opacity: positionSubmitting || !positionTicker || !positionShares || !positionPrice ? 0.5 : 1,
+                }}
+              >
+                {positionSubmitting ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* What-If Analysis Panel */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>What-If Analysis</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <label style={labelStyle}>
+            Scenario
+            <select
+              value={whatIfScenario}
+              onChange={(e) => setWhatIfScenario(e.target.value)}
+              style={{
+                marginLeft: '8px',
+                padding: '6px 8px',
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-sm)',
+                background: 'var(--color-surface-base)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid var(--color-surface-border)',
+                borderRadius: '3px',
+              }}
+            >
+              <option value="market_drop_10">Market Drop -10%</option>
+              <option value="rate_hike_100bp">Rate Hike +100bp</option>
+              <option value="sector_rotation">Sector Rotation</option>
+            </select>
+          </label>
+          <button
+            onClick={handleRunScenario}
+            disabled={whatIfRunning}
+            style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 'var(--text-sm)',
+              padding: '6px 14px',
+              background: 'var(--color-accent-primary)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: whatIfRunning ? 'wait' : 'pointer',
+              opacity: whatIfRunning ? 0.5 : 1,
+            }}
+          >
+            {whatIfRunning ? 'Running...' : 'Run Scenario'}
+          </button>
+        </div>
+        {whatIfResults && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginTop: '12px' }}>
+            <div style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
+              <div style={{ ...labelStyle, marginBottom: '4px' }}>Projected NAV Change</div>
+              <div style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: 'var(--text-lg)',
+                fontWeight: 600,
+                color: signalColor(whatIfResults.projectedNavChange ?? 0),
+              }}>
+                {formatPct(whatIfResults.projectedNavChange ?? 0)}
+              </div>
+            </div>
+            <div style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
+              <div style={{ ...labelStyle, marginBottom: '4px' }}>Projected P&L</div>
+              <div style={{
+                fontFamily: 'var(--font-data)',
+                fontSize: 'var(--text-lg)',
+                fontWeight: 600,
+                color: signalColor(whatIfResults.projectedPnl ?? 0),
+              }}>
+                {formatCurrency(whatIfResults.projectedPnl ?? 0)}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

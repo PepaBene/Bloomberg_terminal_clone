@@ -58,9 +58,6 @@ export {
   useFilings,
   useSegments,
   useEntityRatios,
-  useEstimates,
-  useEstimatesConsensus,
-  useEstimatesHistory,
   useRevenueBreakdown,
   useGeographicBreakdown,
   useQuarterlyTrends,
@@ -135,8 +132,6 @@ export {
   useEarningsSurprises,
   useEarningsGuidance,
   useEarningsCalendar,
-  useEarningsEstimates,
-  useEarningsRevisions,
   useEarningsQuality,
   useEarningsSeasonality,
   // Company Intelligence
@@ -309,6 +304,73 @@ export {
   useWatchlistPerformance,
   useWatchlistHeatmap,
 } from './usePortfolio';
+
+// Phase 0: Missing Domain Hooks
+export {
+  // Capital Structure
+  useCapitalStructure,
+  useCapitalStructureDebt,
+  useCapitalStructureEquity,
+  useCapitalStructureHistory,
+  // Debt Maturity
+  useDebtMaturity,
+  useDebtMaturitySchedule,
+  useRefinancingRisk,
+  // Corporate Actions
+  useCorporateActions,
+  useCorporateActionsCalendar,
+  useCorporateActionsUpcoming,
+  // IPO
+  useIpoUpcoming,
+  useIpoRecent,
+  useIpoDetail,
+  useIpoPipeline,
+  useIpoPerformance,
+  useIpoCalendar,
+  // Fund Holdings
+  useFundHoldings,
+  useFundNPort,
+  useFundTopHoldings,
+  useFundSectorAllocation,
+  // Money Market
+  useMoneyMarketRates,
+  useMoneyMarketSOFR,
+  useMoneyMarketEFFR,
+  useMoneyMarketRepo,
+  useMoneyMarketTBills,
+  useMoneyMarketHistory,
+  // Exports
+  useExportTemplates,
+  useExportTemplate,
+  useScheduledReports,
+  useGenerateReport,
+  useExportCsv,
+  useExportExcel,
+  useExportPdf,
+  // Deals
+  useDeals,
+  useDealDetail,
+  useDealsPipeline,
+  useDealsCompleted,
+  useDealsRumored,
+  useDealsStatistics,
+  useDealsByEntity,
+  // Backtesting
+  useBacktestStrategies,
+  useBacktestResult,
+  useBacktestHistory,
+  useRunBacktest,
+  // FI Agency
+  useAgencyBonds,
+  useAgencyBondDetail,
+  useAgencyBondSpreads,
+  useAgencyNewIssues,
+  // Custom Classifications
+  useCustomClassifications,
+  useCustomClassification,
+  useCreateClassification,
+  useDeleteClassification,
+} from './useMissingDomains';
 
 // Fixed Income
 export {

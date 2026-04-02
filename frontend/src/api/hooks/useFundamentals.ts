@@ -74,33 +74,6 @@ export function useRatios(entityId: string, options?: { enabled?: boolean }) {
   });
 }
 
-export function useEstimates(entityId: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['fundamentals', 'estimates', entityId],
-    queryFn: () => api.get(FUNDAMENTALS.estimates(entityId)),
-    enabled: options?.enabled ?? !!entityId,
-    staleTime: 60 * 60 * 1000, // 1h — estimates change more frequently
-  });
-}
-
-export function useEstimatesConsensus(entityId: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['fundamentals', 'estimatesConsensus', entityId],
-    queryFn: () => api.get(FUNDAMENTALS.estimatesConsensus(entityId)),
-    enabled: options?.enabled ?? !!entityId,
-    staleTime: 60 * 60 * 1000,
-  });
-}
-
-export function useEstimatesHistory(entityId: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['fundamentals', 'estimatesHistory', entityId],
-    queryFn: () => api.get(FUNDAMENTALS.estimatesHistory(entityId)),
-    enabled: options?.enabled ?? !!entityId,
-    staleTime: STALE_24H,
-  });
-}
-
 export function useRevenueBreakdown(entityId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['fundamentals', 'revenueBreakdown', entityId],

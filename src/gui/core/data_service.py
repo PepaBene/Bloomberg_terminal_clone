@@ -62,10 +62,6 @@ from src.models import (
     InsiderHolding,
     OwnershipSummary,
     ShortInterest,
-    # Estimates
-    ConsensusEstimate,
-    EstimateSurprise,
-    CompanyGuidance,
     # ESG
     ESGScore,
     ESGMetric,
@@ -180,10 +176,6 @@ class DataService(QObject):
     #: Ownership payload:
     #: ``{"summary": {...}, "institutional": [...], "insider": [...], "short_interest": [...]}``
     ownership_loaded = Signal(dict)
-
-    #: Estimates payload:
-    #: ``{"consensus": [...], "surprises": [...], "guidance": [...]}``
-    estimates_loaded = Signal(dict)
 
     #: ESG payload:
     #: ``{"scores": [...], "metrics": [...], "controversies": [...]}``
@@ -632,62 +624,6 @@ class DataService(QObject):
                 "institutional": inst_list,
                 "insider": _orm_list(insider_rows),
                 "short_interest": _orm_list(short_rows),
-            }
-
-    # ------------------------------------------------------------------
-    # Estimates
-    # ------------------------------------------------------------------
-
-    def load_estimates(self, security_id: str) -> None:
-        """Load consensus estimates, surprises, and guidance.
-        Emits ``estimates_loaded``.
-        """
-        self._dispatch(self._load_estimates(security_id), self.estimates_loaded)
-
-    async def _load_estimates(self, security_id: str) -> dict:
-        uid = uuid.UUID(security_id)
-        async with self._session_factory() as session:
-            # Consensus estimates (most recent as_of_date per metric/period)
-            stmt = (
-                select(ConsensusEstimate)
-                .where(ConsensusEstimate.security_id == uid)
-                .order_by(
-                    ConsensusEstimate.metric,
-                    desc(ConsensusEstimate.period_end_date),
-                    desc(ConsensusEstimate.as_of_date),
-                )
-                .limit(200)
-            )
-            consensus_rows = (await session.execute(stmt)).scalars().all()
-
-            # Earnings surprises
-            stmt = (
-                select(EstimateSurprise)
-                .where(EstimateSurprise.security_id == uid)
-                .order_by(desc(EstimateSurprise.announcement_date))
-                .limit(40)
-            )
-            surprise_rows = (await session.execute(stmt)).scalars().all()
-
-            # Company guidance -- look up via the issuer entity
-            # First find the entity_id for this security
-            sec_stmt = select(Security.issuer_entity_id).where(Security.security_id == uid)
-            entity_id = (await session.execute(sec_stmt)).scalar_one_or_none()
-
-            guidance_rows = []
-            if entity_id:
-                stmt = (
-                    select(CompanyGuidance)
-                    .where(CompanyGuidance.entity_id == entity_id)
-                    .order_by(desc(CompanyGuidance.guidance_date))
-                    .limit(20)
-                )
-                guidance_rows = (await session.execute(stmt)).scalars().all()
-
-            return {
-                "consensus": _orm_list(consensus_rows),
-                "surprises": _orm_list(surprise_rows),
-                "guidance": _orm_list(guidance_rows),
             }
 
     # ------------------------------------------------------------------
