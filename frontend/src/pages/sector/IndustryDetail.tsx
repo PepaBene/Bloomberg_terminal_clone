@@ -2,6 +2,9 @@
 // Industry Detail — Economics, Cycle Position, Competitive Structure
 // ---------------------------------------------------------------------------
 
+import { useParams } from 'react-router-dom';
+import { useIndustryOverview, useIndustryEconomics, useIndustryCycle } from '@/hooks';
+
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
   border: '1px solid var(--color-surface-border)',
@@ -73,18 +76,29 @@ const competitiveMetrics = [
 // --- Component ---------------------------------------------------------------
 
 export default function IndustryDetail() {
+  const { gicsCode } = useParams<{ gicsCode: string }>();
+  const { data: apiOverview } = useIndustryOverview(gicsCode) as { data: any };
+  const { data: apiEconomics } = useIndustryEconomics(gicsCode) as { data: any };
+  const { data: apiCycle } = useIndustryCycle(gicsCode) as { data: any };
+
+  const activeIndustry = (apiOverview as any)?.industry ?? industry;
+  const activeEconomics = (apiEconomics as any)?.economics ?? economics;
+  const activeTopCompanies = (apiOverview as any)?.topCompanies ?? topCompanies;
+  const activeCompetitiveMetrics = (apiOverview as any)?.competitiveMetrics ?? competitiveMetrics;
+  const activeCyclePosition = (apiCycle as any)?.cyclePosition ?? activeIndustry.cyclePosition;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
-          {industry.name}
+          {activeIndustry.name}
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>{industry.sector} &mdash; Cycle: <span style={{ color: 'var(--color-signal-positive)', fontWeight: 500 }}>{industry.cyclePosition}</span></p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>{activeIndustry.sector} &mdash; Cycle: <span style={{ color: 'var(--color-signal-positive)', fontWeight: 500 }}>{activeCyclePosition}</span></p>
       </div>
 
       {/* Economics KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {economics.map((e) => (
+        {activeEconomics.map((e) => (
           <div key={e.metric} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{e.metric}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{e.value}</div>
@@ -105,7 +119,7 @@ export default function IndustryDetail() {
               </tr>
             </thead>
             <tbody>
-              {topCompanies.map((c) => (
+              {activeTopCompanies.map((c) => (
                 <tr key={c.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{c.ticker}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.name}</td>
@@ -124,7 +138,7 @@ export default function IndustryDetail() {
           <h2 style={sectionTitle}>Competitive Structure</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
-              {competitiveMetrics.map((m) => (
+              {activeCompetitiveMetrics.map((m) => (
                 <tr key={m.factor} style={{ height: 'var(--table-row-height)', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.factor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{m.value}</td>
@@ -133,7 +147,7 @@ export default function IndustryDetail() {
             </tbody>
           </table>
           <div style={{ marginTop: '8px' }}>
-            {competitiveMetrics.map((m) => (
+            {activeCompetitiveMetrics.map((m) => (
               <div key={m.factor} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
                 {m.factor}: {m.assessment}
               </div>

@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import { useState, useMemo } from 'react';
 import { SentimentGauge } from '@/components/intelligence';
+import { useNews, useNewsTrending } from '@/hooks';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 function sentimentColor(s: number): string {
@@ -25,11 +26,16 @@ const newsItems = [
 ];
 
 export default function NewsView() {
+  const { data: apiNews } = useNews() as { data: any };
+  const { data: apiTrending } = useNewsTrending() as { data: any };
+
+  const activeNewsItems = (apiNews as any)?.articles ?? (apiNews as any[]) ?? newsItems;
+
   const [activeFilter, setActiveFilter] = useState('All');
 
   const filteredNews = useMemo(
-    () => activeFilter === 'All' ? newsItems : newsItems.filter((n) => n.category === activeFilter),
-    [activeFilter],
+    () => activeFilter === 'All' ? activeNewsItems : activeNewsItems.filter((n: any) => n.category === activeFilter),
+    [activeFilter, activeNewsItems],
   );
 
   return (

@@ -4,6 +4,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { WatchlistManager, EarningsCalendarWidget } from '@/components/alerts';
 import type { WatchlistEntity, EarningsEvent } from '@/components/alerts';
+import { useWatchlists, useWatchlistPerformance } from '@/hooks';
+import { api } from '@/api/client';
+import { WATCHLISTS } from '@/api/endpoints';
 
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
@@ -69,6 +72,11 @@ export default function WatchlistView() {
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Backend sync via usePortfolioWatchlists hooks -------------------------
+  const { data: apiWatchlists } = useWatchlists() as { data: any };
+  const defaultWatchlistId = (apiWatchlists as any)?.watchlists?.[0]?.id;
+  const { data: apiPerformance } = useWatchlistPerformance(defaultWatchlistId) as { data: any };
+
   // Focus input when dialog opens
   useEffect(() => {
     if (showSearch) searchInputRef.current?.focus();
@@ -81,7 +89,7 @@ export default function WatchlistView() {
         s.name.toLowerCase().includes(searchQuery.toLowerCase())),
   );
 
-  const addEntity = useCallback((ticker: string, name: string) => {
+  const addEntity = useCallback(async (ticker: string, name: string) => {
     setEntities((prev) => [
       ...prev,
       {
@@ -93,15 +101,21 @@ export default function WatchlistView() {
     ]);
     setShowSearch(false);
     setSearchQuery('');
-  }, []);
+    if (defaultWatchlistId) {
+      try { await api.post(WATCHLISTS.addItem(defaultWatchlistId), { ticker, name }); } catch {}
+    }
+  }, [defaultWatchlistId]);
 
   const handleAdd = useCallback(() => {
     setShowSearch(true);
   }, []);
 
-  const handleRemove = useCallback((id: string) => {
+  const handleRemove = useCallback(async (id: string) => {
     setEntities((prev) => prev.filter((e) => e.id !== id));
-  }, []);
+    if (defaultWatchlistId) {
+      try { await api.delete(WATCHLISTS.removeItem(defaultWatchlistId, id)); } catch {}
+    }
+  }, [defaultWatchlistId]);
 
   const handleReorder = useCallback((fromIdx: number, toIdx: number) => {
     setEntities((prev) => {

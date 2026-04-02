@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------------
 // Flows Dashboard — Institutional Flows, 13F Filings, Whale Trades
 // ---------------------------------------------------------------------------
+import { api } from '@/api/client';
+import { FLOWS } from '@/api/endpoints';
+import { useQuery } from '@tanstack/react-query';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -33,6 +36,14 @@ const sectorRotation = [
 ];
 
 export default function FlowsDashboard() {
+  const { data: apiFlows } = useQuery({ queryKey: ['flows', 'institutional'], queryFn: () => api.get(FLOWS.institutional), retry: 0 }) as { data: any };
+  const { data: apiSectors } = useQuery({ queryKey: ['flows', 'sectors'], queryFn: () => api.get(FLOWS.sectors), retry: 0 }) as { data: any };
+  const { data: apiWhales } = useQuery({ queryKey: ['flows', 'whaleAlerts'], queryFn: () => api.get(FLOWS.whaleAlerts), retry: 0 }) as { data: any };
+
+  const activeKPIs = (apiFlows as any)?.kpis ?? flowKPIs;
+  const activeWhales = (apiWhales as any)?.trades ?? whaleTrades;
+  const activeSectorRot = (apiSectors as any)?.sectors ?? sectorRotation;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -40,7 +51,7 @@ export default function FlowsDashboard() {
         <p style={{ ...labelStyle, marginTop: '4px' }}>Fund flows, sector rotation, 13F activity, and whale alerts</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {flowKPIs.map((k) => (
+        {activeKPIs.map((k: any) => (
           <div key={k.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{k.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: k.value.startsWith('+') ? 'var(--color-signal-positive)' : 'var(--color-text-primary)' }}>{k.value}</div>
@@ -57,7 +68,7 @@ export default function FlowsDashboard() {
               ))}
             </tr></thead>
             <tbody>
-              {whaleTrades.map((t, i) => (
+              {activeWhales.map((t: any, i: number) => (
                 <tr key={i} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{t.date}</td>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{t.fund}</td>
@@ -79,7 +90,7 @@ export default function FlowsDashboard() {
               ))}
             </tr></thead>
             <tbody>
-              {sectorRotation.map((s) => (
+              {activeSectorRot.map((s: any) => (
                 <tr key={s.sector} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.sector}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-positive)' }}>+{s.inflows.toFixed(1)}</td>

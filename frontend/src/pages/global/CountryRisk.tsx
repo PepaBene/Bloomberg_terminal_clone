@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
 import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
+import { useCountries, useCountryRisk } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -119,6 +120,32 @@ const geoEventCards: GeopoliticalEvent[] = geoEvents.map((ev) => ({
 
 export default function CountryRisk() {
   const [_refresh] = useState(0);
+  const { data: countriesApiData } = useCountries();
+  const { data: countryRiskApiData } = useCountryRisk();
+
+  const activeCountries = countriesApiData ?? countries;
+  const activeGeoEvents = countryRiskApiData ?? geoEvents;
+
+  const activeCountryRiskData: CountryRiskType[] = activeCountries.map((c: CountryRiskRow) => ({
+    code: c.code,
+    name: c.country,
+    composite: c.compositeScore,
+    political: c.political,
+    economic: c.economic,
+    sanctions: c.sanctions,
+    classification: c.classification,
+    trend: c.trend,
+    history: [c.compositeScore - 4, c.compositeScore - 2, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
+  }));
+
+  const activeGeoEventCards: GeopoliticalEvent[] = activeGeoEvents.map((ev: GeoEvent) => ({
+    title: ev.title,
+    description: `${ev.severity} severity event in ${ev.region}`,
+    severity: ev.severity,
+    countries: [ev.region],
+    startDate: ev.date,
+    status: 'Active',
+  }));
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -151,14 +178,14 @@ export default function CountryRisk() {
         {/* CountryRiskRanking Component replaces inline table */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Risk Rankings</h2>
-          <CountryRiskRanking countries={countryRiskData} />
+          <CountryRiskRanking countries={activeCountryRiskData} />
         </div>
 
         {/* GeopoliticalEventCard Components replace inline events */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Geopolitical Events</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {geoEventCards.map((ev, idx) => (
+            {activeGeoEventCards.map((ev, idx) => (
               <GeopoliticalEventCard key={idx} event={ev} />
             ))}
           </div>

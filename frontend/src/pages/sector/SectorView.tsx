@@ -2,6 +2,8 @@
 // Sector View — 11 GICS Sectors with Performance Metrics
 // ---------------------------------------------------------------------------
 
+import { useSectors, useIndustryRankings, useSectorSentiment } from '@/hooks';
+
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
   border: '1px solid var(--color-surface-border)',
@@ -63,6 +65,12 @@ const marketBreadth = [
 // --- Component ---------------------------------------------------------------
 
 export default function SectorView() {
+  const { data: apiSectors } = useSectors() as { data: any };
+  const { data: apiRankings } = useIndustryRankings() as { data: any };
+
+  const activeSectors = (apiSectors as any)?.sectors ?? sectors;
+  const activeBreadth = (apiRankings as any)?.breadth ?? marketBreadth;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -74,7 +82,7 @@ export default function SectorView() {
 
       {/* Breadth KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {marketBreadth.map((m) => (
+        {activeBreadth.map((m) => (
           <div key={m.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{m.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{m.value}</div>
@@ -94,7 +102,7 @@ export default function SectorView() {
             </tr>
           </thead>
           <tbody>
-            {sectors.map((s) => (
+            {activeSectors.map((s) => (
               <tr key={s.name} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.name}</td>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-accent-primary)', fontWeight: 600 }}>{s.etf}</td>

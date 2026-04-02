@@ -1,9 +1,12 @@
 // ---------------------------------------------------------------------------
 // Alerts View — Alert Inbox with Severity Badges, Acknowledge/Dismiss
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { AlertInbox, AlertTimeline } from '@/components/alerts';
 import type { Alert as InboxAlert, TimelineAlert } from '@/components/alerts';
+import { useAlerts, useAlertRules } from '@/hooks';
+import { api } from '@/api/client';
+import { ALERTS } from '@/api/endpoints';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -52,10 +55,39 @@ const timelineAlerts: TimelineAlert[] = alerts.map((a) => ({
 }));
 
 export default function AlertsView() {
+  const { data: apiAlerts } = useAlerts() as { data: any };
+  const { data: apiRules } = useAlertRules() as { data: any };
+
+  const activeStats = (apiAlerts as any)?.stats ?? alertStats;
+  const activeAlerts = (apiAlerts as any)?.alerts ?? alerts;
+
+  const computedInboxAlerts: InboxAlert[] = useMemo(() => activeAlerts.map((a: any) => ({
+    id: String(a.id),
+    title: a.title,
+    description: `${a.type} alert for ${a.entity}: ${a.title}`,
+    severity: (a.severity ?? 'MEDIUM').toUpperCase() as InboxAlert['severity'],
+    entityTicker: a.entity,
+    createdAt: a.createdAt ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt((a.time ?? '00:00').split(':')[0] ?? '0'), parseInt((a.time ?? '00:00').split(':')[1] ?? '0')).toISOString(),
+    isRead: a.status === 'Read' || a.isRead === true,
+  })), [activeAlerts]);
+
+  const computedTimelineAlerts: TimelineAlert[] = useMemo(() => activeAlerts.map((a: any) => ({
+    id: String(a.id),
+    title: a.title,
+    description: `${a.type} alert for ${a.entity}: ${a.title}`,
+    severity: (a.severity ?? 'MEDIUM').toUpperCase() as TimelineAlert['severity'],
+    createdAt: a.createdAt ?? new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt((a.time ?? '00:00').split(':')[0] ?? '0'), parseInt((a.time ?? '00:00').split(':')[1] ?? '0')).toISOString(),
+  })), [activeAlerts]);
+
   const [inboxState, setInboxState] = useState(inboxAlerts);
 
-  const handleAcknowledge = useCallback((id: string) => {
+  useEffect(() => {
+    setInboxState(computedInboxAlerts);
+  }, [computedInboxAlerts]);
+
+  const handleAcknowledge = useCallback(async (id: string) => {
     setInboxState((prev) => prev.map((a) => (a.id === id ? { ...a, isRead: true } : a)));
+    try { await api.post(ALERTS.acknowledge(id), {}); } catch {}
   }, []);
 
   const handleDismiss = useCallback((id: string) => {
@@ -71,7 +103,7 @@ export default function AlertsView() {
 
       {/* Stats Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {alertStats.map((s) => (
+        {activeStats.map((s: any) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{s.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: ['Critical', 'Unread'].includes(s.label) ? 'var(--color-signal-negative)' : 'var(--color-text-primary)' }}>{s.value}</div>
@@ -86,7 +118,7 @@ export default function AlertsView() {
           onAcknowledge={handleAcknowledge}
           onDismiss={handleDismiss}
         />
-        <AlertTimeline alerts={timelineAlerts} entityName="All Entities" />
+        <AlertTimeline alerts={computedTimelineAlerts} entityName="All Entities" />
       </div>
     </div>
   );

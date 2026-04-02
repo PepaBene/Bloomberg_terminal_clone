@@ -2,6 +2,7 @@
 // Quant Dashboard — Factor Performance, Momentum Signals, Volatility Surface
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
+import { useCorrelation, useFactorExposure, useTechnicalSignals } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -99,6 +100,13 @@ function signalBg(signal: string): string {
 export default function QuantDashboard() {
   const [selectedTenor, setSelectedTenor] = useState('3M');
 
+  const { data: apiCorrelation } = useCorrelation() as { data: any };
+  const { data: apiFactors } = useFactorExposure(undefined) as { data: any };
+  const { data: apiSignals } = useTechnicalSignals(undefined) as { data: any };
+
+  const activeFactorPerf = (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
+  const activeMomentum = (apiSignals as any)?.signals ?? momentumSignals;
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
@@ -120,7 +128,7 @@ export default function QuantDashboard() {
             </tr>
           </thead>
           <tbody>
-            {factorPerformance.map((f) => (
+            {activeFactorPerf.map((f: any) => (
               <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(f.mtd) }}>{f.mtd >= 0 ? '+' : ''}{f.mtd.toFixed(2)}%</td>
@@ -148,7 +156,7 @@ export default function QuantDashboard() {
               </tr>
             </thead>
             <tbody>
-              {momentumSignals.map((s) => (
+              {activeMomentum.map((s: any) => (
                 <tr key={s.ticker} style={{ height: 'var(--table-row-height)', background: signalBg(s.signal) }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: scoreColor(s.score), fontWeight: 600 }}>{s.score}</td>

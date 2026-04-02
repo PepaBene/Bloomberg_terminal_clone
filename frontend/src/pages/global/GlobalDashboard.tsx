@@ -4,6 +4,7 @@
 import { BarChartComponent } from '@/components/charts';
 import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
 import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
+import { useCountries, useGlobalIndices, useGeopoliticalEvents, useFXRates } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -167,6 +168,28 @@ const geoEvents: GeopoliticalEvent[] = [
 // --- Component ---------------------------------------------------------------
 
 export default function GlobalDashboard() {
+  const { data: countriesData } = useCountries();
+  const { data: indicesData } = useGlobalIndices();
+  const { data: eventsData } = useGeopoliticalEvents();
+  const { data: fxData } = useFXRates();
+
+  const activeCountryRisks = countriesData ?? countryRisks;
+  const activeGlobalIndices = indicesData ?? GDP_DATA;
+  const activeGeoEvents = eventsData ?? geoEvents;
+  const activeFXRates = fxData ?? commodities;
+
+  const activeCountryRiskRankingData: CountryRiskType[] = (countriesData ?? countryRisks).map((c: CountryRisk) => ({
+    code: c.code,
+    name: c.country,
+    composite: c.compositeScore,
+    political: c.political,
+    economic: c.economic,
+    sanctions: 0,
+    classification: c.classification,
+    trend: c.trend,
+    history: [c.compositeScore - 5, c.compositeScore - 3, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
+  }));
+
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
@@ -184,7 +207,7 @@ export default function GlobalDashboard() {
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>GDP Growth Comparison (%)</h2>
         <BarChartComponent
-          data={GDP_DATA}
+          data={activeGlobalIndices}
           xKey="country"
           bars={[
             { key: 'gdp2024', color: '#3B82F6', name: '2024 (Actual)' },
@@ -205,14 +228,14 @@ export default function GlobalDashboard() {
           {/* CountryRiskRanking Component */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Country Risk Rankings</h2>
-            <CountryRiskRanking countries={countryRiskRankingData} />
+            <CountryRiskRanking countries={activeCountryRiskRankingData} />
           </div>
 
           {/* GeopoliticalEventCards for top 3 events */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Top Geopolitical Events</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {geoEvents.map((ev, idx) => (
+              {activeGeoEvents.map((ev, idx) => (
                 <GeopoliticalEventCard key={idx} event={ev} />
               ))}
             </div>
@@ -226,7 +249,7 @@ export default function GlobalDashboard() {
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Commodities</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {commodities.map((c) => (
+              {activeFXRates.map((c) => (
                 <div key={c.code} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <div>

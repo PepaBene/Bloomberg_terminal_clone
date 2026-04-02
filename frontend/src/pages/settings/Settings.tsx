@@ -2,6 +2,9 @@
 // Settings — User Preferences, API Keys, Notifications, Theme
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { AUTH } from '@/api/endpoints';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -42,9 +45,27 @@ const THEME_CSS_MAP: Record<string, Record<string, string>> = {
 };
 
 export default function Settings() {
-  const [activeTheme, setActiveTheme] = useState<string>('Dark (Default)');
+  const { data: apiProfile } = useQuery({ queryKey: ['auth', 'profile'], queryFn: () => api.get(AUTH.profile), retry: 0 }) as { data: any };
+  const { data: apiKeysData, refetch: refetchKeys } = useQuery({ queryKey: ['auth', 'apiKeys'], queryFn: () => api.get(AUTH.apiKeys), retry: 0 }) as { data: any; refetch: any };
+
+  // Merge API profile preferences with mock fallback
+  const mergedPreferences = preferences.map((p) => ({
+    ...p,
+    value: apiProfile?.preferences?.[p.label] ?? p.value,
+  }));
+
+  // Merge API notification settings with mock fallback
+  const mergedNotifications = notifications.map((n) => ({
+    ...n,
+    enabled: apiProfile?.notifications?.[n.label] ?? n.enabled,
+  }));
+
+  // Merge API keys with mock fallback
+  const mergedApiKeys: typeof apiKeys = (apiKeysData?.keys ?? apiKeysData) ?? apiKeys;
+
+  const [activeTheme, setActiveTheme] = useState<string>(() => apiProfile?.theme ?? 'Dark (Default)');
   const [notifState, setNotifState] = useState(() =>
-    Object.fromEntries(notifications.map((n) => [n.label, n.enabled])),
+    Object.fromEntries(mergedNotifications.map((n) => [n.label, n.enabled])),
   );
 
   const handleThemeChange = useCallback((theme: string) => {
@@ -60,11 +81,24 @@ export default function Settings() {
         document.documentElement.style.removeProperty(prop);
       });
     }
+    // Persist theme to API
+    api.post(AUTH.updateProfile, { theme }).catch(() => {});
   }, []);
 
   const toggleNotification = useCallback((label: string) => {
-    setNotifState((prev) => ({ ...prev, [label]: !prev[label] }));
+    setNotifState((prev) => {
+      const updated = { ...prev, [label]: !prev[label] };
+      // Persist notification preferences to API
+      api.post(AUTH.updateProfile, { notifications: updated }).catch(() => {});
+      return updated;
+    });
   }, []);
+
+  const handleRevokeKey = useCallback((keyId: string) => {
+    api.delete(AUTH.revokeApiKey(keyId)).then(() => {
+      refetchKeys();
+    }).catch(() => {});
+  }, [refetchKeys]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -75,7 +109,7 @@ export default function Settings() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Display Preferences</h2>
-          {preferences.map((p) => (
+          {mergedPreferences.map((p) => (
             <div key={p.label} style={rowStyle}>
               <span style={labelStyle}>{p.label}</span>
               <span style={{ ...dataStyle, fontSize: 'var(--text-sm)' }}>{p.value}</span>
@@ -102,7 +136,7 @@ export default function Settings() {
 
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Notifications</h2>
-          {notifications.map((n) => (
+          {mergedNotifications.map((n) => (
             <div key={n.label} style={rowStyle}>
               <span style={labelStyle}>{n.label}</span>
               <span
@@ -124,16 +158,28 @@ export default function Settings() {
           <h2 style={sectionTitle}>API Connections</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              {['Data Source', 'Status', 'API Key'].map((h) => (
+              {['Data Source', 'Status', 'API Key', ''].map((h) => (
                 <th key={h} style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
-              {apiKeys.map((a) => (
+              {mergedApiKeys.map((a) => (
                 <tr key={a.name} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{a.name}</td>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: a.status === 'Connected' ? 'var(--color-signal-positive)' : 'var(--color-signal-warning)' }}>{a.status}</td>
                   <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.key}</td>
+                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
+                    {a.status === 'Connected' && (a as any).id && (
+                      <span
+                        onClick={() => handleRevokeKey((a as any).id)}
+                        style={{
+                          fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: '3px',
+                          background: 'var(--color-signal-negative)', color: 'var(--color-text-inverse)',
+                          cursor: 'pointer', userSelect: 'none',
+                        }}
+                      >Revoke</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
