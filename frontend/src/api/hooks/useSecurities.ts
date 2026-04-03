@@ -90,7 +90,7 @@ export function useSecurityTranslate() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post(SECURITIES.translate, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['securities'] });
+      qc.invalidateQueries({ queryKey: ['securities', 'list'] });
     },
   });
 }

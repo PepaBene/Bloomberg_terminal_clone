@@ -86,8 +86,12 @@ class Entity(TimestampMixin, Base):
     confidence_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
 
     # Relationships
-    identifiers = relationship("EntityIdentifier", back_populates="entity", lazy="selectin")
-    names = relationship("EntityName", back_populates="entity", lazy="selectin")
+    identifiers = relationship(
+        "EntityIdentifier", back_populates="entity", lazy="selectin", cascade="all, delete-orphan"
+    )
+    names = relationship(
+        "EntityName", back_populates="entity", lazy="selectin", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_entities_country", "incorporation_country"),

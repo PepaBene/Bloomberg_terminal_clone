@@ -26,16 +26,17 @@ async def create_classification(
     user_id: uuid.UUID | None = Query(None, description="Owner user_id (dev shortcut)"),
 ):
     """Create a new custom classification."""
-    owner = user_id or uuid.UUID("00000000-0000-0000-0000-000000000001")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     obj = CustomClassification(
         classification_id=uuid.uuid4(),
-        user_id=owner,
+        user_id=user_id,
         name=body.name,
         description=body.description,
         visibility=body.visibility,
     )
     session.add(obj)
-    await session.flush()
+    await session.commit()
     await session.refresh(obj)
     return ClassificationResponse.model_validate(obj)
 
@@ -115,6 +116,6 @@ async def add_member(
         tags=body.tags,
     )
     session.add(member)
-    await session.flush()
+    await session.commit()
     await session.refresh(obj)
     return ClassificationResponse.model_validate(obj)

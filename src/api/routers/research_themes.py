@@ -103,7 +103,7 @@ async def list_scenarios(
     stmt = select(MacroScenario)
     if active_only:
         stmt = stmt.where(MacroScenario.is_active == True)  # noqa: E712
-    stmt = stmt.order_by(MacroScenario.created_at.desc().nullslast()).limit(limit)
+    stmt = stmt.order_by(MacroScenario.created_at.desc().nulls_last()).limit(limit)
 
     result = await session.execute(stmt)
     rows = result.scalars().all()
@@ -154,7 +154,7 @@ async def compare_scenarios(
                 ScenarioCompanyImpact.scenario_id.in_(ids),
             )
         )
-        .order_by(ScenarioCompanyImpact.created_at.desc().nullslast())
+        .order_by(ScenarioCompanyImpact.created_at.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [_impact_response(r) for r in rows]
@@ -218,7 +218,7 @@ async def screen_by_theme(
         stmt = stmt.where(MacroThemeScore.exposure_score <= body.max_exposure)
     if body.sensitivity_direction:
         stmt = stmt.where(MacroThemeScore.sensitivity_direction == body.sensitivity_direction)
-    stmt = stmt.order_by(MacroThemeScore.exposure_score.desc().nullslast()).limit(body.limit)
+    stmt = stmt.order_by(MacroThemeScore.exposure_score.desc().nulls_last()).limit(body.limit)
 
     result = await session.execute(stmt)
     rows = result.scalars().all()
@@ -275,7 +275,7 @@ async def run_scenario(
     result = await session.execute(
         select(ScenarioCompanyImpact)
         .where(ScenarioCompanyImpact.scenario_id == scenario_id)
-        .order_by(ScenarioCompanyImpact.created_at.desc().nullslast())
+        .order_by(ScenarioCompanyImpact.created_at.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [_impact_response(r) for r in rows]
@@ -294,7 +294,7 @@ async def get_scenario_results(
     result = await session.execute(
         select(ScenarioCompanyImpact)
         .where(ScenarioCompanyImpact.scenario_id == scenario_id)
-        .order_by(ScenarioCompanyImpact.created_at.desc().nullslast())
+        .order_by(ScenarioCompanyImpact.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

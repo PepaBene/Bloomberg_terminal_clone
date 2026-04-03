@@ -1,11 +1,10 @@
 """Security Finder API endpoints (Pillar 2 Supplement – Part 5)."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines.security_finder import search_securities, suggest_securities
 from src.models.security import Security
 from src.schemas.security_finder import (
     SecurityFinderResponse,
@@ -14,23 +13,6 @@ from src.schemas.security_finder import (
 )
 
 router = APIRouter(tags=["Security Finder"])
-
-
-async def _load_securities(session: AsyncSession, limit: int = 500) -> list[dict]:
-    """Load securities from DB for in-memory search."""
-    result = await session.execute(select(Security).limit(limit))
-    rows = result.scalars().all()
-    return [
-        {
-            "security_id": str(r.security_id),
-            "name": r.name,
-            "short_name": r.short_name,
-            "security_type": r.security_type,
-            "asset_class": getattr(r, "asset_class", None),
-            "status": r.status,
-        }
-        for r in rows
-    ]
 
 
 @router.get(
@@ -45,26 +27,37 @@ async def find_securities(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Search for securities by name, ticker, or identifier."""
-    securities = await _load_securities(session)
-    results = search_securities(
-        q, securities, max_results=limit,
-        security_type=security_type, asset_class=asset_class,
+    pattern = f"%{q}%"
+    query = select(Security).where(
+        or_(
+            Security.name.ilike(pattern),
+            Security.short_name.ilike(pattern),
+        )
     )
+
+    if security_type:
+        query = query.where(Security.security_type == security_type.upper())
+    if asset_class:
+        query = query.where(Security.asset_class == asset_class.upper())
+
+    query = query.order_by(Security.name).limit(limit)
+    result = await session.execute(query)
+    securities = result.scalars().all()
 
     return SecurityFinderResponse(
         query=q,
-        total_results=len(results),
+        total_results=len(securities),
         results=[
             SecurityFinderResult(
-                security_id=r.security_id,
-                name=r.name,
-                short_name=r.short_name,
-                security_type=r.security_type,
-                asset_class=r.asset_class,
-                status=r.status,
-                relevance_score=r.relevance_score,
+                security_id=s.security_id,
+                name=s.name,
+                short_name=s.short_name,
+                security_type=s.security_type,
+                asset_class=getattr(s, "asset_class", None),
+                status=s.status,
+                relevance_score=1.0,
             )
-            for r in results
+            for s in securities
         ],
     )
 
@@ -79,6 +72,27 @@ async def suggest(
     limit: int = Query(10, ge=1, le=50),
 ):
     """Return autocomplete suggestions for security search."""
-    securities = await _load_securities(session)
-    suggestions = suggest_securities(q, securities, max_suggestions=limit)
-    return [SecuritySuggestion(**s) for s in suggestions]
+    pattern = f"{q}%"
+    query = (
+        select(Security)
+        .where(
+            or_(
+                Security.name.ilike(pattern),
+                Security.short_name.ilike(pattern),
+            )
+        )
+        .order_by(Security.name)
+        .limit(limit)
+    )
+    result = await session.execute(query)
+    securities = result.scalars().all()
+
+    return [
+        SecuritySuggestion(
+            security_id=str(s.security_id),
+            name=s.name,
+            short_name=s.short_name,
+            security_type=s.security_type,
+        )
+        for s in securities
+    ]

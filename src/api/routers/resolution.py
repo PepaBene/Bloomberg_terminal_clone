@@ -12,15 +12,7 @@ from src.resolution.review_queue import add_to_queue, approve, get_pending, reje
 
 logger = logging.getLogger(__name__)
 
-# Import auth dependency with graceful fallback so tests still pass
-# when the auth module or its transitive deps are unavailable.
-try:
-    from src.api.auth.dependencies import get_current_user
-
-    _auth_available = True
-except ImportError:
-    _auth_available = False
-    logger.warning("Auth dependencies not available; approve/reject endpoints will not require authentication.")
+from src.api.auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/resolution", tags=["Resolution Queue"])
 
@@ -60,72 +52,41 @@ async def list_pending_items(
     return [QueueItemResponse.model_validate(item) for item in items]
 
 
-if _auth_available:
+@router.post("/queue/{queue_id}/approve")
+async def approve_match(
+    queue_id: uuid.UUID,
+    body: ApproveRejectRequest = ApproveRejectRequest(),
+    session: AsyncSession = Depends(get_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Approve a match: merge identifiers into the candidate entity.
 
-    @router.post("/queue/{queue_id}/approve")
-    async def approve_match(
-        queue_id: uuid.UUID,
-        body: ApproveRejectRequest = ApproveRejectRequest(),
-        session: AsyncSession = Depends(get_session),
-        current_user: dict = Depends(get_current_user),
-    ):
-        """Approve a match: merge identifiers into the candidate entity.
+    Requires a valid Bearer token.
+    """
+    reviewer = body.reviewer or current_user.get("sub")
+    try:
+        await approve(queue_id, session, reviewer=reviewer)
+        await session.commit()
+        return {"status": "approved", "queue_id": str(queue_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        Requires a valid Bearer token.
-        """
-        reviewer = body.reviewer or current_user.get("sub")
-        try:
-            await approve(queue_id, session, reviewer=reviewer)
-            await session.commit()
-            return {"status": "approved", "queue_id": str(queue_id)}
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
 
-    @router.post("/queue/{queue_id}/reject", response_model=RejectResponse)
-    async def reject_match(
-        queue_id: uuid.UUID,
-        body: ApproveRejectRequest = ApproveRejectRequest(),
-        session: AsyncSession = Depends(get_session),
-        current_user: dict = Depends(get_current_user),
-    ):
-        """Reject a match: create a new entity from the source record.
+@router.post("/queue/{queue_id}/reject", response_model=RejectResponse)
+async def reject_match(
+    queue_id: uuid.UUID,
+    body: ApproveRejectRequest = ApproveRejectRequest(),
+    session: AsyncSession = Depends(get_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Reject a match: create a new entity from the source record.
 
-        Requires a valid Bearer token.
-        """
-        reviewer = body.reviewer or current_user.get("sub")
-        try:
-            new_entity_id = await reject(queue_id, session, reviewer=reviewer)
-            await session.commit()
-            return RejectResponse(new_entity_id=new_entity_id)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-else:
-
-    @router.post("/queue/{queue_id}/approve")
-    async def approve_match(
-        queue_id: uuid.UUID,
-        body: ApproveRejectRequest = ApproveRejectRequest(),
-        session: AsyncSession = Depends(get_session),
-    ):
-        """Approve a match: merge identifiers into the candidate entity."""
-        try:
-            await approve(queue_id, session, reviewer=body.reviewer)
-            await session.commit()
-            return {"status": "approved", "queue_id": str(queue_id)}
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.post("/queue/{queue_id}/reject", response_model=RejectResponse)
-    async def reject_match(
-        queue_id: uuid.UUID,
-        body: ApproveRejectRequest = ApproveRejectRequest(),
-        session: AsyncSession = Depends(get_session),
-    ):
-        """Reject a match: create a new entity from the source record."""
-        try:
-            new_entity_id = await reject(queue_id, session, reviewer=body.reviewer)
-            await session.commit()
-            return RejectResponse(new_entity_id=new_entity_id)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    Requires a valid Bearer token.
+    """
+    reviewer = body.reviewer or current_user.get("sub")
+    try:
+        new_entity_id = await reject(queue_id, session, reviewer=reviewer)
+        await session.commit()
+        return RejectResponse(new_entity_id=new_entity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -41,7 +41,12 @@ async def get_yield_curve(
     result = await session.execute(query)
     snapshot = result.scalar_one_or_none()
     if not snapshot:
-        raise HTTPException(status_code=404, detail="No yield curve data found")
+        detail = (
+            f"No yield curve data found for date '{curve_date}' and type '{curve_type}'"
+            if curve_date
+            else f"No yield curve data found for type '{curve_type}'"
+        )
+        raise HTTPException(status_code=404, detail=detail)
     return YieldCurveSnapshotResponse.model_validate(snapshot)
 
 
@@ -107,23 +112,22 @@ async def get_forward_curve(
             .order_by(ZeroCouponCurve.tenor_years.asc())
         )
     else:
-        # Find the latest date that has data
-        latest_date_q = select(sa_func.max(ZeroCouponCurve.curve_date))
-        latest_result = await session.execute(latest_date_q)
-        latest_date = latest_result.scalar_one_or_none()
-        if not latest_date:
-            raise HTTPException(status_code=404, detail="No forward curve data found")
+        # Use subquery to atomically find latest date and fetch data
+        latest_date_subq = select(sa_func.max(ZeroCouponCurve.curve_date)).scalar_subquery()
         query = (
             select(ZeroCouponCurve)
-            .where(ZeroCouponCurve.curve_date == latest_date)
+            .where(ZeroCouponCurve.curve_date == latest_date_subq)
             .order_by(ZeroCouponCurve.tenor_years.asc())
         )
-        curve_date = latest_date
 
     result = await session.execute(query)
     points = result.scalars().all()
     if not points:
         raise HTTPException(status_code=404, detail="No forward curve data found")
+
+    # If no explicit curve_date was provided, use the date from the first result
+    if curve_date is None:
+        curve_date = points[0].curve_date
 
     return ForwardCurveResponse(
         curve_date=curve_date,

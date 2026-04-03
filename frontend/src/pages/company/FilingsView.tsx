@@ -36,17 +36,9 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Default empty data (populated by API) -----------------------------------
 
-const company = { name: 'Apple Inc.', ticker: 'AAPL' };
-
-const filings = [
-  { date: '2026-02-28', type: '10-K', period: 'FY2025', description: 'Annual report', pages: 142 },
-  { date: '2026-01-31', type: '10-Q', period: 'Q1 2026', description: 'Quarterly report', pages: 68 },
-  { date: '2026-01-15', type: '8-K', period: 'N/A', description: 'Earnings press release', pages: 12 },
-  { date: '2025-10-30', type: '10-Q', period: 'Q4 2025', description: 'Quarterly report', pages: 71 },
-  { date: '2025-10-02', type: '8-K', period: 'N/A', description: 'Leadership change announcement', pages: 4 },
-];
+const filings: any[] = [];
 
 function filingBadgeColor(type: string): string {
   if (type === '10-K') return 'var(--color-accent-primary)';
@@ -58,41 +50,13 @@ function filingBadgeColor(type: string): string {
 // const insiderTransactions = [...];
 // const filingDiffs = [...];
 
-// --- Component Data ----------------------------------------------------------
+// --- Default empty data (populated by API) -----------------------------------
 
-const insiderTxData: InsiderTransaction[] = [
-  { id: 'tx1', date: '2026-03-15', insiderName: 'Tim Cook', title: 'CEO', type: 'SELL', shares: 50000, price: 182.40, value: 9120000 },
-  { id: 'tx2', date: '2026-03-02', insiderName: 'Luca Maestri', title: 'SVP, CFO', type: 'SELL', shares: 25000, price: 179.85, value: 4496250 },
-  { id: 'tx3', date: '2026-02-14', insiderName: 'Jeff Williams', title: 'COO', type: 'BUY', shares: 10000, price: 174.20, value: 1742000 },
-  { id: 'tx4', date: '2026-01-22', insiderName: "Deirdre O'Brien", title: 'SVP Retail', type: 'SELL', shares: 15000, price: 176.30, value: 2644500 },
-];
+const insiderTxData: InsiderTransaction[] = [];
 
-const insiderSignals: InsiderSignal[] = [
-  { transactionId: 'tx3', signal: 'CEO_PURCHASE', severity: 'positive' },
-  { transactionId: 'tx1', signal: 'UNUSUAL_SALE', severity: 'negative' },
-];
+const insiderSignals: InsiderSignal[] = [];
 
-const diffSections: DiffSection[] = [
-  {
-    name: 'Risk Factors',
-    prior: 'The Company is subject to risks relating to product quality...\nOperating in highly competitive markets...',
-    current: 'The Company is subject to risks relating to product quality and AI integration...\nOperating in highly competitive markets with evolving regulatory landscape...',
-    changes: [
-      { type: 'add', text: 'Added language regarding AI-related regulatory risks and model governance requirements.' },
-      { type: 'modify', text: 'Expanded competitive landscape to include generative AI market participants.' },
-    ],
-  },
-  {
-    name: "MD&A",
-    prior: 'Revenue increased 5% driven by Services growth.\nGross margin expanded 120 bps year-over-year.',
-    current: 'Revenue increased 8% driven by Services and Vision Pro.\nGross margin expanded 180 bps driven by mix shift to Services.',
-    changes: [
-      { type: 'modify', text: 'Revenue growth attribution updated to include Vision Pro as a growth driver.' },
-      { type: 'modify', text: 'Gross margin expansion explanation changed from 120 bps to 180 bps.' },
-      { type: 'add', text: 'New disclosure on spatial computing market opportunity and investment plans.' },
-    ],
-  },
-];
+const diffSections: DiffSection[] = [];
 
 // --- Component ---------------------------------------------------------------
 
@@ -118,7 +82,7 @@ export default function FilingsView() {
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
           SEC Filings &amp; Insider Activity
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name}</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>{primary?.ticker ?? '—'} &mdash; {primary?.name ?? '—'}</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
@@ -180,19 +144,7 @@ export default function FilingsView() {
             ))}
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {[
-              { title: 'Regulatory & Antitrust Risk', severity: 'high', summary: 'Multiple jurisdictions pursuing antitrust actions against App Store practices. EU DMA compliance costs estimated at $500M+.' },
-              { title: 'China Revenue Concentration', severity: 'high', summary: 'Greater China represents ~19% of revenue. Geopolitical tensions and local competition from Huawei pose ongoing risk.' },
-              { title: 'AI Integration Execution', severity: 'medium', summary: 'Delayed AI feature rollout relative to competitors. On-device AI strategy may limit capability vs cloud-first approaches.' },
-              { title: 'Supply Chain Concentration', severity: 'medium', summary: 'Heavy reliance on TSMC for advanced chips. Any disruption to Taiwan manufacturing could impact production.' },
-            ].map((rf, i) => (
-              <div key={i} style={{ padding: '10px', background: 'var(--color-surface-raised)', borderRadius: '4px', borderLeft: `3px solid ${rf.severity === 'high' ? 'var(--color-signal-negative)' : 'var(--color-signal-warning)'}` }}>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{rf.title}</div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>{rf.summary}</div>
-              </div>
-            ))}
-          </div>
+          <p style={labelStyle}>No risk factor data available. Select a security to load filings.</p>
         )}
       </div>
 
@@ -209,19 +161,7 @@ export default function FilingsView() {
             ))}
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { topic: 'Revenue Growth Drivers', summary: 'Services segment grew 14.1% YoY to $96B, now 22.8% of revenue. iPhone revenue grew modestly at 3.8% driven by Pro models and emerging markets.' },
-              { topic: 'Margin Expansion', summary: 'Gross margin expanded 180bps to 45.3% driven by mix shift toward higher-margin Services. Operating leverage improving as R&D growth decelerates.' },
-              { topic: 'Capital Return', summary: 'Returned $105.3B to shareholders through $90.1B in buybacks and $15.2B in dividends. Net cash position declined to $49B from $58B.' },
-              { topic: 'Emerging Opportunities', summary: 'Vision Pro launched with revenue tracking above internal forecasts. Apple Intelligence features rolled out across product line. India revenue growth exceeding 25%.' },
-            ].map((item, i) => (
-              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.topic}</div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: '4px', lineHeight: 1.5 }}>{item.summary}</div>
-              </div>
-            ))}
-          </div>
+          <p style={labelStyle}>No MD&A data available. Select a security to load filings.</p>
         )}
       </div>
     </div>

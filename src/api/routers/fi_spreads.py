@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
 from src.engines.credit_spread_analytics import (
-    BAML_SERIES,
     compute_ig_hy_differential,
     compute_spread_percentile,
     detect_spread_regime,
@@ -188,7 +187,10 @@ async def spread_regime(
         if not hist_values:
             continue
 
-        stats = compute_spread_percentile(hist_values, float(item.spread_bps))
+        try:
+            stats = compute_spread_percentile(hist_values, float(item.spread_bps))
+        except (ValueError, ZeroDivisionError):
+            continue
         regime = detect_spread_regime(stats["percentile"])
 
         regimes.append(

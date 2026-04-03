@@ -37,7 +37,7 @@ async def semantic_search(
     session: AsyncSession = Depends(get_session),
 ):
     """Perform semantic search across indexed documents."""
-    stmt = select(SearchDocument).order_by(SearchDocument.created_at.desc().nullslast())
+    stmt = select(SearchDocument).order_by(SearchDocument.created_at.desc().nulls_last())
 
     if body.document_types:
         stmt = stmt.where(SearchDocument.source_type.in_(body.document_types))
@@ -92,7 +92,7 @@ async def get_search_history(
     result = await session.execute(
         select(SearchQuery)
         .where(SearchQuery.user_id == user_id)
-        .order_by(SearchQuery.created_at.desc().nullslast())
+        .order_by(SearchQuery.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -275,7 +275,7 @@ async def get_entity_documents(
     result = await session.execute(
         select(SearchDocument)
         .where(SearchDocument.entity_id == entity_id)
-        .order_by(SearchDocument.created_at.desc().nullslast())
+        .order_by(SearchDocument.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

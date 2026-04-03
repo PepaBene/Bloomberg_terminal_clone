@@ -95,7 +95,7 @@ async def get_executive_compensation(
     result = await session.execute(
         select(ExecutiveCompensation)
         .where(ExecutiveCompensation.proxy_id == proxy.id)
-        .order_by(ExecutiveCompensation.total_compensation.desc().nullslast())
+        .order_by(ExecutiveCompensation.total_compensation.desc().nulls_last())
     )
     rows = result.scalars().all()
 

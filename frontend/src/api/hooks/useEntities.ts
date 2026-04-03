@@ -37,7 +37,8 @@ export function useCreateEntity() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post(ENTITIES.create, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['entities'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'list'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'detail'] });
     },
   });
 }
@@ -48,7 +49,8 @@ export function useUpdateEntity() {
     mutationFn: ({ id, ...body }: Record<string, unknown> & { id: string }) =>
       api.put(ENTITIES.update(id), body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['entities'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'list'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'detail'] });
     },
   });
 }
@@ -58,7 +60,7 @@ export function useDeleteEntity() {
   return useMutation({
     mutationFn: (id: string) => api.delete(ENTITIES.delete(id)),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['entities'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'list'] });
     },
   });
 }

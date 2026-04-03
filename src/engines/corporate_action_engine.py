@@ -76,6 +76,11 @@ def process_cash_dividend(
     -------
     DividendResult
     """
+    if shares < 0:
+        raise ValueError(f"shares must be >= 0, got {shares}")
+    if dividend_per_share < 0:
+        raise ValueError(f"dividend_per_share must be >= 0, got {dividend_per_share}")
+
     cash_amount = shares * dividend_per_share
 
     if drip_enabled and current_price is not None and current_price > 0:
@@ -109,6 +114,8 @@ def process_stock_split(
     A 3-for-1 split: split_ratio=3.0
     A 4-for-3 split: split_ratio=4/3
     """
+    if split_ratio <= 0:
+        raise ValueError(f"split_ratio must be positive, got {split_ratio}")
     new_shares = shares * split_ratio
     new_cost_per_share = cost_basis_per_share / split_ratio
 
@@ -129,6 +136,8 @@ def process_reverse_split(
     A 1-for-10 reverse split: reverse_ratio=10
     A 1-for-4 reverse split: reverse_ratio=4
     """
+    if reverse_ratio <= 0:
+        raise ValueError(f"reverse_ratio must be positive, got {reverse_ratio}")
     new_shares = shares / reverse_ratio
     new_cost_per_share = cost_basis_per_share * reverse_ratio
 
@@ -168,6 +177,9 @@ def process_spin_off(
     -------
     SpinOffResult
     """
+    if not (0 <= allocation_pct <= 100):
+        raise ValueError(f"allocation_pct must be between 0 and 100, got {allocation_pct}")
+
     child_cost_basis = parent_cost_total * (allocation_pct / 100.0)
     parent_new_cost = parent_cost_total - child_cost_basis
     child_shares = parent_shares * shares_per_parent
@@ -297,42 +309,3 @@ def compute_transaction_cash_impact(
         return round(-(shares * price), 2)
     else:
         return 0.0
-
-
-# ── Match Corporate Actions to Holdings ─────────────────────────────────
-
-
-def match_corporate_actions_to_holdings(
-    actions: list[dict],
-    holdings: list[dict],
-) -> list[dict]:
-    """Match corporate actions to holdings by ticker.
-
-    Parameters
-    ----------
-    actions : list[dict]
-        Each has at minimum: {ticker, action_type, ...}.
-    holdings : list[dict]
-        Each has at minimum: {ticker, shares, ...}.
-
-    Returns
-    -------
-    list[dict]
-        Matched pairs: [{action, holding}] for tickers present in both.
-    """
-    holding_map: dict[str, dict] = {}
-    for h in holdings:
-        ticker = h.get("ticker", "").upper().strip()
-        if ticker:
-            holding_map[ticker] = h
-
-    matched: list[dict] = []
-    for action in actions:
-        ticker = action.get("ticker", "").upper().strip()
-        if ticker in holding_map:
-            matched.append({
-                "action": action,
-                "holding": holding_map[ticker],
-            })
-
-    return matched

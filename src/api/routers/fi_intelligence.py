@@ -321,7 +321,7 @@ async def get_issuance_today(
     result = await session.execute(
         select(NewIssuanceEvent)
         .where(NewIssuanceEvent.issue_date == today)
-        .order_by(NewIssuanceEvent.size_mm.desc().nullslast())
+        .order_by(NewIssuanceEvent.size_mm.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [
@@ -356,7 +356,7 @@ async def get_issuance_this_week(
     result = await session.execute(
         select(NewIssuanceEvent)
         .where(NewIssuanceEvent.issue_date >= week_start)
-        .order_by(NewIssuanceEvent.issue_date.desc(), NewIssuanceEvent.size_mm.desc().nullslast())
+        .order_by(NewIssuanceEvent.issue_date.desc(), NewIssuanceEvent.size_mm.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [

@@ -95,6 +95,8 @@ async def issuance_volume(
     ]
 
     volume_data = aggregate_issuance_volume(iss_dicts, period=period)
+    if not volume_data:
+        return []
     return [IssuanceVolumeResponse(**v) for v in volume_data]
 
 
@@ -119,6 +121,8 @@ async def league_tables(
     ]
 
     table = compute_league_table(iss_dicts)
+    if not table:
+        return []
     return [LeagueTableEntry(**entry) for entry in table]
 
 

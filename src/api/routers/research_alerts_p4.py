@@ -81,8 +81,8 @@ async def get_alert_feed(
     result = await session.execute(
         select(ConsolidatedAlert)
         .order_by(
-            ConsolidatedAlert.alert_priority.asc().nullslast(),
-            ConsolidatedAlert.created_at.desc().nullslast(),
+            ConsolidatedAlert.alert_priority.asc().nulls_last(),
+            ConsolidatedAlert.created_at.desc().nulls_last(),
         )
         .limit(limit)
     )
@@ -118,7 +118,7 @@ async def get_critical_alerts(
     result = await session.execute(
         select(ConsolidatedAlert)
         .where(ConsolidatedAlert.alert_priority == 1)
-        .order_by(ConsolidatedAlert.created_at.desc().nullslast())
+        .order_by(ConsolidatedAlert.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -138,8 +138,8 @@ async def get_today_alerts(
         select(ConsolidatedAlert)
         .where(func.date(ConsolidatedAlert.created_at) == today)
         .order_by(
-            ConsolidatedAlert.alert_priority.asc().nullslast(),
-            ConsolidatedAlert.created_at.desc().nullslast(),
+            ConsolidatedAlert.alert_priority.asc().nulls_last(),
+            ConsolidatedAlert.created_at.desc().nulls_last(),
         )
     )
     rows = result.scalars().all()
@@ -198,7 +198,7 @@ async def get_today_earnings(
     result = await session.execute(
         select(EarningsSurpriseIntelligence)
         .where(EarningsSurpriseIntelligence.report_date == today)
-        .order_by(EarningsSurpriseIntelligence.created_at.desc().nullslast())
+        .order_by(EarningsSurpriseIntelligence.created_at.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [_earnings_response(r) for r in rows]
@@ -243,7 +243,7 @@ async def get_alerts_by_category(
     result = await session.execute(
         select(ConsolidatedAlert)
         .where(ConsolidatedAlert.primary_type == category)
-        .order_by(ConsolidatedAlert.created_at.desc().nullslast())
+        .order_by(ConsolidatedAlert.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -264,8 +264,8 @@ async def get_entity_alerts(
         select(ConsolidatedAlert)
         .where(ConsolidatedAlert.entity_id == entity_id)
         .order_by(
-            ConsolidatedAlert.alert_priority.asc().nullslast(),
-            ConsolidatedAlert.created_at.desc().nullslast(),
+            ConsolidatedAlert.alert_priority.asc().nulls_last(),
+            ConsolidatedAlert.created_at.desc().nulls_last(),
         )
         .limit(limit)
     )

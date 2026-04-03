@@ -77,6 +77,7 @@ async def list_all_calendar_events(
     date_from: date | None = Query(None, description="Start date"),
     date_to: date | None = Query(None, description="End date"),
     entity_ids: str | None = Query(None, description="Comma-separated entity UUIDs"),
+    event_types: str | None = Query(None, description="Comma-separated event types"),
 ):
     """Unified calendar merging corporate actions, earnings, and meetings."""
     query = select(CalendarEvent)
@@ -92,6 +93,10 @@ async def list_all_calendar_events(
         ids = [uuid.UUID(eid.strip()) for eid in entity_ids.split(",") if eid.strip()]
         query = query.where(CalendarEvent.entity_id.in_(ids))
         count_query = count_query.where(CalendarEvent.entity_id.in_(ids))
+    if event_types:
+        types = [t.strip().upper() for t in event_types.split(",") if t.strip()]
+        query = query.where(CalendarEvent.event_type.in_(types))
+        count_query = count_query.where(CalendarEvent.event_type.in_(types))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())

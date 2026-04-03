@@ -56,7 +56,7 @@ async def list_entity_filings(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(Filing.filing_date.desc()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(Filing.filing_date.desc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     filings = result.scalars().all()
 

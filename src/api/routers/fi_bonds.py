@@ -6,6 +6,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
@@ -88,12 +89,12 @@ async def list_bonds(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(CorporateBond.maturity_date.desc())
+        query.order_by(CorporateBond.maturity_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
     result = await session.execute(query)
-    items = result.scalars().unique().all()
+    items = result.scalars().all()
 
     return PaginatedResponse(
         data=[CorporateBondResponse.model_validate(b) for b in items],
@@ -134,7 +135,7 @@ async def search_bonds(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    items = result.scalars().unique().all()
+    items = result.scalars().all()
 
     return PaginatedResponse(
         data=[CorporateBondResponse.model_validate(b) for b in items],
@@ -198,7 +199,7 @@ async def screen_bonds(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    items = result.scalars().unique().all()
+    items = result.scalars().all()
 
     return PaginatedResponse(
         data=[CorporateBondResponse.model_validate(b) for b in items],
@@ -247,7 +248,7 @@ async def screen_issuers(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    items = result.scalars().unique().all()
+    items = result.scalars().all()
 
     return PaginatedResponse(
         data=[CorporateBondResponse.model_validate(b) for b in items],
@@ -282,12 +283,12 @@ async def bonds_by_issuer(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(CorporateBond.maturity_date.desc())
+        query.order_by(CorporateBond.maturity_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
     result = await session.execute(query)
-    items = result.scalars().unique().all()
+    items = result.scalars().all()
 
     return PaginatedResponse(
         data=[CorporateBondResponse.model_validate(b) for b in items],
@@ -620,7 +621,11 @@ async def bond_analytics(
     session: AsyncSession = Depends(get_session),
 ):
     """Compute YTM, YTW, duration, convexity, and G-spread for a bond."""
-    query = select(CorporateBond).where(CorporateBond.cusip == cusip)
+    query = (
+        select(CorporateBond)
+        .where(CorporateBond.cusip == cusip)
+        .options(selectinload(CorporateBond.call_schedule))
+    )
     result = await session.execute(query)
     bond = result.scalars().unique().one_or_none()
 

@@ -16,6 +16,7 @@ from src.engines.treasury_analytics import (
 from src.models.treasury import TreasurySecurity
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.treasury import (
+    TreasuryAnalyticsResponse,
     TreasuryAuctionResponse,
     TreasuryOnTheRunResponse,
     TreasurySecurityResponse,
@@ -38,10 +39,10 @@ async def list_treasuries(
 ):
     """List and filter treasury securities (paginated)."""
     query = select(TreasurySecurity).where(
-        TreasurySecurity.is_outstanding == is_outstanding
+        TreasurySecurity.is_outstanding.is_(is_outstanding)
     )
     count_query = select(TreasurySecurity).where(
-        TreasurySecurity.is_outstanding == is_outstanding
+        TreasurySecurity.is_outstanding.is_(is_outstanding)
     )
 
     if type:
@@ -82,7 +83,7 @@ async def on_the_run(
     session: AsyncSession = Depends(get_session),
 ):
     """Get most recently issued treasury security per tenor bucket."""
-    query = select(TreasurySecurity).where(TreasurySecurity.is_outstanding == True)  # noqa: E712
+    query = select(TreasurySecurity).where(TreasurySecurity.is_outstanding.is_(True))
     result = await session.execute(query)
     securities = result.scalars().all()
 
@@ -217,6 +218,7 @@ async def get_treasury_by_cusip(
 
 @router.get(
     "/fixed-income/treasuries/{cusip}/analytics",
+    response_model=TreasuryAnalyticsResponse,
 )
 async def treasury_analytics(
     cusip: str,
@@ -241,27 +243,30 @@ async def treasury_analytics(
     if years_to_maturity < 0:
         years_to_maturity = 0.0
 
+    # For zero-coupon bonds, use frequency=1 for discount-bond YTM calculation
+    calc_freq = freq if freq > 0 else 1
+
     ytm = compute_treasury_ytm(
         coupon_rate=coupon,
         face_value=100.0,
         price=price,
         years_to_maturity=years_to_maturity,
-        frequency=freq if freq > 0 else 2,
+        frequency=calc_freq,
     )
 
     dur_conv = compute_duration_convexity(
         ytm=ytm,
         coupon_rate=coupon,
         years_to_maturity=years_to_maturity,
-        frequency=freq if freq > 0 else 2,
+        frequency=calc_freq,
     )
 
-    return {
-        "cusip": cusip,
-        "price": price,
-        "ytm": ytm,
-        "modified_duration": dur_conv["modified_duration"],
-        "macaulay_duration": dur_conv["macaulay_duration"],
-        "convexity": dur_conv["convexity"],
-        "years_to_maturity": round(years_to_maturity, 4),
-    }
+    return TreasuryAnalyticsResponse(
+        cusip=cusip,
+        price=price,
+        ytm=ytm,
+        modified_duration=dur_conv["modified_duration"],
+        macaulay_duration=dur_conv["macaulay_duration"],
+        convexity=dur_conv["convexity"],
+        years_to_maturity=round(years_to_maturity, 4),
+    )

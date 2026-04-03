@@ -32,43 +32,22 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Default empty data (populated by API) -----------------------------------
 
 const kpiStats = [
-  { label: 'Upcoming IPOs', value: '14' },
-  { label: 'Priced This Week', value: '5' },
-  { label: 'Avg First Day Return', value: '+18.3%' },
-  { label: 'Total Raised YTD', value: '$42.7B' },
-  { label: 'Pipeline Value', value: '$11.2B' },
-  { label: 'Withdrawn', value: '3' },
+  { label: 'Upcoming IPOs', value: '—' },
+  { label: 'Priced This Week', value: '—' },
+  { label: 'Avg First Day Return', value: '—' },
+  { label: 'Total Raised YTD', value: '—' },
+  { label: 'Pipeline Value', value: '—' },
+  { label: 'Withdrawn', value: '—' },
 ];
 
-const upcomingIpos = [
-  { expectedDate: '2026-04-07', company: 'Klarna Group',       ticker: 'KLAR',  sector: 'Fintech',       priceRange: '$58 – $62',  dealSize: '$2.5B', leadUnderwriter: 'Goldman Sachs' },
-  { expectedDate: '2026-04-09', company: 'Databricks Inc',     ticker: 'DBX',   sector: 'Enterprise SW', priceRange: '$72 – $78',  dealSize: '$4.0B', leadUnderwriter: 'Morgan Stanley' },
-  { expectedDate: '2026-04-14', company: 'Stripe Inc',         ticker: 'STRP',  sector: 'Payments',      priceRange: '$45 – $50',  dealSize: '$8.0B', leadUnderwriter: 'JPMorgan' },
-  { expectedDate: '2026-04-16', company: 'Medline Industries', ticker: 'MDLN',  sector: 'Healthcare',    priceRange: '$30 – $34',  dealSize: '$3.2B', leadUnderwriter: 'BofA Securities' },
-  { expectedDate: '2026-04-21', company: 'Cerebras Systems',   ticker: 'CRBS',  sector: 'Semiconductors', priceRange: '$40 – $46', dealSize: '$1.8B', leadUnderwriter: 'Citigroup' },
-  { expectedDate: '2026-04-28', company: 'Plaid Inc',          ticker: 'PLAD',  sector: 'Fintech',       priceRange: '$22 – $26',  dealSize: '$1.2B', leadUnderwriter: 'Goldman Sachs' },
-];
+const upcomingIpos: any[] = [];
 
-const recentIpos = [
-  { ipoDate: '2026-03-28', company: 'CoreWeave Inc',       ipoPrice: 40.00, currentPrice: 52.30, returnPct: 30.75, marketCap: '$22.4B' },
-  { ipoDate: '2026-03-25', company: 'Ventyx Biosciences',  ipoPrice: 18.00, currentPrice: 21.60, returnPct: 20.00, marketCap: '$2.1B' },
-  { ipoDate: '2026-03-21', company: 'Lineage Inc',         ipoPrice: 78.00, currentPrice: 83.46, returnPct: 7.00,  marketCap: '$18.7B' },
-  { ipoDate: '2026-03-18', company: 'ServiceTitan',        ipoPrice: 71.00, currentPrice: 68.16, returnPct: -4.00, marketCap: '$9.8B' },
-  { ipoDate: '2026-03-14', company: 'Sailpoint Technology',ipoPrice: 25.50, currentPrice: 29.33, returnPct: 15.00, marketCap: '$4.5B' },
-  { ipoDate: '2026-03-10', company: 'Ibotta Inc',          ipoPrice: 88.00, currentPrice: 79.20, returnPct: -10.00,marketCap: '$3.6B' },
-  { ipoDate: '2026-03-05', company: 'Reddit Inc',          ipoPrice: 34.00, currentPrice: 44.88, returnPct: 32.00, marketCap: '$12.1B' },
-  { ipoDate: '2026-03-01', company: 'Astera Labs',         ipoPrice: 36.00, currentPrice: 43.92, returnPct: 22.00, marketCap: '$7.3B' },
-];
+const recentIpos: any[] = [];
 
-const performanceSummary = [
-  { period: '1 Week',  avgReturn: '+12.4%', medianReturn: '+8.2%',  positiveRate: '80%' },
-  { period: '1 Month', avgReturn: '+18.3%', medianReturn: '+14.1%', positiveRate: '72%' },
-  { period: '3 Month', avgReturn: '+9.7%',  medianReturn: '+5.6%',  positiveRate: '64%' },
-  { period: 'YTD',     avgReturn: '+15.1%', medianReturn: '+10.8%', positiveRate: '68%' },
-];
+const performanceSummary: any[] = [];
 
 // --- Component ---------------------------------------------------------------
 

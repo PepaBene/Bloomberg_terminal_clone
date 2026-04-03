@@ -35,14 +35,16 @@ async def list_money_market_rates(
         query = query.where(MoneyMarketRate.rate_type == rate_type.upper())
         count_query = count_query.where(MoneyMarketRate.rate_type == rate_type.upper())
     if rate_date:
+        # Exact date wins — ignore start/end range parameters
         query = query.where(MoneyMarketRate.rate_date == rate_date)
         count_query = count_query.where(MoneyMarketRate.rate_date == rate_date)
-    if start:
-        query = query.where(MoneyMarketRate.rate_date >= start)
-        count_query = count_query.where(MoneyMarketRate.rate_date >= start)
-    if end:
-        query = query.where(MoneyMarketRate.rate_date <= end)
-        count_query = count_query.where(MoneyMarketRate.rate_date <= end)
+    else:
+        if start:
+            query = query.where(MoneyMarketRate.rate_date >= start)
+            count_query = count_query.where(MoneyMarketRate.rate_date >= start)
+        if end:
+            query = query.where(MoneyMarketRate.rate_date <= end)
+            count_query = count_query.where(MoneyMarketRate.rate_date <= end)
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())

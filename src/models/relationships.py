@@ -60,6 +60,7 @@ class BusinessRelationship(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Flexible metadata
+    # Expected schema: {"context": str, "notes": str, "tags": list[str], ...}
     metadata_json: Mapped[dict | None] = mapped_column(JSONB)
 
     __table_args__ = (

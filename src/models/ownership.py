@@ -140,4 +140,5 @@ class ShortInterest(Base):
 
     __table_args__ = (
         Index("idx_short_interest_security", "security_id"),
+        Index("idx_short_interest_security_settle", "security_id", "settlement_date"),
     )

@@ -11,7 +11,7 @@ const STALE_5MIN = 5 * 60 * 1000;
 
 export function useInstitutionalFlows(params?: Record<string, string | number | boolean | undefined>) {
   return useQuery({
-    queryKey: ['flows', 'institutional', params],
+    queryKey: ['ownership', 'institutional', params],
     queryFn: () => api.get(FLOWS.institutional, params),
     staleTime: STALE_24H,
   });
@@ -19,7 +19,7 @@ export function useInstitutionalFlows(params?: Record<string, string | number | 
 
 export function useInstitutionalDetail(fundId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['flows', 'institutionalDetail', fundId],
+    queryKey: ['ownership', 'institutionalDetail', fundId],
     queryFn: () => api.get(FLOWS.institutionalDetail(fundId)),
     enabled: options?.enabled ?? !!fundId,
     staleTime: STALE_24H,
@@ -28,7 +28,7 @@ export function useInstitutionalDetail(fundId: string, options?: { enabled?: boo
 
 export function useSectorFlows() {
   return useQuery({
-    queryKey: ['flows', 'sectors'],
+    queryKey: ['ownership', 'sectors'],
     queryFn: () => api.get(FLOWS.sectors),
     staleTime: STALE_24H,
   });
@@ -36,7 +36,7 @@ export function useSectorFlows() {
 
 export function useStyleFlows() {
   return useQuery({
-    queryKey: ['flows', 'styles'],
+    queryKey: ['ownership', 'styles'],
     queryFn: () => api.get(FLOWS.styles),
     staleTime: STALE_24H,
   });
@@ -44,7 +44,7 @@ export function useStyleFlows() {
 
 export function useEtfFlows() {
   return useQuery({
-    queryKey: ['flows', 'etf'],
+    queryKey: ['ownership', 'etf'],
     queryFn: () => api.get(FLOWS.etf),
     staleTime: STALE_24H,
   });
@@ -52,7 +52,7 @@ export function useEtfFlows() {
 
 export function useEtfFlowDetail(etfId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['flows', 'etfDetail', etfId],
+    queryKey: ['ownership', 'etfDetail', etfId],
     queryFn: () => api.get(FLOWS.etfDetail(etfId)),
     enabled: options?.enabled ?? !!etfId,
     staleTime: STALE_24H,
@@ -61,7 +61,7 @@ export function useEtfFlowDetail(etfId: string, options?: { enabled?: boolean })
 
 export function useMutualFundFlows() {
   return useQuery({
-    queryKey: ['flows', 'mutualFund'],
+    queryKey: ['ownership', 'mutualFund'],
     queryFn: () => api.get(FLOWS.mutualFund),
     staleTime: STALE_24H,
   });
@@ -69,7 +69,7 @@ export function useMutualFundFlows() {
 
 export function useMutualFundFlowDetail(fundId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['flows', 'mutualFundDetail', fundId],
+    queryKey: ['ownership', 'mutualFundDetail', fundId],
     queryFn: () => api.get(FLOWS.mutualFundDetail(fundId)),
     enabled: options?.enabled ?? !!fundId,
     staleTime: STALE_24H,
@@ -78,7 +78,7 @@ export function useMutualFundFlowDetail(fundId: string, options?: { enabled?: bo
 
 export function useWhaleAlerts() {
   return useQuery({
-    queryKey: ['flows', 'whaleAlerts'],
+    queryKey: ['ownership', 'whaleAlerts'],
     queryFn: () => api.get(FLOWS.whaleAlerts),
     staleTime: STALE_5MIN,
   });
@@ -86,7 +86,7 @@ export function useWhaleAlerts() {
 
 export function useActivistActivity() {
   return useQuery({
-    queryKey: ['flows', 'activistActivity'],
+    queryKey: ['ownership', 'activistActivity'],
     queryFn: () => api.get(FLOWS.activistActivity),
     staleTime: STALE_5MIN,
   });
@@ -94,7 +94,7 @@ export function useActivistActivity() {
 
 export function useDarkPoolFlows() {
   return useQuery({
-    queryKey: ['flows', 'darkPool'],
+    queryKey: ['ownership', 'darkPool'],
     queryFn: () => api.get(FLOWS.darkPool),
     staleTime: STALE_24H,
   });
@@ -102,7 +102,7 @@ export function useDarkPoolFlows() {
 
 export function useOptionsFlow() {
   return useQuery({
-    queryKey: ['flows', 'optionsFlow'],
+    queryKey: ['ownership', 'optionsFlow'],
     queryFn: () => api.get(FLOWS.optionsFlow),
     staleTime: STALE_24H,
   });
@@ -110,7 +110,7 @@ export function useOptionsFlow() {
 
 export function useInsiderFlow() {
   return useQuery({
-    queryKey: ['flows', 'insiderFlow'],
+    queryKey: ['ownership', 'insiderFlow'],
     queryFn: () => api.get(FLOWS.insiderFlow),
     staleTime: STALE_24H,
   });
@@ -118,7 +118,7 @@ export function useInsiderFlow() {
 
 export function useForeignFlow() {
   return useQuery({
-    queryKey: ['flows', 'foreignFlow'],
+    queryKey: ['ownership', 'foreignFlow'],
     queryFn: () => api.get(FLOWS.foreignFlow),
     staleTime: STALE_24H,
   });
@@ -126,7 +126,7 @@ export function useForeignFlow() {
 
 export function useRetailFlow() {
   return useQuery({
-    queryKey: ['flows', 'retailFlow'],
+    queryKey: ['ownership', 'retailFlow'],
     queryFn: () => api.get(FLOWS.retailFlow),
     staleTime: STALE_24H,
   });

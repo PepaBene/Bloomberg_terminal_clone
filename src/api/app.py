@@ -4,7 +4,10 @@ import logging
 import time
 import uuid
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.middleware import RequestContextMiddleware
@@ -15,6 +18,13 @@ from src.schemas.common import ErrorDetail, ErrorResponse, ResponseMeta
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Bloomberg Data Fabric API starting up")
+    yield
+    logger.info("Bloomberg Data Fabric API shutting down")
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
 
@@ -22,12 +32,20 @@ def create_app() -> FastAPI:
         title="Bloomberg Data Fabric API",
         version="1.0.0",
         description="Unified financial data platform providing reference, entity, and security data.",
+        lifespan=lifespan,
     )
 
     # ------------------------------------------------------------------
     # Middleware (Starlette executes middleware in reverse registration
     # order, so the last-registered middleware runs first on request.)
     # ------------------------------------------------------------------
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuditLogMiddleware)
     app.add_middleware(FieldSelectionMiddleware)

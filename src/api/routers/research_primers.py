@@ -70,7 +70,7 @@ async def get_recent_primers(
     """Recently generated primers across all entities."""
     result = await session.execute(
         select(CompanyPrimer)
-        .order_by(CompanyPrimer.generated_at.desc().nullslast())
+        .order_by(CompanyPrimer.generated_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

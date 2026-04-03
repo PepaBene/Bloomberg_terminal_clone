@@ -11,37 +11,15 @@ const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSi
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
 
-// Mock fallback data
+// Default empty data (populated by API)
 const MOCK_ESG = {
-  overall: 72, environmental: 68, social: 75, governance: 82,
-  rating: 'AA', ratingAgency: 'MSCI', lastUpdated: '2026-02-15',
+  overall: 0, environmental: 0, social: 0, governance: 0,
+  rating: '—', ratingAgency: '—', lastUpdated: '',
 };
 
-const MOCK_METRICS = [
-  { category: 'Environmental', metrics: [
-    { name: 'Carbon Emissions (Scope 1+2)', value: '22.4M tCO2e', trend: 'improving' },
-    { name: 'Renewable Energy %', value: '100%', trend: 'stable' },
-    { name: 'Water Intensity', value: '0.12 m³/unit', trend: 'improving' },
-    { name: 'Waste Diverted from Landfill', value: '92%', trend: 'improving' },
-  ]},
-  { category: 'Social', metrics: [
-    { name: 'Employee Satisfaction', value: '4.2/5.0', trend: 'stable' },
-    { name: 'Gender Diversity (Mgmt)', value: '35%', trend: 'improving' },
-    { name: 'Lost-Time Injury Rate', value: '0.22', trend: 'improving' },
-    { name: 'Supply Chain Audits', value: '1,100+', trend: 'stable' },
-  ]},
-  { category: 'Governance', metrics: [
-    { name: 'Board Independence', value: '87.5%', trend: 'stable' },
-    { name: 'Board Gender Diversity', value: '37.5%', trend: 'improving' },
-    { name: 'CEO/Chair Separation', value: 'Yes', trend: 'stable' },
-    { name: 'Say-on-Pay Approval', value: '94.2%', trend: 'stable' },
-  ]},
-];
+const MOCK_METRICS: any[] = [];
 
-const MOCK_CONTROVERSIES = [
-  { date: '2026-01-15', severity: 'Medium', topic: 'Supply Chain Labor', description: 'Allegations of excessive overtime at key supplier facility in Southeast Asia.' },
-  { date: '2025-09-22', severity: 'Low', topic: 'E-Waste Management', description: 'NGO report questions recycling rate claims for older product models.' },
-];
+const MOCK_CONTROVERSIES: any[] = [];
 
 function trendIcon(trend: string): string {
   if (trend === 'improving') return '▲';

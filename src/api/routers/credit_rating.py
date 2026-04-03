@@ -45,7 +45,7 @@ async def list_credit_ratings(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(CreditRatingEvent.event_date.desc())
+        query.order_by(CreditRatingEvent.event_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -87,7 +87,7 @@ async def list_credit_rating_history(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(CreditRatingEvent.event_date.desc())
+        query.order_by(CreditRatingEvent.event_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

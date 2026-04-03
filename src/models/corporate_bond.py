@@ -29,7 +29,9 @@ class CorporateBond(TimestampMixin, Base):
     issuer_cik: Mapped[str | None] = mapped_column(String(10))
 
     # Security master link
-    security_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    security_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("securities.security_id")
+    )
 
     # Bond name
     name: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -51,13 +53,15 @@ class CorporateBond(TimestampMixin, Base):
     original_issue_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
     outstanding_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
     minimum_denomination: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
-    currency: Mapped[str | None] = mapped_column(String(3))
+    currency: Mapped[str | None] = mapped_column(String(3), ForeignKey("currencies.currency_code"))
 
     # Seniority
     seniority: Mapped[str | None] = mapped_column(String(30))
     collateral_type: Mapped[str | None] = mapped_column(String(200))
     is_guaranteed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    guarantor_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    guarantor_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.entity_id")
+    )
 
     # Embedded options
     is_callable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -102,7 +106,9 @@ class CorporateBond(TimestampMixin, Base):
     status_reason: Mapped[str | None] = mapped_column(String(200))
 
     # Relationships
-    call_schedule = relationship("BondCallSchedule", back_populates="bond", lazy="selectin")
+    call_schedule = relationship(
+        "BondCallSchedule", back_populates="bond", lazy="selectin", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_corp_bond_issuer", "issuer_entity_id"),
@@ -154,6 +160,7 @@ class BondTrade(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_bond_trade_bond_date", "bond_id", "trade_date"),
+        Index("idx_bond_trade_bond_settle", "bond_id", "settlement_date"),
     )
 
 

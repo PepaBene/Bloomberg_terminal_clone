@@ -39,7 +39,7 @@ async def list_funds(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.offset(offset).limit(pagination.page_size)
+    query = query.order_by(Fund.fund_name).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     funds = result.scalars().all()
 
@@ -94,7 +94,7 @@ async def list_fund_holdings(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(FundHolding.pct_of_nav.desc().nullslast())
+        query.order_by(FundHolding.pct_of_nav.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -127,7 +127,7 @@ async def list_fund_holders(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(FundHolding.market_value.desc().nullslast())
+        query.order_by(FundHolding.market_value.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

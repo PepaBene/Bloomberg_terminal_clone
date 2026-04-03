@@ -43,13 +43,16 @@ class CorporateAction(TimestampMixin, Base):
 
     # Relationships
     dividend_action = relationship(
-        "DividendAction", back_populates="corporate_action", uselist=False, lazy="selectin"
+        "DividendAction", back_populates="corporate_action", uselist=False, lazy="selectin",
+        cascade="all, delete-orphan",
     )
     split_action = relationship(
-        "SplitAction", back_populates="corporate_action", uselist=False, lazy="selectin"
+        "SplitAction", back_populates="corporate_action", uselist=False, lazy="selectin",
+        cascade="all, delete-orphan",
     )
     ma_action = relationship(
-        "MergerAcquisitionAction", back_populates="corporate_action", uselist=False, lazy="selectin"
+        "MergerAcquisitionAction", back_populates="corporate_action", uselist=False, lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (

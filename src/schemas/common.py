@@ -1,9 +1,24 @@
 """Common schemas: pagination, filtering, response envelope."""
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class FinancialBaseModel(BaseModel):
+    """Base model for schemas with Decimal financial fields.
+
+    Configures JSON serialization so Decimal values are emitted as floats,
+    keeping downstream consumers (JS frontends, etc.) happy while preserving
+    precision inside the Python layer.
+    """
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={Decimal: lambda v: float(v)},
+    )
 
 
 class ResponseMeta(BaseModel):

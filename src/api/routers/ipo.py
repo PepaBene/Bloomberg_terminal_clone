@@ -12,6 +12,9 @@ from src.models.ipo import IPOEvent
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.ipo import IPOEventResponse
 
+# IPO pipeline statuses considered "upcoming/filed"
+IPO_PIPELINE_STATUSES = {"FILED", "AMENDED"}
+
 router = APIRouter(tags=["IPO"])
 
 
@@ -43,7 +46,7 @@ async def list_ipos(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(IPOEvent.pricing_date.desc().nullslast())
+        query.order_by(IPOEvent.pricing_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -65,8 +68,9 @@ async def list_ipo_pipeline(
     pagination: PaginationParams = Depends(get_pagination),
 ):
     """List upcoming/filed IPOs (pipeline view)."""
-    query = select(IPOEvent).where(IPOEvent.status.in_(["FILED", "AMENDED"]))
-    count_query = select(IPOEvent).where(IPOEvent.status.in_(["FILED", "AMENDED"]))
+    normalized_statuses = {s.upper() for s in IPO_PIPELINE_STATUSES}
+    query = select(IPOEvent).where(IPOEvent.status.in_(normalized_statuses))
+    count_query = select(IPOEvent).where(IPOEvent.status.in_(normalized_statuses))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())
@@ -75,7 +79,7 @@ async def list_ipo_pipeline(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(IPOEvent.s1_filing_date.desc().nullslast())
+        query.order_by(IPOEvent.s1_filing_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

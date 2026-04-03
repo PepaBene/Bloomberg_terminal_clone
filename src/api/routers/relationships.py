@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_pagination, get_session
@@ -72,7 +72,7 @@ async def list_business_relationships(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(BusinessRelationship.effective_date.desc().nullslast())
+        query.order_by(BusinessRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -99,19 +99,17 @@ async def list_customers(
 ):
     """List customer relationships for an entity."""
     query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_CUSTOMER_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_CUSTOMER_TYPES))
     count_query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_CUSTOMER_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_CUSTOMER_TYPES))
 
     if active is True:
         query = query.where(BusinessRelationship.is_active.is_(True))
@@ -127,7 +125,7 @@ async def list_customers(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(BusinessRelationship.effective_date.desc().nullslast())
+        query.order_by(BusinessRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -154,19 +152,17 @@ async def list_suppliers(
 ):
     """List supplier relationships for an entity."""
     query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_SUPPLIER_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_SUPPLIER_TYPES))
     count_query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_SUPPLIER_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_SUPPLIER_TYPES))
 
     if active is True:
         query = query.where(BusinessRelationship.is_active.is_(True))
@@ -182,7 +178,7 @@ async def list_suppliers(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(BusinessRelationship.effective_date.desc().nullslast())
+        query.order_by(BusinessRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -209,19 +205,17 @@ async def list_competitors(
 ):
     """List competitor relationships for an entity."""
     query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_COMPETITOR_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_COMPETITOR_TYPES))
     count_query = select(BusinessRelationship).where(
-        (
-            (BusinessRelationship.source_entity_id == entity_id)
-            | (BusinessRelationship.target_entity_id == entity_id)
-        ),
-        BusinessRelationship.relationship_type.in_(_COMPETITOR_TYPES),
-    )
+        or_(
+            BusinessRelationship.source_entity_id == entity_id,
+            BusinessRelationship.target_entity_id == entity_id,
+        )
+    ).where(BusinessRelationship.relationship_type.in_(_COMPETITOR_TYPES))
 
     if active is True:
         query = query.where(BusinessRelationship.is_active.is_(True))
@@ -237,7 +231,7 @@ async def list_competitors(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(BusinessRelationship.effective_date.desc().nullslast())
+        query.order_by(BusinessRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

@@ -129,7 +129,7 @@ async def get_country_risk_ranking(
             CountryProfile,
             CountryRiskScore.country_code == CountryProfile.country_code,
         )
-        .order_by(CountryRiskScore.composite_risk_score.desc().nullslast())
+        .order_by(CountryRiskScore.composite_risk_score.desc().nulls_last())
         .limit(limit)
     )
     result = await session.execute(stmt)
@@ -226,7 +226,7 @@ async def get_country_exposed_companies(
     result = await session.execute(
         select(CompanyCountryExposure)
         .where(CompanyCountryExposure.country_code == country_code.upper())
-        .order_by(CompanyCountryExposure.exposure_pct.desc().nullslast())
+        .order_by(CompanyCountryExposure.exposure_pct.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -255,7 +255,7 @@ async def get_country_events(
     """Get active geopolitical events for a country."""
     # GeopoliticalEvent stores countries_involved as JSONB; we load all and filter
     result = await session.execute(
-        select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nullslast())
+        select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     cc = country_code.upper()
@@ -299,7 +299,7 @@ async def list_geopolitical_events(
     status: str | None = Query(None, description="Filter by status"),
 ):
     """List all active geopolitical events."""
-    stmt = select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nullslast())
+    stmt = select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nulls_last())
     if severity:
         stmt = stmt.where(GeopoliticalEvent.severity == severity.upper())
     if status:
@@ -366,7 +366,7 @@ async def list_scenarios(
     result = await session.execute(
         select(GeopoliticalEvent)
         .where(GeopoliticalEvent.severity.in_(["HIGH", "CRITICAL"]))
-        .order_by(GeopoliticalEvent.start_date.desc().nullslast())
+        .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [
@@ -495,7 +495,7 @@ async def get_inflation_comparison(
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "CPI")
-        .order_by(GlobalMacroIndicator.release_date.desc().nullslast())
+        .order_by(GlobalMacroIndicator.release_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     # Keep only latest per country
@@ -526,7 +526,7 @@ async def get_growth_ranking(
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "GDP_GROWTH")
-        .order_by(GlobalMacroIndicator.release_date.desc().nullslast())
+        .order_by(GlobalMacroIndicator.release_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     seen: dict[str, GlobalMacroIndicator] = {}
@@ -564,7 +564,7 @@ async def get_recession_probability(
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "RECESSION_PROB")
-        .order_by(GlobalMacroIndicator.release_date.desc().nullslast())
+        .order_by(GlobalMacroIndicator.release_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     seen: dict[str, GlobalMacroIndicator] = {}
@@ -599,7 +599,7 @@ async def get_country_indicators(
     stmt = (
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.country_code == country_code.upper())
-        .order_by(GlobalMacroIndicator.release_date.desc().nullslast())
+        .order_by(GlobalMacroIndicator.release_date.desc().nulls_last())
     )
     if indicator_type:
         stmt = stmt.where(GlobalMacroIndicator.indicator_type == indicator_type.upper())
@@ -823,7 +823,7 @@ async def get_commodity_companies(
     result = await session.execute(
         select(CommodityCompanyExposure)
         .where(CommodityCompanyExposure.commodity_code == code.upper())
-        .order_by(CommodityCompanyExposure.sensitivity_score.desc().nullslast())
+        .order_by(CommodityCompanyExposure.sensitivity_score.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -891,7 +891,7 @@ async def run_commodity_scenario(
     result = await session.execute(
         select(CommodityCompanyExposure)
         .where(CommodityCompanyExposure.commodity_code == code.upper())
-        .order_by(CommodityCompanyExposure.sensitivity_score.desc().nullslast())
+        .order_by(CommodityCompanyExposure.sensitivity_score.desc().nulls_last())
     )
     rows = result.scalars().all()
     affected = []
@@ -925,7 +925,7 @@ async def list_us_bills(
     limit: int = Query(50, ge=1, le=200),
 ):
     """List market-moving legislative bills."""
-    stmt = select(LegislativeBill).order_by(LegislativeBill.last_action_date.desc().nullslast()).limit(limit)
+    stmt = select(LegislativeBill).order_by(LegislativeBill.last_action_date.desc().nulls_last()).limit(limit)
     if status:
         stmt = stmt.where(LegislativeBill.status == status.upper())
     result = await session.execute(stmt)
@@ -992,7 +992,7 @@ async def list_regulatory_actions(
     limit: int = Query(50, ge=1, le=200),
 ):
     """List active regulatory rulemaking."""
-    stmt = select(RegulatoryAction).order_by(RegulatoryAction.action_date.desc().nullslast()).limit(limit)
+    stmt = select(RegulatoryAction).order_by(RegulatoryAction.action_date.desc().nulls_last()).limit(limit)
     if agency:
         stmt = stmt.where(RegulatoryAction.agency == agency.upper())
     result = await session.execute(stmt)
@@ -1027,7 +1027,7 @@ async def list_enforcement_actions(
     result = await session.execute(
         select(RegulatoryAction)
         .where(RegulatoryAction.action_type == "ENFORCEMENT")
-        .order_by(RegulatoryAction.action_date.desc().nullslast())
+        .order_by(RegulatoryAction.action_date.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -1060,7 +1060,7 @@ async def list_elections(
     result = await session.execute(
         select(GeopoliticalEvent)
         .where(GeopoliticalEvent.event_type == "ELECTION")
-        .order_by(GeopoliticalEvent.start_date.asc().nullslast())
+        .order_by(GeopoliticalEvent.start_date.asc().nulls_last())
     )
     rows = result.scalars().all()
     return [
@@ -1088,7 +1088,7 @@ async def list_sanctions(
     limit: int = Query(50, ge=1, le=200),
 ):
     """List active sanctions entries."""
-    stmt = select(SanctionsEntry).order_by(SanctionsEntry.effective_date.desc().nullslast()).limit(limit)
+    stmt = select(SanctionsEntry).order_by(SanctionsEntry.effective_date.desc().nulls_last()).limit(limit)
     if program:
         stmt = stmt.where(SanctionsEntry.program == program.upper())
     if status:
@@ -1124,7 +1124,7 @@ async def get_sanctions_by_country(
     result = await session.execute(
         select(SanctionsEntry)
         .where(SanctionsEntry.country_code == country_code.upper())
-        .order_by(SanctionsEntry.effective_date.desc().nullslast())
+        .order_by(SanctionsEntry.effective_date.desc().nulls_last())
     )
     rows = result.scalars().all()
     return [

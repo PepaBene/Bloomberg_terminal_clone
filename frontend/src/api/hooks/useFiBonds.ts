@@ -62,7 +62,7 @@ export function useBondSearch() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post(FI.bonds.search, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fi', 'bonds'] });
+      qc.invalidateQueries({ queryKey: ['fi', 'bonds', 'list'] });
     },
   });
 }

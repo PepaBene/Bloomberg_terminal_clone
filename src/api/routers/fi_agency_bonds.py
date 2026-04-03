@@ -55,7 +55,7 @@ async def list_agency_bonds(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(AgencyBond.maturity_date.desc())
+        query.order_by(AgencyBond.maturity_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -88,7 +88,7 @@ async def bonds_by_agency(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(AgencyBond.maturity_date.desc())
+        query.order_by(AgencyBond.maturity_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

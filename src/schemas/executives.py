@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel
@@ -25,14 +26,14 @@ class ExecutiveResponse(BaseModel):
     executive_id: uuid.UUID
     person_name: str
     bio_text: str | None = None
-    education: list[str] | None = None
+    education: dict | list | None = None
     age: int | None = None
-    total_compensation: float | None = None
-    base_salary: float | None = None
-    bonus: float | None = None
-    stock_awards: float | None = None
-    option_awards: float | None = None
-    other_compensation: float | None = None
+    total_compensation: Decimal | None = None
+    base_salary: Decimal | None = None
+    bonus: Decimal | None = None
+    stock_awards: Decimal | None = None
+    option_awards: Decimal | None = None
+    other_compensation: Decimal | None = None
     roles: list[ExecutiveRoleResponse] = []
     created_at: datetime | None = None
 

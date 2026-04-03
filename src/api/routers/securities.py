@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_pagination, get_session
@@ -13,8 +13,6 @@ from src.api.utils.query_filters import escape_like
 from src.models.entity import Entity
 from src.models.security import (
     EODPrice,
-    EquityDetails,
-    FixedIncomeDetails,
     Security,
     SecurityIdentifier,
 )
@@ -37,6 +35,17 @@ from src.schemas.security import (
 router = APIRouter(prefix="/securities", tags=["Securities"])
 
 
+def _compute_relevance(name: str, query: str) -> float:
+    """Basic relevance score: exact=1.0, starts-with=0.8, contains=0.5."""
+    name_lower = name.lower() if name else ""
+    q_lower = query.lower()
+    if name_lower == q_lower:
+        return 1.0
+    if name_lower.startswith(q_lower):
+        return 0.8
+    return 0.5
+
+
 # ── GET /v1/securities/search ──────────────────────────────────────
 # NOTE: Declared before /{security_id} to avoid path-param collision.
 
@@ -48,14 +57,26 @@ async def search_securities(
     session: AsyncSession = Depends(get_session),
     pagination: PaginationParams = Depends(get_pagination),
 ):
-    """Fuzzy search for securities by name.
-
-    Uses SQL ILIKE as a placeholder until Elasticsearch is wired up.
-    """
+    """Fuzzy search for securities by name."""
     escaped_q = escape_like(q)
-    query = select(Security).where(
-        Security.name.ilike(f"%{escaped_q}%")
-        | Security.short_name.ilike(f"%{escaped_q}%")
+
+    # Left-join SecurityIdentifier to fetch ticker for each result
+    ticker_ident = (
+        select(SecurityIdentifier.security_id, SecurityIdentifier.identifier_value)
+        .where(SecurityIdentifier.identifier_type == "TICKER")
+        .subquery()
+    )
+
+    query = (
+        select(Security, ticker_ident.c.identifier_value.label("ticker"))
+        .outerjoin(
+            ticker_ident,
+            Security.security_id == ticker_ident.c.security_id,
+        )
+        .where(
+            Security.name.ilike(f"%{escaped_q}%")
+            | Security.short_name.ilike(f"%{escaped_q}%")
+        )
     )
 
     if asset_class:
@@ -73,7 +94,7 @@ async def search_securities(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.order_by(Security.name).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    securities = result.scalars().all()
+    rows = result.all()
 
     results = [
         SecuritySearchResult(
@@ -83,12 +104,13 @@ async def search_securities(
             security_type=s.security_type,
             asset_class=s.asset_class,
             status=s.status,
-            ticker=None,  # Would come from identifier join; placeholder
+            ticker=ticker,
             exchange=s.primary_exchange_mic,
-            score=1.0,  # Placeholder score; real scoring via ES later
+            score=_compute_relevance(s.name, q),
         )
-        for s in securities
+        for s, ticker in rows
     ]
+    results.sort(key=lambda r: r.score, reverse=True)
 
     return SecuritySearchResponse(results=results, total=total_count, query=q)
 
@@ -116,6 +138,16 @@ async def get_security(
         )
 
     resp = SecurityResponse.model_validate(security)
+
+    # Fetch ticker from SecurityIdentifier when expand=ticker is requested
+    if "ticker" in expand:
+        ticker_result = await session.execute(
+            select(SecurityIdentifier.identifier_value).where(
+                SecurityIdentifier.security_id == security_id,
+                SecurityIdentifier.identifier_type == "TICKER",
+            )
+        )
+        resp.ticker = ticker_result.scalar_one_or_none()
 
     # Only include expanded fields when explicitly requested
     if "identifiers" not in expand:
@@ -164,13 +196,17 @@ async def list_securities(
     if ticker:
         identifier_filters.append(("TICKER", ticker))
 
-    for id_type, id_value in identifier_filters:
-        sub = select(SecurityIdentifier.security_id).where(
-            SecurityIdentifier.identifier_type == id_type,
-            SecurityIdentifier.identifier_value == id_value,
-        )
-        query = query.where(Security.security_id.in_(sub))
-        count_query = count_query.where(Security.security_id.in_(sub))
+    if identifier_filters:
+        id_conditions = []
+        for id_type, id_value in identifier_filters:
+            sub = select(SecurityIdentifier.security_id).where(
+                SecurityIdentifier.identifier_type == id_type,
+                SecurityIdentifier.identifier_value == id_value,
+            )
+            id_conditions.append(Security.security_id.in_(sub))
+        combined = or_(*id_conditions) if len(id_conditions) > 1 else id_conditions[0]
+        query = query.where(combined)
+        count_query = count_query.where(combined)
 
     # Direct column filters
     if asset_class:
@@ -478,11 +514,18 @@ async def translate_identifiers(
         i.identifier_type: i.identifier_value for i in all_idents
     }
 
-    translations = [
-        TranslateResult(type=t, value=ident_map[t])
-        for t in body.target_types
-        if t in ident_map
-    ]
+    translations = []
+    for t in body.target_types:
+        if t in ident_map:
+            translations.append(TranslateResult(type=t, value=ident_map[t]))
+        else:
+            translations.append(
+                TranslateResult(
+                    type=t,
+                    value=None,
+                    warning=f"Identifier type '{t}' not found for this security",
+                )
+            )
 
     return TranslateResponse(
         source_type=body.source_type,

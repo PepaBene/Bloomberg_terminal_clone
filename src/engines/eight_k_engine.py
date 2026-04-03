@@ -272,7 +272,16 @@ def extract_monetary_figures(text: str) -> list[dict]:
             "context_sentence": _get_context_sentence(text, match.start(), match.end()),
         })
 
-    return results
+    # Deduplicate by amount value
+    seen_amounts: set[float] = set()
+    deduplicated: list[dict] = []
+    for entry in results:
+        amt = entry["amount_normalized"]
+        if amt not in seen_amounts:
+            seen_amounts.add(amt)
+            deduplicated.append(entry)
+
+    return deduplicated
 
 
 def extract_key_dates(text: str) -> list[dict]:
@@ -304,18 +313,22 @@ def extract_key_dates(text: str) -> list[dict]:
         for match in pattern.finditer(text):
             date_str = match.group(1)
             parsed = _try_parse_date(date_str)
-            results.append({
-                "date_str": date_str,
-                "date_parsed": parsed,
-                "label": labels[idx],
-                "context": _get_context_sentence(text, match.start(), match.end()),
-            })
+            if parsed is not None:
+                results.append({
+                    "date_str": date_str,
+                    "date_parsed": parsed,
+                    "label": labels[idx],
+                    "context": _get_context_sentence(text, match.start(), match.end()),
+                })
 
     return results
 
 
 def _try_parse_date(date_str: str) -> str | None:
-    """Attempt to parse a date string into ISO format."""
+    """Attempt to parse a date string into ISO format.
+
+    Returns None if the date string cannot be parsed by any known format.
+    """
     for fmt in _DATE_PARSE_FORMATS:
         try:
             dt = datetime.strptime(date_str.replace(",", ""), fmt)
@@ -347,7 +360,7 @@ def extract_key_people(text: str) -> list[dict]:
         - action (str): "appointed", "resigned", or "terminated".
     """
     results: list[dict] = []
-    seen_names: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
 
     action_keywords = ["appointed", "resigned", "terminated", "appointed"]
 
@@ -357,10 +370,11 @@ def extract_key_people(text: str) -> list[dict]:
             role = match.group(2).strip()
             action = action_keywords[idx]
 
-            # Deduplicate by name
-            if name in seen_names:
+            # Deduplicate by (name, role) to preserve role diversity
+            key = (name, role)
+            if key in seen_keys:
                 continue
-            seen_names.add(name)
+            seen_keys.add(key)
 
             results.append({
                 "name": name,
@@ -457,14 +471,17 @@ def assess_event_materiality(
     item_number: str,
     monetary: list[dict] | None = None,
     text: str = "",
+    high_threshold: float = 1_000_000_000,
+    medium_threshold: float = 100_000_000,
 ) -> str:
     """Assess the materiality level of an 8-K event.
 
     Rules
     -----
     - CRITICAL: Item 4.02 (restatement) always critical, or any item with
-      monetary figures exceeding $1 billion.
-    - HIGH: Priority 1 items, or monetary figures exceeding $100 million.
+      monetary figures exceeding ``high_threshold`` (default $1B).
+    - HIGH: Priority 1 items, or monetary figures exceeding ``medium_threshold``
+      (default $100M).
     - MEDIUM: Priority 2 items.
     - LOW: Priority 3 items (daily digest).
 
@@ -476,6 +493,10 @@ def assess_event_materiality(
         Output of ``extract_monetary_figures``.
     text : str
         Raw item text (reserved for future keyword analysis).
+    high_threshold : float
+        Monetary amount at or above which the event is CRITICAL (default $1B).
+    medium_threshold : float
+        Monetary amount at or above which the event is HIGH (default $100M).
 
     Returns
     -------
@@ -495,10 +516,10 @@ def assess_event_materiality(
         if m["amount_normalized"] > max_amount:
             max_amount = m["amount_normalized"]
 
-    if max_amount >= 1_000_000_000:
+    if max_amount >= high_threshold:
         return "CRITICAL"
 
-    if max_amount >= 100_000_000:
+    if max_amount >= medium_threshold:
         return "HIGH"
 
     # Fall back to priority-based assessment

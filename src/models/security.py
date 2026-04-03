@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,11 +62,17 @@ class Security(TimestampMixin, Base):
     treasury_cusip: Mapped[str | None] = mapped_column(String(9), index=True)
 
     # Relationships
-    identifiers = relationship("SecurityIdentifier", back_populates="security", lazy="selectin")
-    equity_details = relationship("EquityDetails", back_populates="security", uselist=False, lazy="selectin")
-    fixed_income_details = relationship("FixedIncomeDetails", back_populates="security", uselist=False, lazy="selectin")
-    credit_ratings = relationship("CreditRating", backref="security", lazy="selectin")
-    call_put_schedule = relationship("CallPutSchedule", backref="security", lazy="selectin")
+    identifiers = relationship(
+        "SecurityIdentifier", back_populates="security", lazy="selectin", cascade="all, delete-orphan"
+    )
+    equity_details = relationship(
+        "EquityDetails", back_populates="security", uselist=False, lazy="selectin", cascade="all, delete-orphan"
+    )
+    fixed_income_details = relationship(
+        "FixedIncomeDetails", back_populates="security", uselist=False, lazy="selectin", cascade="all, delete-orphan"
+    )
+    credit_ratings = relationship("CreditRating", backref="security", lazy="selectin", cascade="all, delete-orphan")
+    call_put_schedule = relationship("CallPutSchedule", backref="security", lazy="selectin", cascade="all, delete-orphan")
 
 
 class SecurityIdentifier(Base):
@@ -241,7 +247,7 @@ class EODPrice(Base):
     low: Mapped[float | None] = mapped_column(Numeric(18, 6))
     close: Mapped[float | None] = mapped_column(Numeric(18, 6))
     close_adjusted: Mapped[float | None] = mapped_column(Numeric(18, 6))
-    volume: Mapped[int | None] = mapped_column(Numeric(20, 0))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
     currency: Mapped[str | None] = mapped_column(
         String(3), ForeignKey("currencies.currency_code")
     )

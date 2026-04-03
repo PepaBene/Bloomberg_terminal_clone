@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -83,12 +83,19 @@ class FinancialPeriod(TimestampMixin, Base):
     auditor_name: Mapped[str | None] = mapped_column(String(200))
 
     # Relationships
-    income_statement = relationship("IncomeStatement", back_populates="period", uselist=False, lazy="selectin")
-    balance_sheet = relationship("BalanceSheet", back_populates="period", uselist=False, lazy="selectin")
-    cash_flow = relationship("CashFlowStatement", back_populates="period", uselist=False, lazy="selectin")
+    income_statement = relationship(
+        "IncomeStatement", back_populates="period", uselist=False, lazy="selectin", cascade="all, delete-orphan"
+    )
+    balance_sheet = relationship(
+        "BalanceSheet", back_populates="period", uselist=False, lazy="selectin", cascade="all, delete-orphan"
+    )
+    cash_flow = relationship(
+        "CashFlowStatement", back_populates="period", uselist=False, lazy="selectin", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("uq_financial_period", "entity_id", "period_end_date", "data_version", unique=True),
+        CheckConstraint("data_version IN ('AS_REPORTED', 'RESTATED', 'PRELIMINARY')", name="ck_financial_period_data_version"),
     )
 
 
@@ -351,4 +358,5 @@ class KPIValue(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_kpi_values_entity_period", "entity_id", "period_id"),
+        Index("idx_kpi_values_kpi_period", "kpi_id", "period_id"),
     )

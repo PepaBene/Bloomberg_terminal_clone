@@ -21,7 +21,7 @@ class MarketMoversSnapshot(TimestampMixin, Base):
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False)
     sector: Mapped[str | None] = mapped_column(String(50))
-    rankings: Mapped[dict | None] = mapped_column(JSONB)
+    rankings: Mapped[list | None] = mapped_column(JSONB)
 
     __table_args__ = (
         Index("idx_mm_date_category", "snapshot_date", "category"),

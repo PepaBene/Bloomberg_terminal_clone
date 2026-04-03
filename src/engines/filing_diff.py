@@ -10,7 +10,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import StrEnum
 from html.parser import HTMLParser
+
+
+class ChangeClassification(StrEnum):
+    SUBSTANTIVE = "SUBSTANTIVE"
+    BOILERPLATE = "BOILERPLATE"
+    NUMERICAL_ONLY = "NUMERICAL_ONLY"
+    FORMATTING = "FORMATTING"
 
 
 # ── Section Key Definitions ──────────────────────────────────────────────
@@ -341,7 +349,7 @@ def align_paragraphs(
             if sim > best_sim:
                 best_sim = sim
                 best_j = j
-        if best_j is not None and best_sim >= jaccard_threshold:
+        if best_j is not None and best_sim >= match_threshold:
             match_pairs.append((i, best_j, best_sim))
 
     # Sort by similarity descending, resolve conflicts (greedy)
@@ -433,7 +441,7 @@ def _is_numerical_only_change(old_text: str, new_text: str) -> bool:
         for pat in NUMERICAL_PATTERNS:
             result = pat.sub("", result)
         # Also strip standalone numbers
-        result = re.sub(r"\b\d[\d,\.]*\b", "", result)
+        result = re.sub(r"\b\d[\d,.]*\b", "", result)
         return re.sub(r"\s+", " ", result).strip()
 
     stripped_old = strip_numbers(old_text)
@@ -456,21 +464,21 @@ def classify_change(
         One of: SUBSTANTIVE, BOILERPLATE, NUMERICAL, STRUCTURAL
     """
     if old_text is None or new_text is None:
-        return "SUBSTANTIVE"  # Added or removed paragraphs are substantive
+        return ChangeClassification.SUBSTANTIVE  # Added or removed paragraphs are substantive
 
     if not old_text.strip() or not new_text.strip():
-        return "STRUCTURAL"
+        return ChangeClassification.FORMATTING
 
     # Check for boilerplate changes first
     if _is_boilerplate_change(old_text, new_text):
-        return "BOILERPLATE"
+        return ChangeClassification.BOILERPLATE
 
     # Check for numerical-only changes
     if _is_numerical_only_change(old_text, new_text):
-        return "NUMERICAL"
+        return ChangeClassification.NUMERICAL_ONLY
 
     # Everything else is substantive
-    return "SUBSTANTIVE"
+    return ChangeClassification.SUBSTANTIVE
 
 
 @dataclass

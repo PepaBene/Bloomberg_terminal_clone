@@ -22,7 +22,8 @@ from src.models.reference import (
     TradingCalendar,
     TradingDay,
 )
-from src.schemas.common import PaginatedMeta, PaginatedResponse, PaginationParams
+from src.api.utils.pagination import build_paginated_meta
+from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.reference import (
     CountryResponse,
     CurrencyResponse,
@@ -80,14 +81,7 @@ async def list_countries(
 
     return PaginatedResponse(
         data=[CountryResponse.model_validate(c) for c in countries],
-        meta=PaginatedMeta(
-            request_id="",  # Filled by middleware
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -147,14 +141,7 @@ async def list_currencies(
 
     return PaginatedResponse(
         data=[CurrencyResponse.model_validate(c) for c in currencies],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -209,14 +196,7 @@ async def list_exchanges(
 
     return PaginatedResponse(
         data=[ExchangeResponse.model_validate(e) for e in exchanges],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -272,14 +252,7 @@ async def list_gics(
 
     return PaginatedResponse(
         data=[GICSResponse.model_validate(g) for g in gics],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -305,14 +278,15 @@ async def list_gics_sectors(session: AsyncSession = Depends(get_session)):
 @router.get("/gics/{code}", response_model=GICSResponse)
 async def get_gics(code: str, session: AsyncSession = Depends(get_session)):
     """Get a single GICS classification by sub-industry code."""
-    cache_key = cache.make_key("ref", "gics", code)
+    normalized_code = code.strip().upper()
+    cache_key = cache.make_key("ref", "gics", normalized_code)
     cached = await cache.get(cache_key)
     if cached:
         return GICSResponse(**cached)
 
     result = await session.execute(
         select(GICSClassification).where(
-            GICSClassification.sub_industry_code == code
+            GICSClassification.sub_industry_code == normalized_code
         )
     )
     gics = result.scalar_one_or_none()
@@ -347,14 +321,7 @@ async def list_sic_codes(
 
     return PaginatedResponse(
         data=[SICResponse.model_validate(c) for c in codes],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -378,14 +345,7 @@ async def list_naics_codes(
 
     return PaginatedResponse(
         data=[NAICSResponse.model_validate(c) for c in codes],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 
@@ -434,14 +394,7 @@ async def list_trading_days(
 
     return PaginatedResponse(
         data=[TradingDayResponse.model_validate(d) for d in days],
-        meta=PaginatedMeta(
-            request_id="",
-            processing_time_ms=0,
-            total_count=total_count,
-            page=pagination.page,
-            page_size=pagination.page_size,
-            total_pages=(total_count + pagination.page_size - 1) // pagination.page_size,
-        ),
+        meta=build_paginated_meta(total_count, pagination),
     )
 
 

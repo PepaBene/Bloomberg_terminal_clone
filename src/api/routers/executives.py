@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
+from src.api.utils.query_filters import escape_like
 from src.models.executives import Executive, ExecutiveRole
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.executives import ExecutiveResponse
@@ -35,8 +36,8 @@ async def list_entity_executives(
 
     exec_ids_subq = role_query.distinct().subquery()
 
-    query = select(Executive).where(Executive.executive_id.in_(select(exec_ids_subq)))
-    count_query = select(Executive).where(Executive.executive_id.in_(select(exec_ids_subq)))
+    query = select(Executive).where(Executive.executive_id.in_(select(exec_ids_subq.c.executive_id)))
+    count_query = select(Executive).where(Executive.executive_id.in_(select(exec_ids_subq.c.executive_id)))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())
@@ -44,7 +45,7 @@ async def list_entity_executives(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.offset(offset).limit(pagination.page_size)
+    query = query.order_by(Executive.person_name).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     executives = result.scalars().all()
 
@@ -68,8 +69,9 @@ async def search_executives(
     count_query = select(Executive)
 
     if name:
-        query = query.where(Executive.person_name.ilike(f"%{name}%"))
-        count_query = count_query.where(Executive.person_name.ilike(f"%{name}%"))
+        escaped_name = escape_like(name)
+        query = query.where(Executive.person_name.ilike(f"%{escaped_name}%"))
+        count_query = count_query.where(Executive.person_name.ilike(f"%{escaped_name}%"))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())
@@ -77,7 +79,7 @@ async def search_executives(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.offset(offset).limit(pagination.page_size)
+    query = query.order_by(Executive.person_name).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     executives = result.scalars().all()
 

@@ -34,7 +34,7 @@ class Fund(TimestampMixin, Base):
     top_10_concentration: Mapped[float | None] = mapped_column(Numeric(8, 4))
     expense_ratio: Mapped[float | None] = mapped_column(Numeric(8, 4))
 
-    holdings = relationship("FundHolding", back_populates="fund", lazy="dynamic")
+    holdings = relationship("FundHolding", back_populates="fund", lazy="selectin")
 
 
 class FundHolding(TimestampMixin, Base):

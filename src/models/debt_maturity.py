@@ -22,7 +22,9 @@ class DebtMaturityProfile(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
-    filing_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    filing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sec_filings.filing_id")
+    )
 
     # Refinancing risk indicators
     debt_maturing_1yr: Mapped[float | None] = mapped_column(Numeric(20, 2))

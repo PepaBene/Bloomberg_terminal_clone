@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -55,10 +56,10 @@ class EntityResponse(BaseModel):
     gics_sub_industry: str | None = None
     ultimate_parent_id: uuid.UUID | None = None
     immediate_parent_id: uuid.UUID | None = None
-    ownership_percentage: float | None = None
+    ownership_percentage: Decimal | None = None
     consolidation_type: str | None = None
     source: str
-    confidence_score: float | None = None
+    confidence_score: Decimal | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -89,7 +90,7 @@ class EntityRelationshipResponse(BaseModel):
     relationship_type: str
     effective_date: date | None = None
     termination_date: date | None = None
-    ownership_percentage: float | None = None
+    ownership_percentage: Decimal | None = None
     relationship_details: dict | None = None
     source: str | None = None
     source_document: str | None = None
@@ -115,7 +116,7 @@ class EntityHistoryResponse(BaseModel):
     ultimate_parent_id: uuid.UUID | None = None
     immediate_parent_id: uuid.UUID | None = None
     source: str | None = None
-    confidence_score: float | None = None
+    confidence_score: Decimal | None = None
     valid_from: datetime
     valid_to: datetime | None = None
     revision_number: int
@@ -130,7 +131,7 @@ class EntityHierarchyNode(BaseModel):
     entity_type: str
     status: str
     relationship_type: str | None = None
-    ownership_percentage: float | None = None
+    ownership_percentage: Decimal | None = None
     children: list["EntityHierarchyNode"] = []
 
 
@@ -150,7 +151,7 @@ class EntitySearchResult(BaseModel):
     entity_type: str
     status: str
     incorporation_country: str | None = None
-    score: float = 0.0
+    score: Decimal = Decimal("0.0")
 
 
 class EntitySearchResponse(BaseModel):
@@ -168,7 +169,7 @@ class EntityResolveRequest(BaseModel):
 
 class EntityResolveResponse(BaseModel):
     matched_entity_id: uuid.UUID | None = None
-    confidence: float
+    confidence: Decimal
     match_method: str | None = None
     status: str  # MATCHED, UNCERTAIN, NEW
 

@@ -170,7 +170,7 @@ def _build_diff_response(
     ]
 
     ai_summaries = [r.ai_summary for r in rows if r.ai_summary]
-    combined_summary = " | ".join(ai_summaries) if ai_summaries else None
+    combined_summary = " /// ".join(ai_summaries) if ai_summaries else None
 
     return FilingDiffResponse(
         entity_id=entity_id,

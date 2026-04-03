@@ -87,6 +87,7 @@ class YieldCurveSnapshot(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_yc_date_type", "curve_date", "curve_type", unique=True),
+        Index("idx_yc_curve_type", "curve_type"),
     )
 
 

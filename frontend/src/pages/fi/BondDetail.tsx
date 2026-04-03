@@ -43,82 +43,43 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Default empty data (populated by API) -----------------------------------
 
 const bond = {
-  issuer: 'Apple Inc.',
-  cusip: '037833DX3',
-  coupon: '3.250%',
-  maturity: '2029-02-23',
-  rating: 'AA+ / Aaa',
-  issueSize: '$2,000M',
+  issuer: '',
+  cusip: '',
+  coupon: '',
+  maturity: '',
+  rating: '',
+  issueSize: '',
   currency: 'USD',
-  seniority: 'Senior Unsecured',
-  couponFreq: 'Semi-Annual',
+  seniority: '',
+  couponFreq: '',
 };
 
-const pricing = [
-  { label: 'Price', value: '101.450' },
-  { label: 'Yield (YTM)', value: '2.872%' },
-  { label: 'Yield (YTW)', value: '2.845%' },
-  { label: 'OAS', value: '42 bps' },
-  { label: 'Z-Spread', value: '48 bps' },
-  { label: 'Modified Duration', value: '2.78' },
-  { label: 'Convexity', value: '0.09' },
-  { label: 'DV01', value: '$0.0278' },
-];
+const pricing: { label: string; value: string }[] = [];
 
-const comparables = [
-  { issuer: 'MSFT 3.125% 2028', price: 100.82, ytm: 2.712, oas: 35, rating: 'AAA/Aaa' },
-  { issuer: 'GOOGL 3.375% 2029', price: 101.10, ytm: 2.945, oas: 47, rating: 'AA+/Aa2' },
-  { issuer: 'AMZN 3.600% 2029', price: 101.95, ytm: 3.015, oas: 52, rating: 'AA/Aa3' },
-];
-
-// --- BondTermsPanel data -----------------------------------------------------
+const comparables: { issuer: string; price: number; ytm: number; oas: number; rating: string }[] = [];
 
 const bondTerms: BondTerms = {
-  cusip: '037833DX3',
-  isin: 'US037833DX30',
-  coupon: 3.25,
-  frequency: 'Semi-Annual',
-  maturity: '2029-02-23',
-  issuer: 'Apple Inc.',
-  rating: 'AA+ / Aaa',
-  callSchedule: [
-    { date: '2028-11-23', price: 100.25 },
-    { date: '2029-01-23', price: 100.00 },
-  ],
-  covenants: [
-    { type: 'Negative Pledge', description: 'Limitation on liens on principal property', status: 'Active' },
-    { type: 'Change of Control', description: 'Put at 101 upon change of control', status: 'Active' },
-  ],
+  cusip: '',
+  isin: '',
+  coupon: 0,
+  frequency: '',
+  maturity: '',
+  issuer: '',
+  rating: '',
+  callSchedule: [],
+  covenants: [],
 };
 
-// --- SpreadHistoryChart data for this bond -----------------------------------
-
-function generateBondSpreadHistory(): SpreadDataPoint[] {
-  const data: SpreadDataPoint[] = [];
-  let oas = 58;
-  const start = new Date('2025-03-28');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    oas += (Math.random() - 0.52) * 2;
-    oas = Math.max(25, Math.min(75, oas));
-    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
-  }
-  return data;
-}
-
-const bondSpreadHistory = generateBondSpreadHistory();
+const bondSpreadHistory: SpreadDataPoint[] = [];
 
 // --- Component ---------------------------------------------------------------
 
 export default function BondDetail() {
   const { cusip } = useParams<{ cusip: string }>();
-  const resolvedCusip = cusip ?? '037833DX3';
+  const resolvedCusip = cusip ?? '';
 
   // --- API hooks with mock fallbacks ---
   const { data: apiBondDetail } = useBondDetail(resolvedCusip);
@@ -149,22 +110,16 @@ export default function BondDetail() {
     covenants: resolvedCovenants,
   };
 
-  const cashFlows = (apiCashFlows as any[]) ?? [
-    { date: '2026-08-23', principal: 0, interest: 16250, total: 16250 },
-    { date: '2027-02-23', principal: 0, interest: 16250, total: 16250 },
-    { date: '2027-08-23', principal: 0, interest: 16250, total: 16250 },
-    { date: '2028-02-23', principal: 0, interest: 16250, total: 16250 },
-    { date: '2029-02-23', principal: 1000000, interest: 16250, total: 1016250 },
-  ];
+  const cashFlows = (apiCashFlows as any[]) ?? [];
 
   // Duration / Convexity / OAS KPI data from API with mock fallbacks
   const durationKpis = [
-    { label: 'Modified Duration', value: (apiBondDetail as any)?.modifiedDuration ?? '2.78' },
-    { label: 'Effective Duration', value: (apiBondDetail as any)?.effectiveDuration ?? '2.74' },
-    { label: 'Convexity', value: (apiBondDetail as any)?.convexity ?? '0.09' },
-    { label: 'OAS', value: (apiBondDetail as any)?.oas ?? '42 bps' },
-    { label: 'Z-Spread', value: (apiBondDetail as any)?.zSpread ?? '48 bps' },
-    { label: 'DV01', value: (apiBondDetail as any)?.dv01 ?? '$0.0278' },
+    { label: 'Modified Duration', value: (apiBondDetail as any)?.modifiedDuration ?? '—' },
+    { label: 'Effective Duration', value: (apiBondDetail as any)?.effectiveDuration ?? '—' },
+    { label: 'Convexity', value: (apiBondDetail as any)?.convexity ?? '—' },
+    { label: 'OAS', value: (apiBondDetail as any)?.oas ?? '—' },
+    { label: 'Z-Spread', value: (apiBondDetail as any)?.zSpread ?? '—' },
+    { label: 'DV01', value: (apiBondDetail as any)?.dv01 ?? '—' },
   ];
 
   return (

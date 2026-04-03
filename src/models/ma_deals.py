@@ -62,13 +62,13 @@ class MandADeal(TimestampMixin, Base):
     expected_completion: Mapped[date | None] = mapped_column(Date)
 
     # Advisors (JSONB lists)
-    acquirer_financial_advisors: Mapped[dict | None] = mapped_column(JSONB)
-    target_financial_advisors: Mapped[dict | None] = mapped_column(JSONB)
-    acquirer_legal_counsel: Mapped[dict | None] = mapped_column(JSONB)
-    target_legal_counsel: Mapped[dict | None] = mapped_column(JSONB)
+    acquirer_financial_advisors: Mapped[list | None] = mapped_column(JSONB)
+    target_financial_advisors: Mapped[list | None] = mapped_column(JSONB)
+    acquirer_legal_counsel: Mapped[list | None] = mapped_column(JSONB)
+    target_legal_counsel: Mapped[list | None] = mapped_column(JSONB)
 
     # Regulatory
-    regulatory_approvals_required: Mapped[dict | None] = mapped_column(JSONB)
+    regulatory_approvals_required: Mapped[list | None] = mapped_column(JSONB)
     regulatory_status: Mapped[str | None] = mapped_column(String(30))
 
     # Sector
@@ -76,7 +76,7 @@ class MandADeal(TimestampMixin, Base):
     target_gics_industry: Mapped[str | None] = mapped_column(String(100))
 
     # Source
-    source_filings: Mapped[dict | None] = mapped_column(JSONB)
+    source_filings: Mapped[list | None] = mapped_column(JSONB)
     primary_source: Mapped[str | None] = mapped_column(String(20))
     corporate_action_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("corporate_actions.action_id")

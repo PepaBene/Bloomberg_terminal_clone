@@ -22,7 +22,9 @@ class CapitalStructure(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
-    filing_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    filing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sec_filings.filing_id")
+    )
 
     # Aggregate metrics
     total_debt: Mapped[float | None] = mapped_column(Numeric(20, 2))
@@ -39,7 +41,9 @@ class CapitalStructure(TimestampMixin, Base):
     confidence_score: Mapped[float | None] = mapped_column(Numeric(4, 3))
 
     # Relationships
-    tranches = relationship("DebtTranche", back_populates="capital_structure", lazy="selectin")
+    tranches = relationship(
+        "DebtTranche", back_populates="capital_structure", lazy="selectin", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_capstruct_entity_date", "entity_id", "as_of_date"),

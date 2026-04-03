@@ -91,7 +91,7 @@ async def get_recent_theses(
     """Recently generated theses across all entities."""
     result = await session.execute(
         select(InvestmentThesis)
-        .order_by(InvestmentThesis.created_at.desc().nullslast())
+        .order_by(InvestmentThesis.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -144,7 +144,7 @@ async def get_theses_by_conviction(
     result = await session.execute(
         select(InvestmentThesis)
         .where(InvestmentThesis.conviction_level == level)
-        .order_by(InvestmentThesis.created_at.desc().nullslast())
+        .order_by(InvestmentThesis.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -164,7 +164,7 @@ async def get_theses_by_analyst(
     result = await session.execute(
         select(InvestmentThesis)
         .where(InvestmentThesis.analyst_id == analyst_id)
-        .order_by(InvestmentThesis.created_at.desc().nullslast())
+        .order_by(InvestmentThesis.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

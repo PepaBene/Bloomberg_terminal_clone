@@ -46,8 +46,8 @@ class IPOEvent(TimestampMixin, Base):
     return_vs_offer_pct: Mapped[float | None] = mapped_column(Numeric(8, 4))
 
     # Underwriters
-    lead_underwriters: Mapped[dict | None] = mapped_column(JSONB)
-    co_managers: Mapped[dict | None] = mapped_column(JSONB)
+    lead_underwriters: Mapped[list | None] = mapped_column(JSONB)
+    co_managers: Mapped[list | None] = mapped_column(JSONB)
 
     # Company info
     company_description: Mapped[str | None] = mapped_column(Text)
@@ -62,7 +62,7 @@ class IPOEvent(TimestampMixin, Base):
     withdrawal_reason: Mapped[str | None] = mapped_column(Text)
 
     # Source
-    source_filings: Mapped[dict | None] = mapped_column(JSONB)
+    source_filings: Mapped[list | None] = mapped_column(JSONB)
 
     __table_args__ = (
         Index("idx_ipo_entity", "entity_id"),

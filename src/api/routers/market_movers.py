@@ -41,10 +41,10 @@ async def get_market_movers(
     row = result.scalar_one_or_none()
 
     if not row:
-        return MarketMoversResponse(
-            snapshot_date=snapshot_date or date.today(),
-            category=category.upper(),
-            movers=[],
+        raise HTTPException(
+            status_code=404,
+            detail=f"No market movers data found for category '{category.upper()}'"
+            + (f" on {snapshot_date}" if snapshot_date else ""),
         )
 
     movers = []
@@ -86,8 +86,9 @@ async def get_movers_summary(
 
     counts = {"TOP_GAINERS": 0, "TOP_LOSERS": 0, "MOST_ACTIVE": 0}
     snap_date = snapshot_date or date.today()
-    for row in rows:
-        snap_date = row.snapshot_date
+    for i, row in enumerate(rows):
+        if i == 0:
+            snap_date = row.snapshot_date
         if row.category in counts and row.rankings:
             counts[row.category] = len(row.rankings)
 

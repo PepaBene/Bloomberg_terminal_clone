@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
 from src.models.capital_structure import CapitalStructure, DebtTranche
+from src.models.entity import Entity
 from src.schemas.capital_structure import (
     CapitalStructureResponse,
     CapitalStructureSummaryResponse,
@@ -30,6 +31,13 @@ async def get_capital_structure(
     as_of: date | None = Query(None, description="Point-in-time date"),
 ):
     """Return the most recent capital structure for an entity."""
+    # First verify the entity exists
+    ent_result = await session.execute(
+        select(Entity.entity_id).where(Entity.entity_id == entity_id)
+    )
+    if not ent_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
+
     query = (
         select(CapitalStructure)
         .where(CapitalStructure.entity_id == entity_id)
@@ -42,7 +50,7 @@ async def get_capital_structure(
     result = await session.execute(query)
     cs = result.scalar_one_or_none()
     if not cs:
-        raise HTTPException(status_code=404, detail=f"No capital structure found for entity '{entity_id}'")
+        raise HTTPException(status_code=404, detail=f"No capital structure data found for entity '{entity_id}'")
     return CapitalStructureResponse.model_validate(cs)
 
 
@@ -75,7 +83,7 @@ async def list_debt_tranches(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(DebtTranche.seniority_rank.asc().nullslast())
+        query.order_by(DebtTranche.seniority_rank.asc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

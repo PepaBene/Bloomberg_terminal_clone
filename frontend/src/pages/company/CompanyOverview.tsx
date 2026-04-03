@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Company Overview — Main Company Analysis Page
 // ---------------------------------------------------------------------------
-import { useMemo } from 'react';
+// React imports (useMemo removed — no longer needed after OHLC mock removal)
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -54,23 +54,23 @@ interface CompanyInfo {
   changePct: number;
 }
 
-const MOCK_COMPANY: CompanyInfo = {
-  name: 'Apple Inc.',
-  ticker: 'AAPL',
-  exchange: 'NASDAQ',
-  sector: 'Information Technology',
-  industry: 'Technology Hardware, Storage & Peripherals',
-  price: 178.72,
-  changePct: -0.34,
+const DEFAULT_COMPANY: CompanyInfo = {
+  name: '',
+  ticker: '—',
+  exchange: '',
+  sector: '',
+  industry: '',
+  price: 0,
+  changePct: 0,
 };
 
-const MOCK_METRICS: MetricItem[] = [
-  { label: 'Market Cap',    value: '$2.78T' },
-  { label: 'P/E (TTM)',     value: '28.6x' },
-  { label: 'EV/EBITDA',     value: '22.1x' },
-  { label: 'Rev Growth',    value: '+5.2%', subValue: 'YoY', change: 5.2 },
-  { label: 'ROE',           value: '156.8%' },
-  { label: 'Div Yield',     value: '0.55%' },
+const DEFAULT_METRICS: MetricItem[] = [
+  { label: 'Market Cap',    value: '—' },
+  { label: 'P/E (TTM)',     value: '—' },
+  { label: 'EV/EBITDA',     value: '—' },
+  { label: 'Rev Growth',    value: '—' },
+  { label: 'ROE',           value: '—' },
+  { label: 'Div Yield',     value: '—' },
 ];
 
 interface QuarterlyFinancial {
@@ -82,12 +82,7 @@ interface QuarterlyFinancial {
   eps: number;
 }
 
-const MOCK_QUARTERLY: QuarterlyFinancial[] = [
-  { period: 'Q1 2026', revenue: 119500, netIncome: 33916, ebitda: 43200, fcf: 32000, eps: 2.18 },
-  { period: 'Q4 2025', revenue: 94930,  netIncome: 24780, ebitda: 32500, fcf: 25700, eps: 1.64 },
-  { period: 'Q3 2025', revenue: 85777,  netIncome: 22956, ebitda: 28900, fcf: 24300, eps: 1.46 },
-  { period: 'Q2 2025', revenue: 81797,  netIncome: 21448, ebitda: 27100, fcf: 24100, eps: 1.40 },
-];
+const DEFAULT_QUARTERLY: QuarterlyFinancial[] = [];
 
 interface QualityScoreItem {
   name: string;
@@ -96,49 +91,44 @@ interface QualityScoreItem {
   classification: string;
 }
 
-const MOCK_QUALITY: QualityScoreItem[] = [
-  { name: 'Piotroski F-Score', value: 7, maxValue: 9, classification: 'Strong' },
-  { name: 'Altman Z-Score',    value: 5.82, maxValue: 10, classification: 'Safe' },
-  { name: 'Composite Quality', value: 82, maxValue: 100, classification: 'Excellent' },
+const DEFAULT_QUALITY: QualityScoreItem[] = [
+  { name: 'Piotroski F-Score', value: 0, maxValue: 9, classification: '—' },
+  { name: 'Altman Z-Score',    value: 0, maxValue: 10, classification: '—' },
+  { name: 'Composite Quality', value: 0, maxValue: 100, classification: '—' },
 ];
 
 // Piotroski sub-score breakdown
 const PIOTROSKI_BREAKDOWN: ScoreItem[] = [
-  { name: 'Positive Net Income', score: 1, max: 1 },
-  { name: 'Positive Operating CF', score: 1, max: 1 },
-  { name: 'ROA Increasing', score: 1, max: 1 },
-  { name: 'CF > Net Income', score: 1, max: 1 },
+  { name: 'Positive Net Income', score: 0, max: 1 },
+  { name: 'Positive Operating CF', score: 0, max: 1 },
+  { name: 'ROA Increasing', score: 0, max: 1 },
+  { name: 'CF > Net Income', score: 0, max: 1 },
   { name: 'Lower Leverage', score: 0, max: 1 },
-  { name: 'Higher Current Ratio', score: 1, max: 1 },
+  { name: 'Higher Current Ratio', score: 0, max: 1 },
   { name: 'No Dilution', score: 0, max: 1 },
-  { name: 'Higher Gross Margin', score: 1, max: 1 },
-  { name: 'Higher Asset Turnover', score: 1, max: 1 },
+  { name: 'Higher Gross Margin', score: 0, max: 1 },
+  { name: 'Higher Asset Turnover', score: 0, max: 1 },
 ];
 
 const ALTMAN_BREAKDOWN: ScoreItem[] = [
-  { name: 'Working Capital / Assets', score: 1, max: 1, description: '0.12' },
-  { name: 'Retained Earnings / Assets', score: 1, max: 1, description: '0.85' },
-  { name: 'EBIT / Assets', score: 1, max: 1, description: '0.34' },
-  { name: 'Mkt Cap / Total Liabilities', score: 1, max: 1, description: '9.82' },
-  { name: 'Revenue / Assets', score: 1, max: 1, description: '1.11' },
+  { name: 'Working Capital / Assets', score: 0, max: 1, description: '—' },
+  { name: 'Retained Earnings / Assets', score: 0, max: 1, description: '—' },
+  { name: 'EBIT / Assets', score: 0, max: 1, description: '—' },
+  { name: 'Mkt Cap / Total Liabilities', score: 0, max: 1, description: '—' },
+  { name: 'Revenue / Assets', score: 0, max: 1, description: '—' },
 ];
 
-const MOCK_CORP_ACTIONS = [
-  { date: '2026-04-25', type: 'Earnings', description: 'Q2 2026 Earnings Release', status: 'Upcoming' },
-  { date: '2026-05-08', type: 'Dividend', description: 'Quarterly Dividend $0.25/share — Ex-Date', status: 'Upcoming' },
-  { date: '2026-05-15', type: 'Dividend', description: 'Quarterly Dividend $0.25/share — Pay Date', status: 'Upcoming' },
-  { date: '2026-03-15', type: 'Buyback', description: '$90B share repurchase program authorized', status: 'Active' },
-];
+const DEFAULT_CORP_ACTIONS: { date: string; type: string; description: string; status: string }[] = [];
 
 const BENEISH_BREAKDOWN: ScoreItem[] = [
-  { name: 'Days Sales in Receivables', score: 1, max: 1, description: '1.02' },
-  { name: 'Gross Margin Index', score: 1, max: 1, description: '0.98' },
-  { name: 'Asset Quality Index', score: 1, max: 1, description: '1.01' },
-  { name: 'Sales Growth Index', score: 1, max: 1, description: '1.05' },
-  { name: 'Depreciation Index', score: 0, max: 1, description: '1.15' },
-  { name: 'SGA Index', score: 1, max: 1, description: '0.97' },
-  { name: 'Leverage Index', score: 1, max: 1, description: '1.02' },
-  { name: 'Total Accruals', score: 1, max: 1, description: '-0.04' },
+  { name: 'Days Sales in Receivables', score: 0, max: 1, description: '—' },
+  { name: 'Gross Margin Index', score: 0, max: 1, description: '—' },
+  { name: 'Asset Quality Index', score: 0, max: 1, description: '—' },
+  { name: 'Sales Growth Index', score: 0, max: 1, description: '—' },
+  { name: 'Depreciation Index', score: 0, max: 1, description: '—' },
+  { name: 'SGA Index', score: 0, max: 1, description: '—' },
+  { name: 'Leverage Index', score: 0, max: 1, description: '—' },
+  { name: 'Total Accruals', score: 0, max: 1, description: '—' },
 ];
 
 interface NewsItem {
@@ -148,13 +138,7 @@ interface NewsItem {
   time: string;
 }
 
-const MOCK_NEWS: NewsItem[] = [
-  { id: '1', headline: 'Apple Vision Pro sales exceed expectations in Q1', source: 'Bloomberg', time: '2h ago' },
-  { id: '2', headline: 'Apple expands AI chip partnership with TSMC',      source: 'Reuters',   time: '4h ago' },
-  { id: '3', headline: 'Services revenue hits record $24.2B in quarter',   source: 'CNBC',      time: '6h ago' },
-  { id: '4', headline: 'Apple Car project timeline pushed to 2028',        source: 'WSJ',       time: '1d ago' },
-  { id: '5', headline: 'App Store antitrust ruling appeal filed',          source: 'FT',        time: '1d ago' },
-];
+const DEFAULT_NEWS: NewsItem[] = [];
 
 interface FilingItem {
   id: string;
@@ -163,13 +147,7 @@ interface FilingItem {
   title: string;
 }
 
-const MOCK_FILINGS: FilingItem[] = [
-  { id: 'f1', date: '2026-02-14', type: '10-K', title: 'Annual Report FY2025' },
-  { id: 'f2', date: '2026-01-30', type: '8-K', title: 'Q1 2026 Earnings Release' },
-  { id: 'f3', date: '2025-11-01', type: '10-Q', title: 'Quarterly Report Q4 2025' },
-  { id: 'f4', date: '2025-10-15', type: '8-K', title: 'Executive Leadership Change' },
-  { id: 'f5', date: '2025-08-02', type: '10-Q', title: 'Quarterly Report Q3 2025' },
-];
+const DEFAULT_FILINGS: FilingItem[] = [];
 
 const FILING_TYPE_COLORS: Record<string, string> = {
   '10-K': 'var(--color-accent-primary)',
@@ -183,48 +161,18 @@ interface HolderItem {
   pctOwnership: string;
 }
 
-const MOCK_HOLDERS: HolderItem[] = [
-  { name: 'Vanguard Group', shares: '1.31B', pctOwnership: '8.51%' },
-  { name: 'BlackRock Inc.', shares: '1.02B', pctOwnership: '6.63%' },
-  { name: 'Berkshire Hathaway', shares: '905M', pctOwnership: '5.88%' },
-  { name: 'State Street Corp.', shares: '591M', pctOwnership: '3.84%' },
-  { name: 'FMR LLC (Fidelity)', shares: '350M', pctOwnership: '2.27%' },
-];
+const DEFAULT_HOLDERS: HolderItem[] = [];
 
-// --- OHLC Mock Data (6 months daily) -----------------------------------------
+// --- OHLC default (empty until API provides real data) ----------------------
 
-function generateOHLC(): CandlestickDataPoint[] {
-  const data: CandlestickDataPoint[] = [];
-  let close = 175;
-  const start = new Date('2025-09-27');
-  for (let i = 0; i < 130; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    const change = (Math.random() - 0.48) * 3.5;
-    const open = close;
-    close = Math.round((open + change) * 100) / 100;
-    const high = Math.round((Math.max(open, close) + Math.random() * 2) * 100) / 100;
-    const low = Math.round((Math.min(open, close) - Math.random() * 2) * 100) / 100;
-    const volume = Math.round(40_000_000 + Math.random() * 30_000_000);
-    data.push({ time: d.toISOString().slice(0, 10), open, high, low, close, volume });
-  }
-  return data;
-}
+const DEFAULT_OHLC: CandlestickDataPoint[] = [];
 
 // --- Quarterly Revenue/NI bar data -------------------------------------------
 
-const QUARTERLY_BAR_DATA = [
-  { period: 'Q2 2025', revenue: 81797, ebitda: 27100, fcf: 24100 },
-  { period: 'Q3 2025', revenue: 85777, ebitda: 28900, fcf: 24300 },
-  { period: 'Q4 2025', revenue: 94930, ebitda: 32500, fcf: 25700 },
-  { period: 'Q1 2026', revenue: 119500, ebitda: 43200, fcf: 32000 },
-];
+const DEFAULT_QUARTERLY_BAR_DATA: { period: string; revenue: number; ebitda: number; fcf: number }[] = [];
 
 function StockCandlestick() {
-  const ohlcData = useMemo(() => generateOHLC(), []);
-  return <CandlestickChart data={ohlcData} height={300} showVolume />;
+  return <CandlestickChart data={DEFAULT_OHLC} height={300} showVolume />;
 }
 
 // --- Component ---------------------------------------------------------------
@@ -238,47 +186,47 @@ export default function CompanyOverview() {
   // Fetch company profile
   const { data: companyData, isLoading: loadingCompany } = useQuery<CompanyInfo>({
     queryKey: ['company', 'profile', resolvedId],
-    queryFn: () => api.get(`/v4/entities/${resolvedId}/profile`),
+    queryFn: () => api.get(`/v1/entities/${resolvedId}/profile`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const company = companyData ?? MOCK_COMPANY;
+  const company = companyData ?? DEFAULT_COMPANY;
 
   // Fetch KPIs / ratios
   const { data: kpiData, isLoading: loadingKpis } = useQuery<MetricItem[]>({
     queryKey: ['company', 'kpis', resolvedId],
-    queryFn: () => api.get(`/v4/entities/${resolvedId}/ratios`),
+    queryFn: () => api.get(`/v1/entities/${resolvedId}/ratios`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const kpis = kpiData ?? MOCK_METRICS;
+  const kpis = kpiData ?? DEFAULT_METRICS;
 
   // Fetch quarterly financials
   const { data: quarterlyRaw, isLoading: loadingQuarterly } = useQuery<QuarterlyFinancial[]>({
     queryKey: ['company', 'quarterly', resolvedId],
-    queryFn: () => api.get(`/v4/entities/${resolvedId}/financials/quarterly`),
+    queryFn: () => api.get(`/v1/entities/${resolvedId}/financials/quarterly`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const quarterlyData = quarterlyRaw ?? MOCK_QUARTERLY;
+  const quarterlyData = quarterlyRaw ?? DEFAULT_QUARTERLY;
 
   // Fetch quality scores
   const { data: qualityRaw, isLoading: loadingQuality } = useQuery<QualityScoreItem[]>({
     queryKey: ['company', 'quality', resolvedId],
-    queryFn: () => api.get(`/v4/entities/${resolvedId}/quality`),
+    queryFn: () => api.get(`/v1/entities/${resolvedId}/quality`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const qualityScores = qualityRaw ?? MOCK_QUALITY;
+  const qualityScores = qualityRaw ?? DEFAULT_QUALITY;
 
   // Fetch news
   const { data: newsRaw } = useQuery<NewsItem[]>({
     queryKey: ['company', 'news', resolvedId],
-    queryFn: () => api.get(`/v4/entities/${resolvedId}/news`),
+    queryFn: () => api.get(`/v1/entities/${resolvedId}/news`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const newsItems = newsRaw ?? MOCK_NEWS;
+  const newsItems = newsRaw ?? DEFAULT_NEWS;
 
   // New hooks for Phase 1
   const { data: sentimentHistory } = useSentimentHistory(resolvedId);
@@ -347,7 +295,7 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Quarterly Revenue / EBITDA / FCF</h2>
             <BarChartComponent
-              data={QUARTERLY_BAR_DATA}
+              data={DEFAULT_QUARTERLY_BAR_DATA}
               xKey="period"
               bars={[
                 { key: 'revenue', color: '#3B82F6', name: 'Revenue ($M)' },
@@ -421,17 +369,17 @@ export default function CompanyOverview() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--panel-gap)' }}>
             <ScoreBreakdown
               title="Piotroski F-Score"
-              overallScore={7}
+              overallScore={0}
               scores={PIOTROSKI_BREAKDOWN}
             />
             <ScoreBreakdown
               title="Altman Z-Score"
-              overallScore={5}
+              overallScore={0}
               scores={ALTMAN_BREAKDOWN}
             />
             <ScoreBreakdown
               title="Beneish M-Score"
-              overallScore={7}
+              overallScore={0}
               scores={BENEISH_BREAKDOWN}
             />
           </div>
@@ -460,12 +408,7 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Earnings Surprises</h2>
             {(() => {
-              const surprises = (earningsSurprises as any[]) ?? [
-                { period: 'Q1 2026', epsEstimate: 2.10, epsActual: 2.18, surprise: 3.81, revenueEstimate: 117800, revenueActual: 119500, revSurprise: 1.44 },
-                { period: 'Q4 2025', epsEstimate: 1.60, epsActual: 1.64, surprise: 2.50, revenueEstimate: 93200, revenueActual: 94930, revSurprise: 1.86 },
-                { period: 'Q3 2025', epsEstimate: 1.43, epsActual: 1.46, surprise: 2.10, revenueEstimate: 84500, revenueActual: 85777, revSurprise: 1.51 },
-                { period: 'Q2 2025', epsEstimate: 1.35, epsActual: 1.40, surprise: 3.70, revenueEstimate: 80500, revenueActual: 81797, revSurprise: 1.61 },
-              ];
+              const surprises = (earningsSurprises as any[]) ?? [];
               return (
                 <table className="terminal-table">
                   <thead>
@@ -497,7 +440,7 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Corporate Actions</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {((corpActions as any[]) ?? MOCK_CORP_ACTIONS).map((a: any, i: number) => (
+              {((corpActions as any[]) ?? DEFAULT_CORP_ACTIONS).map((a: any, i: number) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', minWidth: '80px' }}>{a.date}</span>
                   <span style={{
@@ -561,7 +504,7 @@ export default function CompanyOverview() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_FILINGS.map((f) => (
+                {DEFAULT_FILINGS.map((f) => (
                   <tr key={f.id} style={{ height: '32px' }}>
                     <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)', whiteSpace: 'nowrap' }}>
                       {f.date}
@@ -633,13 +576,7 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Technical Signals</h2>
             {(() => {
-              const signals = (technicalSignals as any)?.signals ?? [
-                { name: 'RSI (14)', value: '58.2', signal: 'Neutral' },
-                { name: 'MACD', value: '1.24', signal: 'Bullish' },
-                { name: 'SMA 50', value: '$174.30', signal: 'Above' },
-                { name: 'SMA 200', value: '$170.15', signal: 'Above' },
-                { name: 'Bollinger Bands', value: 'Mid', signal: 'Neutral' },
-              ];
+              const signals = (technicalSignals as any)?.signals ?? [];
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {signals.map((s: any) => (
@@ -664,7 +601,7 @@ export default function CompanyOverview() {
             <h2 className="terminal-section-title">Top Holders</h2>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
-                {MOCK_HOLDERS.map((h) => (
+                {DEFAULT_HOLDERS.map((h) => (
                   <tr key={h.name} style={{ height: '30px' }}>
                     <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)' }}>
                       {h.name}

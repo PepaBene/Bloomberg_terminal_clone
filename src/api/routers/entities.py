@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_pagination, get_session
@@ -37,6 +37,17 @@ from src.schemas.security import SecurityBriefResponse
 router = APIRouter(prefix="/entities", tags=["Entities"])
 
 
+def _compute_relevance(name: str, query: str) -> float:
+    """Basic relevance score: exact=1.0, starts-with=0.8, contains=0.5."""
+    name_lower = name.lower() if name else ""
+    q_lower = query.lower()
+    if name_lower == q_lower:
+        return 1.0
+    if name_lower.startswith(q_lower):
+        return 0.8
+    return 0.5
+
+
 # ── GET /v1/entities/search ────────────────────────────────────────
 # NOTE: This must be declared BEFORE the /{entity_id} route so FastAPI
 # does not interpret "search" as a path parameter.
@@ -50,10 +61,7 @@ async def search_entities(
     session: AsyncSession = Depends(get_session),
     pagination: PaginationParams = Depends(get_pagination),
 ):
-    """Fuzzy search for entities by name.
-
-    Uses SQL ILIKE as a placeholder until Elasticsearch is wired up.
-    """
+    """Fuzzy search for entities by name."""
     escaped_q = escape_like(q)
     query = select(Entity).where(
         Entity.legal_name.ilike(f"%{escaped_q}%")
@@ -87,10 +95,11 @@ async def search_entities(
             entity_type=e.entity_type,
             status=e.status,
             incorporation_country=e.incorporation_country,
-            score=1.0,  # Placeholder score; real scoring via ES later
+            score=_compute_relevance(e.legal_name, q),
         )
         for e in entities
     ]
+    results.sort(key=lambda r: r.score, reverse=True)
 
     return EntitySearchResponse(results=results, total=total_count, query=q)
 
@@ -116,21 +125,12 @@ async def get_entity(
 
     resp = EntityResponse.model_validate(entity)
 
-    # Only include expanded fields when requested
-    if "identifiers" not in expand:
+    # Include identifiers and names by default; only strip if caller explicitly excludes
+    exclude = {item.lstrip("-") for item in expand if item.startswith("-")}
+    if "identifiers" in exclude:
         resp.identifiers = None
-    if "names" not in expand:
+    if "names" in exclude:
         resp.names = None
-
-    # Relationships require a separate query
-    if "relationships" in expand:
-        rel_result = await session.execute(
-            select(EntityRelationship).where(
-                (EntityRelationship.source_entity_id == entity_id)
-                | (EntityRelationship.target_entity_id == entity_id)
-            )
-        )
-        _ = rel_result.scalars().all()  # available for future schema extension
 
     return resp
 
@@ -154,21 +154,30 @@ async def list_entities(
     query = select(Entity)
     count_query = select(Entity)
 
-    # Identifier-based filters
+    # Identifier-based filters (OR-combined when multiple provided)
+    id_subqueries = []
     if lei:
-        sub = select(EntityIdentifier.entity_id).where(
-            EntityIdentifier.identifier_type == "LEI",
-            EntityIdentifier.identifier_value == lei,
+        id_subqueries.append(
+            Entity.entity_id.in_(
+                select(EntityIdentifier.entity_id).where(
+                    EntityIdentifier.identifier_type == "LEI",
+                    EntityIdentifier.identifier_value == lei,
+                )
+            )
         )
-        query = query.where(Entity.entity_id.in_(sub))
-        count_query = count_query.where(Entity.entity_id.in_(sub))
     if cik:
-        sub = select(EntityIdentifier.entity_id).where(
-            EntityIdentifier.identifier_type == "CIK",
-            EntityIdentifier.identifier_value == cik,
+        id_subqueries.append(
+            Entity.entity_id.in_(
+                select(EntityIdentifier.entity_id).where(
+                    EntityIdentifier.identifier_type == "CIK",
+                    EntityIdentifier.identifier_value == cik,
+                )
+            )
         )
-        query = query.where(Entity.entity_id.in_(sub))
-        count_query = count_query.where(Entity.entity_id.in_(sub))
+    if id_subqueries:
+        combined = or_(*id_subqueries) if len(id_subqueries) > 1 else id_subqueries[0]
+        query = query.where(combined)
+        count_query = count_query.where(combined)
 
     # Direct column filters
     if status:
@@ -201,6 +210,9 @@ async def list_entities(
 
 # ── GET /v1/entities/{id}/hierarchy ────────────────────────────────
 
+_MAX_HIERARCHY_DEPTH = 10
+
+
 @router.get("/{entity_id}/hierarchy", response_model=EntityHierarchyResponse)
 async def get_entity_hierarchy(
     entity_id: uuid.UUID,
@@ -210,6 +222,7 @@ async def get_entity_hierarchy(
 
     Returns the ultimate parent, immediate parent, and direct subsidiaries.
     Uses simple parent lookups (not a recursive CTE) for clarity.
+    A max_depth=10 guard prevents infinite loops from circular parent data.
     """
     # Fetch the entity itself
     result = await session.execute(
@@ -219,17 +232,29 @@ async def get_entity_hierarchy(
     if not entity:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
 
-    # Ultimate parent
+    # Walk up the parent chain to find the ultimate parent (with depth guard)
     ultimate_parent = None
     if entity.ultimate_parent_id and entity.ultimate_parent_id != entity_id:
-        up_result = await session.execute(
-            select(Entity).where(Entity.entity_id == entity.ultimate_parent_id)
-        )
-        up = up_result.scalar_one_or_none()
-        if up:
+        visited: set[uuid.UUID] = {entity_id}
+        current_id = entity.ultimate_parent_id
+        depth = 0
+        while current_id and current_id not in visited and depth < _MAX_HIERARCHY_DEPTH:
+            up_result = await session.execute(
+                select(Entity).where(Entity.entity_id == current_id)
+            )
+            up = up_result.scalar_one_or_none()
+            if not up:
+                break
             ultimate_parent = EntityBriefResponse.model_validate(up)
+            visited.add(current_id)
+            # If this entity has its own ultimate_parent, keep walking
+            if up.ultimate_parent_id and up.ultimate_parent_id != current_id:
+                current_id = up.ultimate_parent_id
+            else:
+                break
+            depth += 1
 
-    # Immediate parent
+    # Immediate parent (with circular-reference guard)
     immediate_parent = None
     if entity.immediate_parent_id and entity.immediate_parent_id != entity_id:
         ip_result = await session.execute(
@@ -397,7 +422,7 @@ async def get_entity_relationships(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(EntityRelationship.effective_date.desc().nullslast())
+        query.order_by(EntityRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

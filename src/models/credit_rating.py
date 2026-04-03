@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, Numeric, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -78,11 +78,21 @@ class CurrentCreditRating(TimestampMixin, Base):
     is_investment_grade: Mapped[bool | None] = mapped_column(Boolean)
 
     __table_args__ = (
+        # Partial unique index: one rating per (entity, agency, rating_type) when rating_type is set
         Index(
-            "idx_current_rating_entity_agency",
+            "idx_current_rating_entity_agency_typed",
             "entity_id",
             "agency",
             "rating_type",
             unique=True,
+            postgresql_where=text("rating_type IS NOT NULL"),
+        ),
+        # Separate unique index for NULL rating_type: one untyped rating per (entity, agency)
+        Index(
+            "idx_current_rating_entity_agency_untyped",
+            "entity_id",
+            "agency",
+            unique=True,
+            postgresql_where=text("rating_type IS NULL"),
         ),
     )

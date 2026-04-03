@@ -38,10 +38,10 @@ async def get_fallen_angels(
 ):
     """List fallen angel events (IG to HY downgrades)."""
     query = select(CreditRatingEvent).where(
-        CreditRatingEvent.is_fallen_angel == True  # noqa: E712
+        CreditRatingEvent.is_fallen_angel.is_(True)
     )
     count_query = select(CreditRatingEvent).where(
-        CreditRatingEvent.is_fallen_angel == True  # noqa: E712
+        CreditRatingEvent.is_fallen_angel.is_(True)
     )
 
     if date_from:
@@ -79,10 +79,10 @@ async def get_rising_stars(
 ):
     """List rising star events (HY to IG upgrades)."""
     query = select(CreditRatingEvent).where(
-        CreditRatingEvent.is_rising_star == True  # noqa: E712
+        CreditRatingEvent.is_rising_star.is_(True)
     )
     count_query = select(CreditRatingEvent).where(
-        CreditRatingEvent.is_rising_star == True  # noqa: E712
+        CreditRatingEvent.is_rising_star.is_(True)
     )
 
     if date_from:
@@ -181,7 +181,11 @@ async def get_migration_matrix(
         for e in events
     ]
     matrix = compute_migration_matrix(event_dicts)
-    total = sum(sum(row.values()) for row in matrix.values())
+    total = sum(
+        sum(v for v in row.values() if isinstance(v, (int, float)))
+        for row in matrix.values()
+        if isinstance(row, dict)
+    )
 
     return RatingMigrationMatrixResponse(
         matrix=matrix,

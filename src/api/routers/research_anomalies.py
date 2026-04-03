@@ -261,7 +261,7 @@ async def get_entity_anomaly_history(
     result = await session.execute(
         select(DetectedAnomaly)
         .where(DetectedAnomaly.entity_id == entity_id)
-        .order_by(DetectedAnomaly.detected_at.desc().nullslast())
+        .order_by(DetectedAnomaly.detected_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

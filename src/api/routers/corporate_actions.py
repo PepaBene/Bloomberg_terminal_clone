@@ -56,7 +56,7 @@ async def list_security_corporate_actions(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(CorporateAction.ex_date.desc().nullslast()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(CorporateAction.ex_date.desc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     actions = result.scalars().all()
 
@@ -100,7 +100,7 @@ async def list_security_dividends(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(CorporateAction.ex_date.desc().nullslast()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(CorporateAction.ex_date.desc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     actions = result.scalars().all()
 
@@ -139,7 +139,7 @@ async def list_security_splits(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(CorporateAction.ex_date.desc().nullslast()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(CorporateAction.ex_date.desc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     actions = result.scalars().all()
 
@@ -179,7 +179,7 @@ async def corporate_actions_calendar(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(CorporateAction.ex_date.asc().nullslast()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(CorporateAction.ex_date.asc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     actions = result.scalars().all()
 

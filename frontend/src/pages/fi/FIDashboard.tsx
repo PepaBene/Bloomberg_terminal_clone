@@ -31,7 +31,7 @@ function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?:
   );
 }
 
-// --- Mock Data (fallback) ----------------------------------------------------
+// --- Default empty data (populated by API) -----------------------------------
 
 interface YieldTenor {
   tenor: string;
@@ -40,64 +40,17 @@ interface YieldTenor {
   change1w: number;
 }
 
-const MOCK_YIELD_CURVE: YieldTenor[] = [
-  { tenor: '1M',  rate: 5.38, change1d: 0.00,  change1w: -0.02 },
-  { tenor: '3M',  rate: 5.36, change1d: -0.01, change1w: -0.03 },
-  { tenor: '6M',  rate: 5.27, change1d: -0.01, change1w: -0.05 },
-  { tenor: '1Y',  rate: 5.02, change1d: -0.02, change1w: -0.08 },
-  { tenor: '2Y',  rate: 4.62, change1d: -0.03, change1w: -0.12 },
-  { tenor: '3Y',  rate: 4.42, change1d: -0.02, change1w: -0.10 },
-  { tenor: '5Y',  rate: 4.28, change1d: -0.02, change1w: -0.08 },
-  { tenor: '7Y',  rate: 4.30, change1d: -0.01, change1w: -0.06 },
-  { tenor: '10Y', rate: 4.28, change1d: -0.03, change1w: -0.07 },
-  { tenor: '20Y', rate: 4.52, change1d: -0.02, change1w: -0.04 },
-  { tenor: '30Y', rate: 4.42, change1d: -0.02, change1w: -0.05 },
-];
+const MOCK_YIELD_CURVE: YieldTenor[] = [];
 
-// --- Yield Curve Chart Data --------------------------------------------------
+const CURRENT_CURVE: YieldCurvePoint[] = [];
 
-const CURRENT_CURVE: YieldCurvePoint[] = [
-  { tenor: '1M', rate: 5.38 }, { tenor: '3M', rate: 5.36 }, { tenor: '6M', rate: 5.27 },
-  { tenor: '1Y', rate: 5.02 }, { tenor: '2Y', rate: 4.62 }, { tenor: '3Y', rate: 4.42 },
-  { tenor: '5Y', rate: 4.28 }, { tenor: '7Y', rate: 4.30 }, { tenor: '10Y', rate: 4.28 },
-  { tenor: '20Y', rate: 4.52 }, { tenor: '30Y', rate: 4.42 },
-];
+const PRIOR_CURVE: YieldCurvePoint[] = [];
 
-const PRIOR_CURVE: YieldCurvePoint[] = [
-  { tenor: '1M', rate: 5.40 }, { tenor: '3M', rate: 5.39 }, { tenor: '6M', rate: 5.32 },
-  { tenor: '1Y', rate: 5.10 }, { tenor: '2Y', rate: 4.74 }, { tenor: '3Y', rate: 4.52 },
-  { tenor: '5Y', rate: 4.36 }, { tenor: '7Y', rate: 4.36 }, { tenor: '10Y', rate: 4.35 },
-  { tenor: '20Y', rate: 4.56 }, { tenor: '30Y', rate: 4.47 },
-];
+const KEY_SPREADS: SpreadRow[] = [];
 
-// --- KeySpreadsPanel data ----------------------------------------------------
+const NEW_ISSUES: NewIssue[] = [];
 
-const KEY_SPREADS: SpreadRow[] = [
-  { name: 'IG OAS',         value: 92,  change1d: -2, change1w: -5, percentile: 22 },
-  { name: 'HY OAS',         value: 328, change1d: 4,  change1w: -8, percentile: 35 },
-  { name: 'BBB-BB Spread',  value: 182, change1d: 1,  change1w: -4, percentile: 28 },
-  { name: '2s10s',          value: -34, change1d: 1,  change1w: 3,  percentile: 15 },
-  { name: '3m10y',          value: -108, change1d: 2,  change1w: 5,  percentile: 8 },
-];
-
-// --- NewIssueTable data ------------------------------------------------------
-
-const NEW_ISSUES: NewIssue[] = [
-  { issuer: 'Apple Inc.',        coupon: 4.250, maturity: '2034-03-15', size: '$3.0B', rating: 'AA+',  spread: 62,  initialTalk: 65, status: 'priced' },
-  { issuer: 'Goldman Sachs',     coupon: 5.125, maturity: '2029-09-01', size: '$2.5B', rating: 'A-',   spread: 108, initialTalk: 115, status: 'priced' },
-  { issuer: 'Microsoft Corp.',   coupon: 4.000, maturity: '2054-03-01', size: '$2.0B', rating: 'AAA',  spread: 55,  initialTalk: 60, status: 'priced' },
-  { issuer: 'Ford Motor Credit', coupon: 5.750, maturity: '2028-06-15', size: '$1.5B', rating: 'BBB-', spread: 188, initialTalk: 195, status: 'priced' },
-  { issuer: 'Amazon.com Inc.',   coupon: 4.125, maturity: '2044-03-15', size: '$1.75B', rating: 'AA',  spread: 72,  initialTalk: 78, status: 'launched' },
-  { issuer: 'JPMorgan Chase',    coupon: 5.000, maturity: '2031-03-01', size: '$3.0B', rating: 'A+',   spread: 95,  initialTalk: 100, status: 'upcoming' },
-];
-
-const MOCK_AGENCY_BONDS = [
-  { issuer: 'FHLB', coupon: 4.875, maturity: '2027-03-15', size: '$5.0B', spread: 12, rating: 'AAA' },
-  { issuer: 'FNMA', coupon: 4.625, maturity: '2029-06-01', size: '$3.5B', spread: 18, rating: 'AAA' },
-  { issuer: 'FHLMC', coupon: 4.750, maturity: '2028-09-15', size: '$4.0B', spread: 15, rating: 'AAA' },
-  { issuer: 'TVA', coupon: 4.500, maturity: '2031-03-01', size: '$2.0B', spread: 22, rating: 'AAA' },
-  { issuer: 'FFCB', coupon: 4.375, maturity: '2026-12-15', size: '$2.5B', spread: 10, rating: 'AAA' },
-];
+const MOCK_AGENCY_BONDS: any[] = [];
 
 // --- Component ---------------------------------------------------------------
 
@@ -234,13 +187,7 @@ export default function FIDashboard() {
 
       {/* AI Market Narrative */}
       {(() => {
-        const MOCK_BRIEFING =
-          'Fixed income markets are experiencing a broad rally as Treasury yields decline across the curve. ' +
-          'The 2s10s spread remains inverted at -34 bps, reflecting persistent recession concerns even as the Fed holds rates steady. ' +
-          'Investment-grade credit spreads have tightened to 92 bps over Treasuries, near the 22nd percentile of their historical range, ' +
-          'suggesting relatively rich valuations. New issuance remains robust with strong demand for high-quality corporate paper, ' +
-          'while high-yield spreads at 328 bps indicate cautious risk appetite. The front end of the curve continues to price in ' +
-          'rate cuts by mid-year, with the 3m10y inversion at -108 bps reinforcing expectations for monetary policy easing.';
+        const MOCK_BRIEFING = '';
         const briefingText = (apiBriefing as any)?.text ?? (apiBriefing as any)?.narrative ?? MOCK_BRIEFING;
         return briefingText ? (
           <div className="terminal-panel" style={{ marginTop: 'var(--panel-gap)' }}>

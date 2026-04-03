@@ -10,34 +10,16 @@ const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSi
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
 
-const MOCK_BOARD = [
-  { name: 'Tim Cook', role: 'CEO & Director', independent: false, tenure: 13, committees: ['None (Executive)'] },
-  { name: 'Arthur Levinson', role: 'Chairman', independent: true, tenure: 24, committees: ['Nominating'] },
-  { name: 'James Bell', role: 'Director', independent: true, tenure: 9, committees: ['Audit', 'Finance'] },
-  { name: 'Al Gore', role: 'Director', independent: true, tenure: 21, committees: ['Sustainability'] },
-  { name: 'Andrea Jung', role: 'Director', independent: true, tenure: 16, committees: ['Compensation', 'Nominating'] },
-  { name: 'Monica Lozano', role: 'Director', independent: true, tenure: 10, committees: ['Audit'] },
-  { name: 'Ronald Sugar', role: 'Director', independent: true, tenure: 14, committees: ['Audit', 'Finance'] },
-  { name: 'Sue Wagner', role: 'Director', independent: true, tenure: 10, committees: ['Compensation'] },
-];
+const MOCK_BOARD: any[] = [];
 
-const MOCK_COMPENSATION = [
-  { name: 'Tim Cook', title: 'CEO', baseSalary: 3000000, stockAwards: 40000000, bonus: 12000000, total: 63000000 },
-  { name: 'Luca Maestri', title: 'SVP, CFO', baseSalary: 1000000, stockAwards: 20000000, bonus: 5000000, total: 27200000 },
-  { name: 'Jeff Williams', title: 'COO', baseSalary: 1000000, stockAwards: 20000000, bonus: 5000000, total: 27200000 },
-  { name: 'Deirdre O\'Brien', title: 'SVP Retail', baseSalary: 1000000, stockAwards: 15000000, bonus: 4000000, total: 21200000 },
-];
+const MOCK_COMPENSATION: any[] = [];
 
-const MOCK_PROPOSALS = [
-  { id: '1', topic: 'Report on Median Gender/Racial Pay Gap', proponent: 'Arjuna Capital', forPct: 33.8, result: 'Failed' },
-  { id: '2', topic: 'Civil Rights & Non-Discrimination Audit', proponent: 'NatAct Fund', forPct: 28.4, result: 'Failed' },
-  { id: '3', topic: 'Right to Repair Report', proponent: 'Green Century', forPct: 19.2, result: 'Failed' },
-];
+const MOCK_PROPOSALS: any[] = [];
 
 const MOCK_OVERVIEW = {
-  boardSize: 8, independentPct: 87.5, avgTenure: 14.6, genderDiversity: 37.5,
-  ceoChairSplit: true, poisonPill: false, classifiedBoard: false,
-  sayOnPayApproval: 94.2, annualElections: true,
+  boardSize: 0, independentPct: 0, avgTenure: 0, genderDiversity: 0,
+  ceoChairSplit: false, poisonPill: false, classifiedBoard: false,
+  sayOnPayApproval: 0, annualElections: false,
 };
 
 export default function GovernanceDashboard() {

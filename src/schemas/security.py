@@ -187,7 +187,8 @@ class TranslateRequest(BaseModel):
 
 class TranslateResult(BaseModel):
     type: str
-    value: str
+    value: str | None = None
+    warning: str | None = None
 
 
 class TranslateResponse(BaseModel):

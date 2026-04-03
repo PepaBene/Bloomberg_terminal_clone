@@ -56,7 +56,7 @@ async def list_deals(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(MandADeal.announcement_date.desc().nullslast())
+        query.order_by(MandADeal.announcement_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
@@ -142,7 +142,7 @@ async def list_entity_deals(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(MandADeal.announcement_date.desc().nullslast())
+        query.order_by(MandADeal.announcement_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )

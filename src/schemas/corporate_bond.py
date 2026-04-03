@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime, time
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +13,7 @@ class BondCallScheduleResponse(BaseModel):
     id: uuid.UUID
     bond_id: uuid.UUID
     call_date: date
-    call_price: float | None = None
+    call_price: Decimal | None = None
     call_type: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -32,7 +33,7 @@ class CorporateBondResponse(BaseModel):
     issuer_cik: str | None = None
     security_id: uuid.UUID | None = None
     name: str
-    coupon_rate: float | None = None
+    coupon_rate: Decimal | None = None
     coupon_type: str | None = None
     coupon_frequency: int | None = None
     day_count_convention: str | None = None
@@ -41,9 +42,9 @@ class CorporateBondResponse(BaseModel):
     issue_date: date | None = None
     maturity_date: date
     first_coupon_date: date | None = None
-    original_issue_amount: float | None = None
-    outstanding_amount: float | None = None
-    minimum_denomination: float | None = None
+    original_issue_amount: Decimal | None = None
+    outstanding_amount: Decimal | None = None
+    minimum_denomination: Decimal | None = None
     currency: str | None = None
     seniority: str | None = None
     collateral_type: str | None = None
@@ -54,7 +55,7 @@ class CorporateBondResponse(BaseModel):
     call_type: str | None = None
     is_puttable: bool = False
     is_convertible: bool = False
-    conversion_price: float | None = None
+    conversion_price: Decimal | None = None
     initial_rating_sp: str | None = None
     initial_rating_moodys: str | None = None
     initial_rating_fitch: str | None = None
@@ -86,9 +87,9 @@ class BondTradeResponse(BaseModel):
     trade_date: date
     trade_time: time | None = None
     settlement_date: date | None = None
-    price: float | None = None
-    yield_value: float | None = None
-    quantity: float | None = None
+    price: Decimal | None = None
+    yield_value: Decimal | None = None
+    quantity: Decimal | None = None
     quantity_reported: str | None = None
     trade_type: str | None = None
     is_when_issued: bool = False
@@ -105,14 +106,14 @@ class BondEODPriceResponse(BaseModel):
     id: uuid.UUID
     bond_id: uuid.UUID
     price_date: date
-    last_trade_price: float | None = None
-    vwap: float | None = None
-    high_price: float | None = None
-    low_price: float | None = None
+    last_trade_price: Decimal | None = None
+    vwap: Decimal | None = None
+    high_price: Decimal | None = None
+    low_price: Decimal | None = None
     trade_count: int | None = None
-    total_volume: float | None = None
-    yield_to_maturity: float | None = None
-    yield_to_worst: float | None = None
+    total_volume: Decimal | None = None
+    yield_to_maturity: Decimal | None = None
+    yield_to_worst: Decimal | None = None
     g_spread_bps: int | None = None
     treasury_benchmark_cusip: str | None = None
     liquidity_score: int | None = None
@@ -128,14 +129,14 @@ class BondAnalyticsResponse(BaseModel):
     """Computed analytics for a bond."""
 
     cusip: str
-    price: float
-    ytm: float
-    ytw: float
-    modified_duration: float
-    macaulay_duration: float
-    convexity: float
+    price: Decimal
+    ytm: Decimal
+    ytw: Decimal
+    modified_duration: Decimal
+    macaulay_duration: Decimal
+    convexity: Decimal
     g_spread_bps: int | None = None
-    years_to_maturity: float
+    years_to_maturity: Decimal
 
 
 class BondScreenRequest(BaseModel):
@@ -143,8 +144,8 @@ class BondScreenRequest(BaseModel):
 
     seniority: str | None = None
     coupon_type: str | None = None
-    min_coupon: float | None = None
-    max_coupon: float | None = None
+    min_coupon: Decimal | None = None
+    max_coupon: Decimal | None = None
     min_maturity: date | None = None
     max_maturity: date | None = None
     currency: str | None = None
@@ -152,5 +153,5 @@ class BondScreenRequest(BaseModel):
     is_convertible: bool | None = None
     is_investment_grade: bool | None = None
     status: str | None = None
-    min_outstanding: float | None = None
-    max_outstanding: float | None = None
+    min_outstanding: Decimal | None = None
+    max_outstanding: Decimal | None = None

@@ -87,7 +87,7 @@ async def get_qa_history(
     result = await session.execute(
         select(QASession)
         .where(QASession.user_id == user_id)
-        .order_by(QASession.created_at.desc().nullslast())
+        .order_by(QASession.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()
@@ -183,7 +183,7 @@ async def get_qa_by_entity(
     result = await session.execute(
         select(QASession)
         .where(QASession.entity_id == entity_id)
-        .order_by(QASession.created_at.desc().nullslast())
+        .order_by(QASession.created_at.desc().nulls_last())
         .limit(limit)
     )
     rows = result.scalars().all()

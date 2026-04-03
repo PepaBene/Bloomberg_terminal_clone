@@ -1,7 +1,9 @@
 """Fixed Income Yield Curve API endpoints (D11 FI Supplement – Part 3)."""
 
 import math
-from datetime import date, timedelta
+from datetime import date
+
+from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -101,7 +103,7 @@ def _rate_col_for_tenor(tenor: str) -> str:
     mapping = {ts: col for col, (ts, _) in _TENOR_MAP.items()}
     key = tenor.upper().strip()
     if key not in mapping:
-        raise HTTPException(status_code=400, detail=f"Unknown tenor: {tenor}")
+        raise ValueError(f"Unknown tenor: {tenor}")
     return mapping[key]
 
 
@@ -183,7 +185,10 @@ async def get_curve_history(
     curve_type: str = Query("TREASURY_NOMINAL", description="Curve type"),
 ):
     """Return time series of a specific tenor rate over a date range."""
-    col_name = _rate_col_for_tenor(tenor)
+    try:
+        col_name = _rate_col_for_tenor(tenor)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     query = (
         select(YieldCurveSnapshot)
@@ -220,7 +225,7 @@ async def get_curve_surface(
 ):
     """Return 3D surface data: (date, tenor, rate) for visualization."""
     tenor_list = [t.strip().upper() for t in tenors.split(",")]
-    cutoff = date.today() - timedelta(days=months_back * 30)
+    cutoff = date.today() - relativedelta(months=months_back)
 
     query = (
         select(YieldCurveSnapshot)

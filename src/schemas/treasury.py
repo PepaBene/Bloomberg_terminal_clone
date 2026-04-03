@@ -66,3 +66,15 @@ class TreasuryOnTheRunResponse(BaseModel):
     ytm: float | None = None
 
     model_config = {"from_attributes": True}
+
+
+class TreasuryAnalyticsResponse(BaseModel):
+    """Analytics result for a treasury security."""
+
+    cusip: str
+    price: float
+    ytm: float | None = None
+    modified_duration: float | None = None
+    macaulay_duration: float | None = None
+    convexity: float | None = None
+    years_to_maturity: float | None = None

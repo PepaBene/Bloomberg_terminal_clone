@@ -56,7 +56,7 @@ class MacroIndicator(TimestampMixin, Base):
     metadata_json: Mapped[dict | None] = mapped_column(JSONB)
 
     # Relationships
-    values = relationship("MacroValue", back_populates="indicator", lazy="dynamic")
+    values = relationship("MacroValue", back_populates="indicator", lazy="selectin")
 
     __table_args__ = (
         Index("idx_macro_indicators_country_category", "country_code", "category"),
