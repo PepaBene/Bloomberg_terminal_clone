@@ -853,6 +853,8 @@ _FIELD_METADATA: list[dict[str, str]] = [
     {"field_name": "revenue_3y_cagr", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "3-year revenue CAGR", "category": "growth", "unit": "RATIO"},
     {"field_name": "ebitda_yoy", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Year-over-year EBITDA growth", "category": "growth", "unit": "RATIO"},
     {"field_name": "eps_yoy", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Year-over-year EPS growth", "category": "growth", "unit": "RATIO"},
+    {"field_name": "dividend_growth_1y", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "1-year dividend growth", "category": "growth", "unit": "RATIO"},
+    {"field_name": "dividend_growth_3y", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "3-year dividend growth CAGR", "category": "growth", "unit": "RATIO"},
     {"field_name": "dividend_growth_5y", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "5-year dividend growth CAGR", "category": "growth", "unit": "RATIO"},
 
     # --- E1 Per-share metrics ---
@@ -873,6 +875,7 @@ _FIELD_METADATA: list[dict[str, str]] = [
     {"field_name": "dividend_yield", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Annual dividend per share / Price", "category": "dividend", "unit": "RATIO"},
     {"field_name": "payout_ratio", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Dividends / Net income", "category": "dividend", "unit": "RATIO"},
     {"field_name": "fcf_payout_ratio", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Dividends / Free cash flow", "category": "dividend", "unit": "RATIO"},
+    {"field_name": "consecutive_dividend_years", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Consecutive years of dividend payments", "category": "dividend", "unit": "COUNT"},
     {"field_name": "shareholder_yield", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Dividend yield + net buyback yield", "category": "capital_allocation", "unit": "RATIO"},
     {"field_name": "capex_to_revenue", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Capital expenditures / Revenue", "category": "capital_allocation", "unit": "RATIO"},
 

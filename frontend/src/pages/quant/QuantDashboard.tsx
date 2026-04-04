@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCorrelation, useFactorExposure, useTechnicalSignals } from '@/hooks';
+import { useSecurityStore } from '@/stores/securityContext';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -102,18 +103,21 @@ export default function QuantDashboard() {
   const navigate = useNavigate();
   const [selectedTenor, setSelectedTenor] = useState('3M');
 
-  const { data: apiCorrelation } = useCorrelation() as { data: any };
-  const { data: apiFactors } = useFactorExposure(undefined) as { data: any };
-  const { data: apiSignals } = useTechnicalSignals(undefined) as { data: any };
+  const primary = useSecurityStore((s) => s.primary);
+  const secId = primary?.security_id;
 
-  const activeFactorPerf = (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
+  const { data: apiCorrelation } = useCorrelation() as { data: any };
+  const { data: apiFactors } = useFactorExposure(secId) as { data: any };
+  const { data: apiSignals } = useTechnicalSignals(secId) as { data: any };
+
+  const activeFactorPerf = (apiFactors as any)?.factors ?? (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
   const activeMomentum = (apiSignals as any)?.signals ?? momentumSignals;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
-          Quant Dashboard
+          Quant Dashboard {primary && `— ${primary.name} (${primary.ticker})`}
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>Factor performance, momentum signals, and volatility surface analysis</p>
       </div>
@@ -185,7 +189,7 @@ export default function QuantDashboard() {
 
         {/* Volatility Surface Placeholder */}
         <div style={panelStyle}>
-          <h2 style={sectionTitle}>Implied Volatility Surface (SPX)</h2>
+          <h2 style={sectionTitle}>Implied Volatility Surface (SPX) <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>Illustrative — not from live data</span></h2>
           <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
             {tenors.map((t) => (
               <button

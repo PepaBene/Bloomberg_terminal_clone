@@ -287,25 +287,34 @@ async def run_saved_screen(
 
     engine = ScreeningEngine()
     defn = screen.definition
-    filter_group = _parse_filter_group(defn.get("filters", {"logic": "AND", "filters": []}))
+    
+    from pydantic import ValidationError
+    try:
+        req_val = ScreenRequest.model_validate(defn)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid stored screen definition schema")
+        
+    filter_group = _parse_filter_group(req_val.filters.model_dump())
     ranking = None
-    if defn.get("ranking"):
+    if req_val.ranking:
         ranking = [
-            RankFactor(field=r["field"], weight=r.get("weight", 1.0), ascending=r.get("ascending", False))
-            for r in defn["ranking"]
+            RankFactor(field=r.field, weight=r.weight, ascending=r.ascending)
+            for r in req_val.ranking
         ]
 
     eng_result = await engine.run_screen(
         session,
         filters=filter_group,
         ranking=ranking,
-        limit=defn.get("limit", 100),
+        limit=req_val.limit or 100,
     )
     eng_result.screen_name = screen.name
 
     # Update last_run metadata
     screen.last_run_at = datetime.now(timezone.utc)
     screen.result_count = eng_result.total_matches
+    
+    await session.commit()
 
     return _to_response(eng_result)
 
@@ -333,35 +342,101 @@ async def get_us_equities(session: AsyncSession = Depends(get_session)):
 
 @router.get("/universe/sp500", response_model=UniverseResponse)
 async def get_sp500(session: AsyncSession = Depends(get_session)):
-    """S&P 500 members (from saved universe, or empty if not seeded)."""
+    """S&P 500 members (from saved universe, or seeds from top 500 Active US Equities by Market Cap)."""
     stmt = select(SavedScreen).where(
         SavedScreen.screen_type == "UNIVERSE",
         SavedScreen.name == "S&P 500",
     )
     result = await session.execute(stmt)
     screen = result.scalar_one_or_none()
-    ids = screen.definition.get("security_ids", []) if screen else []
+    
+    if not screen:
+        # Seed on demand: Top 500 US Equities by Market Cap
+        from src.engines.e4_screening import ScreeningEngine
+        engine = ScreeningEngine()
+        seed_filter_dict = {
+            "logic": "AND",
+            "filters": [
+                {"field": "market_cap", "source": "ANALYTICS_RESULT", "op": "NOT_NULL", "value": None}
+            ]
+        }
+        us_universe = await get_us_equities(session)
+        filter_group = _parse_filter_group(seed_filter_dict)
+        from src.engines.e4_screening import RankFactor
+        ranking = [RankFactor(field="market_cap", weight=1.0, ascending=False)]
+        eng_result = await engine.run_screen(
+            session, filters=filter_group, universe_ids=us_universe.security_ids, ranking=ranking, limit=500
+        )
+        sids_str = [str(s.security_id) for s in eng_result.securities]
+        
+        screen = SavedScreen(
+            name="S&P 500",
+            screen_type="UNIVERSE",
+            is_prebuilt=True,
+            definition={"security_ids": sids_str},
+            universe="US_EQUITIES"
+        )
+        session.add(screen)
+        await session.commit()
+        ids = [s.security_id for s in eng_result.securities]
+    else:
+        ids = screen.definition.get("security_ids", []) if screen else []
+        ids = [uuid.UUID(i) if isinstance(i, str) else i for i in ids]
+        
     return UniverseResponse(
         universe_name="SP500",
         security_count=len(ids),
-        security_ids=[uuid.UUID(i) if isinstance(i, str) else i for i in ids],
+        security_ids=ids,
     )
 
 
 @router.get("/universe/russell1000", response_model=UniverseResponse)
 async def get_russell1000(session: AsyncSession = Depends(get_session)):
-    """Russell 1000 members (from saved universe, or empty if not seeded)."""
+    """Russell 1000 members (from saved universe, or seeds from top 1000 Active US Equities by Market Cap)."""
     stmt = select(SavedScreen).where(
         SavedScreen.screen_type == "UNIVERSE",
         SavedScreen.name == "Russell 1000",
     )
     result = await session.execute(stmt)
     screen = result.scalar_one_or_none()
-    ids = screen.definition.get("security_ids", []) if screen else []
+    
+    if not screen:
+        # Seed on demand: Top 1000 US Equities by Market Cap
+        from src.engines.e4_screening import ScreeningEngine
+        engine = ScreeningEngine()
+        seed_filter_dict = {
+            "logic": "AND",
+            "filters": [
+                {"field": "market_cap", "source": "ANALYTICS_RESULT", "op": "NOT_NULL", "value": None}
+            ]
+        }
+        us_universe = await get_us_equities(session)
+        filter_group = _parse_filter_group(seed_filter_dict)
+        from src.engines.e4_screening import RankFactor
+        ranking = [RankFactor(field="market_cap", weight=1.0, ascending=False)]
+        eng_result = await engine.run_screen(
+            session, filters=filter_group, universe_ids=us_universe.security_ids, ranking=ranking, limit=1000
+        )
+        sids_str = [str(s.security_id) for s in eng_result.securities]
+        
+        screen = SavedScreen(
+            name="Russell 1000",
+            screen_type="UNIVERSE",
+            is_prebuilt=True,
+            definition={"security_ids": sids_str},
+            universe="US_EQUITIES"
+        )
+        session.add(screen)
+        await session.commit()
+        ids = [s.security_id for s in eng_result.securities]
+    else:
+        ids = screen.definition.get("security_ids", []) if screen else []
+        ids = [uuid.UUID(i) if isinstance(i, str) else i for i in ids]
+        
     return UniverseResponse(
         universe_name="RUSSELL1000",
         security_count=len(ids),
-        security_ids=[uuid.UUID(i) if isinstance(i, str) else i for i in ids],
+        security_ids=ids,
     )
 
 
@@ -391,9 +466,14 @@ async def create_custom_universe(
 # ---------------------------------------------------------------------------
 
 @router.get("/screen/fields", response_model=ScreenFieldsResponse)
-async def get_screenable_fields():
-    """Return metadata for all screenable fields."""
+async def get_screenable_fields(session: AsyncSession = Depends(get_session)):
+    """Return metadata for all screenable fields active in DB."""
     from src.engines.e4_screening import ScreeningEngine
+    from src.models.analytics import AnalyticsResult
+
+    stmt = select(AnalyticsResult.metric_name).where(AnalyticsResult.engine_id.in_(["E1", "E2"])).distinct()
+    result = await session.execute(stmt)
+    live_fields = set(result.scalars().all())
 
     engine = ScreeningEngine()
     fields_raw = engine.get_field_metadata()
@@ -406,6 +486,6 @@ async def get_screenable_fields():
             category=f.get("category"),
             unit=f.get("unit"),
         )
-        for f in fields_raw
+        for f in fields_raw if f["field_name"] in live_fields
     ]
     return ScreenFieldsResponse(total_fields=len(fields), fields=fields)

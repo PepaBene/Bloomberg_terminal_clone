@@ -156,12 +156,9 @@ def _banks(d: _Data) -> list[EngineOutput]:
     out.append(_o(d, "net_interest_margin", safe_divide(net_int, assets), unit="PERCENT",
                   inp=[_mi("net_interest", "income_statement", net_int),
                        _mi("total_assets", "balance_sheet", assets)]))
-    out.append(_o(d, "loans_to_deposits", None,
-                  note="requires detailed bank balance sheet (loans, deposits)"))
-    out.append(_o(d, "provision_coverage", None,
-                  note="requires loan_loss_provision and non_performing_loans data"))
-    out.append(_o(d, "tier1_capital_ratio", None,
-                  note="requires regulatory filing data"))
+    # [Bug 17 fix] Omit always-None placeholders (loans_to_deposits,
+    # provision_coverage, tier1_capital_ratio) that require detailed
+    # bank regulatory data not in the standard schema.
     return out
 
 
@@ -182,14 +179,24 @@ def _reits(d: _Data) -> list[EngineOutput]:
     out.append(_o(d, "ffo_per_share", safe_divide(ffo, shares), unit="CURRENCY", inp=[
         _mi("ffo", "derived", ffo), _mi("diluted_shares", "income_statement", shares),
     ]))
-    # AFFO = FFO - maintenance_capex (12.5% of D&A)
-    mcap = da * 0.125 if da is not None else None
+    # [Bug 16 fix] Use actual maintenance capex from cash flow if available;
+    # fall back to D&A × 0.125 heuristic only when field is null.
+    actual_capex = d.cv("capital_expenditures")
+    if actual_capex is not None:
+        mcap = abs(actual_capex)
+        mcap_quality = "COMPLETE"
+    elif da is not None:
+        mcap = da * 0.125
+        mcap_quality = "ESTIMATED"
+    else:
+        mcap = None
+        mcap_quality = "INSUFFICIENT_DATA"
     affo = (ffo - mcap) if ffo is not None and mcap is not None else None
     out.append(_o(d, "affo", affo, unit="CURRENCY",
-                  dq="ESTIMATED" if affo is not None else None,
-                  inp=[_mi("ffo", "derived", ffo), _mi("maint_capex_est", "derived", mcap)]))
+                  dq=mcap_quality if affo is not None else None,
+                  inp=[_mi("ffo", "derived", ffo), _mi("maint_capex", "cash_flow" if actual_capex else "derived", mcap)]))
     out.append(_o(d, "affo_per_share", safe_divide(affo, shares), unit="CURRENCY",
-                  dq="ESTIMATED" if affo is not None else None,
+                  dq=mcap_quality if affo is not None else None,
                   inp=[_mi("affo", "derived", affo),
                        _mi("diluted_shares", "income_statement", shares)]))
     # NAV per share (simple book NAV)
@@ -219,8 +226,7 @@ def _retail(d: _Data) -> list[EngineOutput]:
         _mi("cost_of_revenue", "income_statement", cogs),
         _mi("inventory", "balance_sheet", inv),
     ]))
-    out.append(_o(d, "revenue_per_sqft", None, unit="CURRENCY",
-                  note="requires supplemental square-footage data"))
+    # [Bug 17 fix] revenue_per_sqft omitted — requires supplemental square-footage data
     rev = d.iv("total_revenue") or d.t("ttm_total_revenue")
     gp = d.iv("gross_profit") or d.t("ttm_gross_profit")
     out.append(_o(d, "gross_margin_retail", safe_divide(gp, rev), unit="PERCENT", inp=[
@@ -229,6 +235,7 @@ def _retail(d: _Data) -> list[EngineOutput]:
     ]))
     out.append(_o(d, "inventory_days_retail", safe_divide(365.0, it) if it else None,
                   unit="DAYS", inp=[_mi("inventory_turnover", "derived", it)]))
+    # [Bug 17 fix] revenue_per_sqft requires supplemental data — omit
     return out
 
 
@@ -259,13 +266,14 @@ def _insurance(d: _Data) -> list[EngineOutput]:
 
 
 def _energy(d: _Data) -> list[EngineOutput]:
-    """Energy / Mining (GICS 1010, 1510)."""
-    return [
-        _o(d, "reserve_life_index", None, unit="YEARS", note="requires reserve data"),
-        _o(d, "finding_cost", None, unit="CURRENCY", note="requires reserve data"),
-        _o(d, "netback", None, unit="CURRENCY",
-           note="requires production volume and royalty data"),
-    ]
+    """Energy / Mining (GICS 1010, 1510).
+
+    [Bug 17 fix] Skip always-None placeholders that require supplemental
+    data not present in the standard schema.
+    """
+    # reserve_life_index, finding_cost, netback: all require reserve/production
+    # data not available in standard financials — omit entirely.
+    return []
 
 
 def _pharma(d: _Data) -> list[EngineOutput]:

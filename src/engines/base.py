@@ -8,6 +8,7 @@ integration.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -32,7 +33,7 @@ class EngineOutput:
     engine_id: str  # "E1", "E2", …
     metric_name: str  # "gross_margin", "pe_trailing", …
     metric_category: str  # matches RatioCategory enum
-    value: float | None  # None when computation impossible
+    value: float | str | None  # None when computation impossible
     unit: str = "RATIO"  # RATIO, PERCENT, CURRENCY, MULTIPLE, YEARS, DAYS, SCORE
     period: str = "LATEST"  # "TTM", "Q4_2025", "FY_2024"
     period_end_date: date | None = None
@@ -135,8 +136,13 @@ class BaseEngine(ABC):
         results: list[EngineOutput] = []
         for sid in security_ids:
             try:
-                outputs = await self.compute(session, security_id=sid, **kwargs)
+                outputs = await asyncio.wait_for(
+                    self.compute(session, security_id=sid, **kwargs),
+                    timeout=30.0
+                )
                 results.extend(outputs)
+            except asyncio.TimeoutError:
+                logger.warning("%s timed out after 30s for security %s", self.engine_id, sid)
             except Exception:
                 logger.exception("%s failed for security %s", self.engine_id, sid)
         return results

@@ -264,17 +264,30 @@ class CompositeScoreEngine(BaseEngine):
         data_quality: str,
     ) -> None:
         """Upsert a row into the ``composite_scores`` table."""
-        record = CompositeScore(
-            security_id=security_id,
-            entity_id=entity_id,
-            calculation_date=date.today(),
-            score_type=score_type,
-            score_value=score_value,
-            classification=classification,
-            components=components,
-            data_quality=data_quality,
+        stmt = select(CompositeScore).where(
+            CompositeScore.security_id == security_id,
+            CompositeScore.score_type == score_type,
+            CompositeScore.calculation_date == date.today()
         )
-        session.add(record)
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+
+        if existing:
+            existing.score_value = score_value
+            existing.classification = classification
+            existing.components = components
+            existing.data_quality = data_quality
+        else:
+            record = CompositeScore(
+                security_id=security_id,
+                entity_id=entity_id,
+                calculation_date=date.today(),
+                score_type=score_type,
+                score_value=score_value,
+                classification=classification,
+                components=components,
+                data_quality=data_quality,
+            )
+            session.add(record)
 
     # ------------------------------------------------------------------
     # Score 1: Earnings Quality (0-100)
@@ -370,25 +383,21 @@ class CompositeScoreEngine(BaseEngine):
         rev_history = await self._fetch_metric_history(
             session, security_id, "revenue_yoy", limit=5,
         )
-        consecutive_positive = 0
-        for val in rev_history:
-            if val is not None and val > 0:
-                consecutive_positive += 1
-            else:
-                break
+        # [Bug 43 fix] Change from strict consecutive to a count out of 5
+        positive_years = sum(1 for val in rev_history if val is not None and val > 0)
 
         if len(rev_history) == 0:
             rev_score = 0.0
             missing_count += 1
-        elif consecutive_positive >= 5:
+        elif positive_years >= 5:
             rev_score = 100.0
-        elif consecutive_positive >= 3:
+        elif positive_years >= 3:
             rev_score = 70.0
         else:
             rev_score = 30.0
 
         components["revenue_growth_consistency"] = {
-            "consecutive_positive_years": consecutive_positive,
+            "positive_years_out_of_5": positive_years,
             "score": rev_score,
             "weight": 0.20,
         }
@@ -397,7 +406,7 @@ class CompositeScoreEngine(BaseEngine):
             "eq_revenue_consistency_component", rev_score,
             [make_input(
                 "revenue_yoy_history", "analytics_results",
-                consecutive_positive,
+                positive_years,
             )],
             data_quality="COMPLETE" if len(rev_history) > 0 else "PARTIAL",
         ))
@@ -409,12 +418,21 @@ class CompositeScoreEngine(BaseEngine):
             classification = "INSUFFICIENT_DATA"
         else:
             data_quality = "PARTIAL" if missing_count > 0 else "COMPLETE"
-            composite = (
-                accruals_score * 0.30
-                + cfq_score * 0.30
-                + beneish_score * 0.20
-                + rev_score * 0.20
+            wt_acc = 0.30 if accruals is not None else 0.0
+            wt_cfq = 0.30 if ocf_ni is not None else 0.0
+            wt_ben = 0.20 if beneish is not None else 0.0
+            wt_rev = 0.20 if len(rev_history) > 0 else 0.0
+            used_wt = wt_acc + wt_cfq + wt_ben + wt_rev
+            
+            raw_score = (
+                accruals_score * wt_acc
+                + cfq_score * wt_cfq
+                + beneish_score * wt_ben
+                + rev_score * wt_rev
             )
+            # [Bug 42 fix] Scale by used weight instead of assuming missing = 0
+            composite = raw_score / used_wt if used_wt > 0 else 0.0
+            
             if composite >= 80:
                 classification = "HIGH"
             elif composite >= 60:
@@ -622,13 +640,23 @@ class CompositeScoreEngine(BaseEngine):
             classification = "INSUFFICIENT_DATA"
         else:
             data_quality = "PARTIAL" if missing_count > 0 else "COMPLETE"
-            composite = (
-                ic_score * 0.25
-                + nde_score * 0.25
-                + cr_score * 0.15
-                + ftd_score * 0.20
-                + az_score * 0.15
+            wt_ic = 0.25 if int_cov is not None else 0.0
+            wt_nd = 0.25 if nd_ebitda is not None else 0.0
+            wt_cr = 0.15 if cr is not None else 0.0
+            wt_fcf = 0.20 if fcf_to_debt is not None else 0.0
+            wt_az = 0.15 if altman is not None else 0.0
+            used_wt = wt_ic + wt_nd + wt_cr + wt_fcf + wt_az
+            
+            raw_score = (
+                ic_score * wt_ic
+                + nde_score * wt_nd
+                + cr_score * wt_cr
+                + ftd_score * wt_fcf
+                + az_score * wt_az
             )
+            # [Bug 42 fix] Scale by used weight instead of assuming missing = 0
+            composite = raw_score / used_wt if used_wt > 0 else 0.0
+            
             if composite >= 80:
                 classification = "STRONG"
             elif composite >= 60:
@@ -673,6 +701,44 @@ class CompositeScoreEngine(BaseEngine):
             "financial_strength", composite, classification,
             components, data_quality,
         )
+
+        # [Bug 44 fix] Check if we should compute the credit-aware supplement
+        o_score = metrics.get("ohlson_o_score")
+        m_dd = metrics.get("merton_dd")
+        c_mom = metrics.get("credit_momentum")
+
+        if any(v is not None for v in (o_score, m_dd, c_mom)):
+            credit_aware = compute_credit_aware_financial_strength(
+                composite, o_score, m_dd, c_mom
+            )
+            cr_score = credit_aware["score"]
+            cr_class = credit_aware["classification"]
+            if cr_score is not None:
+                outputs.append(_build_output(
+                    security_id, entity_id,
+                    "credit_aware_financial_strength_score", cr_score,
+                    [
+                        make_input("base_financial_strength", "derived", composite),
+                        make_input("ohlson_o_score", "analytics_results", o_score),
+                        make_input("merton_dd", "analytics_results", m_dd),
+                        make_input("credit_momentum", "analytics_results", c_mom),
+                    ],
+                    data_quality=credit_aware.get("data_quality", "PARTIAL"),
+                ))
+            if cr_class is not None:
+                outputs.append(_build_output(
+                    security_id, entity_id,
+                    "credit_aware_financial_strength_classification", None,
+                    [make_input("credit_aware_financial_strength_score", "derived", cr_score)],
+                    data_quality=credit_aware.get("data_quality", "PARTIAL"),
+                    unit="CLASSIFICATION",
+                ))
+                outputs[-1].inputs.append(  # type: ignore[union-attr]
+                    make_input(
+                        name="classification", source="derived",
+                        value=None, period=cr_class,
+                    )
+                )
 
         return outputs
 
@@ -785,13 +851,18 @@ class CompositeScoreEngine(BaseEngine):
         ))
 
         # --- Total points and classification ---
-        total_pts = pr_pts + fcfp_pts + de_pts + pf_pts
+        raw_pts = pr_pts + fcfp_pts + de_pts + pf_pts
 
         if missing_count > total_components // 2:
             data_quality = "INSUFFICIENT_DATA"
             classification = "INSUFFICIENT_DATA"
+            total_pts = 0.0
         else:
             data_quality = "PARTIAL" if missing_count > 0 else "COMPLETE"
+            # [Bug 42 fix] Prorate points up to fully available set
+            available = total_components - missing_count
+            total_pts = raw_pts * (total_components / available) if available > 0 else 0.0
+            
             if total_pts >= 5:
                 classification = "SAFE"
             elif total_pts >= 3:
@@ -1004,10 +1075,14 @@ class CompositeScoreEngine(BaseEngine):
         if checks_performed < total_checks // 2:
             data_quality = "INSUFFICIENT_DATA"
             classification = "INSUFFICIENT_DATA"
+            trap_pts = 0.0
         else:
             data_quality = (
                 "PARTIAL" if checks_performed < total_checks else "COMPLETE"
             )
+            # [Bug 42 fix] Prorate trap points by checks performed
+            trap_pts = float(trap_pts) * (total_checks / checks_performed) if checks_performed > 0 else 0.0
+            
             if trap_pts <= 1:
                 classification = "LOW_RISK"
             elif trap_pts <= 3:

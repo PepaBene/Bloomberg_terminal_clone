@@ -83,11 +83,13 @@ export default function CustomIndexBuilder() {
     queryFn: () => api.get(BENCHMARKS.list),
   });
 
-  const activeIndices = (apiBenchmarks as any)?.indices ?? customIndices;
+  // [Bug 94 fix] — Try correct API response key first, then fallback
+  const activeIndices = (apiBenchmarks as any)?.benchmarks ?? (apiBenchmarks as any)?.indices ?? customIndices;
 
   const handleCreateIndex = useCallback(async () => {
     if (!name.trim()) return;
-    try { await api.post(BENCHMARKS.list, { name, weighting, universe }); } catch {}
+    // [Bug 95 fix] — Don't POST to the list endpoint; use a proper create path
+    try { await api.post(BENCHMARKS.list + '/create', { name, weighting, universe }); } catch {}
   }, [name, weighting, universe]);
 
   return (

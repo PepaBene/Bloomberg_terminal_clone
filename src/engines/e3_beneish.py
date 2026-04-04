@@ -435,13 +435,12 @@ class BeneishEngine(BaseEngine):
         m_score: float | None = None
         m_quality = "COMPLETE"
 
-        if available_count < _MIN_COMPONENTS:
-            # Too many missing components
+        if available_count < 8:
+            # [Bug 40 fix] Do not score missing components as neutral
             m_quality = "INSUFFICIENT_DATA"
-        elif available_count < 8:
-            # Partial -- compute with available, flag quality
-            m_quality = "PARTIAL"
-            m_score = self._compute_m_score(components)
+            m_score = None
+            flag_value = None
+            flag_label = ""
         else:
             # All eight components present
             m_score = self._compute_m_score(components)
@@ -531,7 +530,7 @@ class BeneishEngine(BaseEngine):
         hard_p = (ca_p + ppe_p) / ta_p  # type: ignore[operator]
         numerator = 1.0 - hard_t
         denominator = 1.0 - hard_p
-        if denominator == 0:
+        if abs(denominator) < 1e-7:
             return None
         return numerator / denominator
 

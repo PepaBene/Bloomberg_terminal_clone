@@ -147,7 +147,7 @@ class AltmanZScoreEngine(BaseEngine):
         - ``altman_x1_wc_ta``     — Working Capital / Total Assets
         - ``altman_x2_re_ta``     — Retained Earnings / Total Assets
         - ``altman_x3_ebit_ta``   — EBIT / Total Assets
-        - ``altman_x4_mve_tl``    — MVE / TL (original) or BVE / TL (Z')
+        - ``altman_x4_equity_tl`` — MVE / TL (original) or BVE / TL (Z')
         - ``altman_x5_sales_ta``  — Sales / Total Assets (original only)
         - ``altman_implied_pd``   — rough PD from zone mapping
         - ``altman_gics_sector``  — GICS sector used for model selection
@@ -262,7 +262,15 @@ class AltmanZScoreEngine(BaseEngine):
         retained_earnings = _to_float(bs.retained_earnings)
         total_equity = _to_float(bs.total_equity)
         total_revenue = _to_float(inc.total_revenue)
-        operating_income = _to_float(inc.operating_income)  # proxy for EBIT
+        operating_income = _to_float(inc.operating_income)
+        
+        # [Bug 39 fix] Better EBIT calculation utilizing non-operating items
+        pretax_income = _to_float(inc.pretax_income)
+        interest_expense = _to_float(inc.interest_expense)
+        
+        ebit = operating_income
+        if pretax_income is not None:
+            ebit = pretax_income + (interest_expense or 0.0)
 
         # Working Capital: prefer the derived field, fall back to computation
         working_capital = _to_float(bs.working_capital)
@@ -330,8 +338,8 @@ class AltmanZScoreEngine(BaseEngine):
         # X2: Retained Earnings / Total Assets
         x2 = safe_divide(retained_earnings, total_assets)
 
-        # X3: EBIT / Total Assets  (operating_income as EBIT proxy)
-        x3 = safe_divide(operating_income, total_assets)
+        # X3: EBIT / Total Assets
+        x3 = safe_divide(ebit, total_assets)
 
         # X4: depends on model
         # Original:        Market Value Equity / Total Liabilities
@@ -421,7 +429,7 @@ class AltmanZScoreEngine(BaseEngine):
         z_inputs = [
             _inp("working_capital", "balance_sheets", working_capital),
             _inp("retained_earnings", "balance_sheets", retained_earnings),
-            _inp("operating_income", "income_statements", operating_income),
+            _inp("ebit", "derived", ebit),
             _inp(x4_numerator_name, x4_numerator_source, x4_numerator_value),
             _inp("total_assets", "balance_sheets", total_assets),
             _inp("total_liabilities", "balance_sheets", total_liabilities),
@@ -514,7 +522,7 @@ class AltmanZScoreEngine(BaseEngine):
 
         # --- altman_x3_ebit_ta ---
         x3_quality = data_quality
-        if operating_income is None:
+        if ebit is None:
             x3_quality = "INSUFFICIENT_DATA"
         outputs.append(
             _build_output(
@@ -523,14 +531,14 @@ class AltmanZScoreEngine(BaseEngine):
                 x3,
                 period_label, period.period_end_date,
                 [
-                    _inp("operating_income", "income_statements", operating_income),
+                    _inp("ebit", "derived", ebit),
                     _inp("total_assets", "balance_sheets", total_assets),
                 ],
                 data_quality=x3_quality,
             )
         )
 
-        # --- altman_x4_mve_tl ---
+        # --- altman_x4_equity_tl ---
         x4_quality = data_quality
         if total_liabilities is None or total_liabilities == 0:
             x4_quality = "ZERO_DENOMINATOR"
@@ -547,7 +555,7 @@ class AltmanZScoreEngine(BaseEngine):
         outputs.append(
             _build_output(
                 security_id, entity_id,
-                "altman_x4_mve_tl",
+                "altman_x4_equity_tl",
                 x4,
                 period_label, period.period_end_date,
                 x4_inputs,
@@ -629,7 +637,7 @@ class AltmanZScoreEngine(BaseEngine):
             ("altman_x1_wc_ta", "RATIO"),
             ("altman_x2_re_ta", "RATIO"),
             ("altman_x3_ebit_ta", "RATIO"),
-            ("altman_x4_mve_tl", "RATIO"),
+            ("altman_x4_equity_tl", "RATIO"),
             ("altman_x5_sales_ta", "RATIO"),
             ("altman_implied_pd", "RATIO"),
             ("altman_gics_sector", "CLASSIFICATION"),
@@ -667,7 +675,7 @@ class AltmanZScoreEngine(BaseEngine):
             ("altman_x1_wc_ta", "RATIO"),
             ("altman_x2_re_ta", "RATIO"),
             ("altman_x3_ebit_ta", "RATIO"),
-            ("altman_x4_mve_tl", "RATIO"),
+            ("altman_x4_equity_tl", "RATIO"),
             ("altman_x5_sales_ta", "RATIO"),
             ("altman_implied_pd", "RATIO"),
             ("altman_gics_sector", "CLASSIFICATION"),

@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import logging
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -33,9 +34,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("analytics_batch")
 
 
-async def _get_active_security_ids(session: AsyncSession, limit: int | None = None) -> list[UUID]:
-    """Fetch all active security IDs."""
+async def _get_active_security_ids(session: AsyncSession, limit: int | None = None, since: str | None = None) -> list[UUID]:
+    """Fetch all active security IDs. If since is provided, only fetch those with updated data."""
     query = select(Security.security_id).where(Security.status == "ACTIVE")
+    if since:
+        try:
+            since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+            query = query.where(Security.updated_at >= since_dt)
+        except ValueError:
+            logger.error("Invalid since format. Expected YYYY-MM-DD")
+            raise
     if limit:
         query = query.limit(limit)
     result = await session.execute(query)
@@ -66,13 +74,13 @@ async def _persist_outputs(session: AsyncSession, outputs: list[EngineOutput]) -
     return len(outputs)
 
 
-async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None = None) -> None:
+async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None = None, since: str | None = None) -> None:
     """Run a specific engine in batch mode."""
-    logger.info("Starting analytics batch: engine=%s dry_run=%s limit=%s", engine_name, dry_run, limit)
+    logger.info("Starting analytics batch: engine=%s dry_run=%s limit=%s since=%s", engine_name, dry_run, limit, since)
     start = time.perf_counter()
 
     async with async_session_factory() as session:
-        security_ids = await _get_active_security_ids(session, limit=limit)
+        security_ids = await _get_active_security_ids(session, limit=limit, since=since)
         logger.info("Found %d active securities", len(security_ids))
 
         if not security_ids:
@@ -107,15 +115,12 @@ async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None 
             engine_map["industry_kpis"] = IndustryKPIEngine
 
         if engine_name in ("e3", "all"):
-            try:
-                from src.engines.e3_piotroski import PiotroskiEngine
-                from src.engines.e3_altman import AltmanEngine
-                from src.engines.e3_beneish import BeneishEngine
-                engine_map["piotroski"] = PiotroskiEngine
-                engine_map["altman"] = AltmanEngine
-                engine_map["beneish"] = BeneishEngine
-            except ImportError:
-                logger.warning("E3 quality scoring engines not yet available")
+            from src.engines.e3_piotroski import PiotroskiEngine
+            from src.engines.e3_altman import AltmanEngine
+            from src.engines.e3_beneish import BeneishEngine
+            engine_map["piotroski"] = PiotroskiEngine
+            engine_map["altman"] = AltmanEngine
+            engine_map["beneish"] = BeneishEngine
 
         total_outputs = 0
         for name, engine_cls in engine_map.items():
@@ -128,9 +133,8 @@ async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None 
             if not dry_run:
                 count = await _persist_outputs(session, outputs)
                 logger.info("  → %d rows persisted", count)
-
-        if not dry_run:
-            await session.commit()
+                # [Bug 69 fix] Per-engine commits
+                await session.commit()
 
     elapsed = time.perf_counter() - start
     logger.info(
@@ -146,9 +150,10 @@ def main() -> None:
     ])
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't persist")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of securities")
+    parser.add_argument("--since", type=str, default=None, help="Only process securities updated since YYYY-MM-DD")
     args = parser.parse_args()
 
-    asyncio.run(run_engine(args.engine, dry_run=args.dry_run, limit=args.limit))
+    asyncio.run(run_engine(args.engine, dry_run=args.dry_run, limit=args.limit, since=args.since))
 
 
 if __name__ == "__main__":

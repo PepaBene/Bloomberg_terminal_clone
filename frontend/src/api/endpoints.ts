@@ -66,35 +66,83 @@ export const FUNDAMENTALS = {
 // ---------------------------------------------------------------------------
 
 export const ANALYTICS = {
-  ratios: (secId: string) => `/v2/analytics/securities/${secId}/ratios`,
-  compositeScores: (secId: string) => `/v2/analytics/securities/${secId}/composite-scores`,
-  allScores: (secId: string) => `/v2/analytics/securities/${secId}/scores/all`,
-  dupont: (secId: string) => `/v2/analytics/securities/${secId}/dupont`,
-  dupontHistory: (secId: string) => `/v2/analytics/securities/${secId}/dupont/history`,
-  multiplesHistory: (secId: string) => `/v2/analytics/securities/${secId}/multiples/history`,
-  peerGroup: (secId: string) => `/v2/analytics/securities/${secId}/peer-group`,
-  peerComparison: (secId: string) => `/v2/analytics/securities/${secId}/peer-comparison`,
-  peerRanking: (secId: string) => `/v2/analytics/securities/${secId}/peer-ranking`,
-  dcf: (secId: string) => `/v2/analytics/securities/${secId}/dcf`,
-  dcfSensitivity: (secId: string) => `/v2/analytics/securities/${secId}/dcf/sensitivity`,
-  footballField: (secId: string) => `/v2/analytics/securities/${secId}/football-field`,
+  // --- Ratios & Scores (paths fixed to match backend router) ---
+  ratios: (secId: string) => `/v2/analytics/ratios/${secId}`,
+  compositeScores: (secId: string) => `/v2/analytics/scores/${secId}/composites`,
+  allScores: (secId: string) => `/v2/analytics/scores/${secId}`,
+  dupont: (secId: string) => `/v2/analytics/dupont/${secId}`,
+  dupontHistory: (secId: string) => `/v2/analytics/dupont/${secId}/history`,
+  multiplesHistory: (secId: string) => `/v2/analytics/multiples/${secId}/history`,
+  historicalMultiples: (secId: string) => `/v2/analytics/multiples/${secId}`,
+  peerGroup: (secId: string) => `/v2/analytics/peers/${secId}`,
+  peerComparison: (secId: string) => `/v2/analytics/ratios/${secId}/vs-peers`,
+  peerRanking: (secId: string) => `/v2/analytics/peers/${secId}/ranking`,
+  dcf: (secId: string) => `/v2/analytics/dcf/${secId}/default`,
+  dcfPost: (secId: string) => `/v2/analytics/dcf/${secId}`,
+  dcfSensitivity: (secId: string) => `/v2/analytics/dcf/${secId}/sensitivity`,
+  footballField: (secId: string) => `/v2/analytics/valuation/${secId}/summary`,
+
+  // --- Screening (paths fixed) ---
   screen: '/v2/analytics/screen',
   screenFields: '/v2/analytics/screen/fields',
-  screenPrebuilt: '/v2/analytics/screen/prebuilt',
-  screenSave: '/v2/analytics/screen/save',
-  screenHistory: '/v2/analytics/screen/history',
-  qualityScore: (secId: string) => `/v2/analytics/securities/${secId}/quality-score`,
-  valueScore: (secId: string) => `/v2/analytics/securities/${secId}/value-score`,
-  growthScore: (secId: string) => `/v2/analytics/securities/${secId}/growth-score`,
-  momentumScore: (secId: string) => `/v2/analytics/securities/${secId}/momentum-score`,
-  volatilityScore: (secId: string) => `/v2/analytics/securities/${secId}/volatility-score`,
-  sectorRelative: (secId: string) => `/v2/analytics/securities/${secId}/sector-relative`,
-  historicalMultiples: (secId: string) => `/v2/analytics/securities/${secId}/historical-multiples`,
-  fairValue: (secId: string) => `/v2/analytics/securities/${secId}/fair-value`,
-  technicalSignals: (secId: string) => `/v2/analytics/securities/${secId}/technical-signals`,
-  seasonality: (secId: string) => `/v2/analytics/securities/${secId}/seasonality`,
+  screenPrebuilt: '/v2/analytics/screens/library',
+  screenSave: '/v2/analytics/screens/save',
+  screenHistory: '/v2/analytics/screens/saved',
+
+  // --- Individual sub-scores (mapped to composites endpoint) ---
+  qualityScore: (secId: string) => `/v2/analytics/scores/${secId}/piotroski`,
+  valueScore: (secId: string) => `/v2/analytics/scores/${secId}/composites`,
+  growthScore: (secId: string) => `/v2/analytics/scores/${secId}/composites`,
+  momentumScore: (secId: string) => `/v2/analytics/scores/${secId}/composites`,
+  volatilityScore: (secId: string) => `/v2/analytics/scores/${secId}/composites`,
+
+  // --- Individual quality scores ---
+  piotroski: (secId: string) => `/v2/analytics/scores/${secId}/piotroski`,
+  altman: (secId: string) => `/v2/analytics/scores/${secId}/altman`,
+  beneish: (secId: string) => `/v2/analytics/scores/${secId}/beneish`,
+  scoreHistory: (secId: string) => `/v2/analytics/scores/${secId}/history`,
+
+  // --- WACC ---
+  wacc: (secId: string) => `/v2/analytics/wacc/${secId}`,
+  waccHistory: (secId: string) => `/v2/analytics/wacc/${secId}/history`,
+  waccComponents: (secId: string) => `/v2/analytics/wacc/${secId}/components`,
+
+  // --- TTM ---
+  ttm: (secId: string) => `/v2/analytics/ttm/${secId}`,
+
+  // --- Comps ---
+  comps: (secId: string) => `/v2/analytics/comps/${secId}`,
+  compsSummary: (secId: string) => `/v2/analytics/comps/${secId}/summary`,
+
+  // --- Industry KPIs ---
+  industryKpis: (secId: string) => `/v2/analytics/kpis/${secId}`,
+  industryKpisHistory: (secId: string) => `/v2/analytics/kpis/${secId}/history`,
+
+  // --- Trends ---
+  trends: (secId: string) => `/v2/analytics/trends/${secId}`,
+
+  // --- Audit / Lineage ---
+  audit: (secId: string, metric: string) => `/v2/analytics/audit/${secId}/${metric}`,
+
+  // --- Ranking ---
+  rank: '/v2/analytics/rank',
+
+  // --- Ratio detail endpoints ---
+  ratioPercentile: (secId: string) => `/v2/analytics/ratios/${secId}/percentile`,
+  ratioHistory: (secId: string) => `/v2/analytics/ratios/${secId}/history`,
+
+  // --- These have no backend yet — hooks disabled until endpoints exist ---
+  sectorRelative: (secId: string) => `/v2/analytics/sector-relative/${secId}`,
+  fairValue: (secId: string) => `/v2/analytics/fair-value/${secId}`,
+  technicalSignals: (secId: string) => `/v2/analytics/technical-signals/${secId}`,
+  seasonality: (secId: string) => `/v2/analytics/seasonality/${secId}`,
   correlation: '/v2/analytics/correlation',
-  factorExposure: (secId: string) => `/v2/analytics/securities/${secId}/factor-exposure`,
+  factorExposure: (secId: string) => `/v2/analytics/factor-exposure/${secId}`,
+
+  // --- Universe ---
+  universeUsEquities: '/v2/analytics/universe/us-equities',
+  universeSp500: '/v2/analytics/universe/sp500',
+  universeRussell1000: '/v2/analytics/universe/russell1000',
 } as const;
 
 // Fixed Income

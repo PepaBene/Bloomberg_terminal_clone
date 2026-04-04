@@ -39,6 +39,7 @@ export interface DCFPanelProps {
   result: DCFResult;
   sensitivity?: DCFSensitivity;
   scenarios?: DCFScenario[];
+  onRecalculate?: () => Promise<void>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -77,7 +78,7 @@ function scenarioColor(tier: DCFScenario['tier']): string {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function DCFPanel({ assumptions, result, sensitivity, scenarios }: DCFPanelProps) {
+export function DCFPanel({ assumptions, result, sensitivity, scenarios, onRecalculate }: DCFPanelProps) {
   const [isComputing, setIsComputing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -91,12 +92,20 @@ export function DCFPanel({ assumptions, result, sensitivity, scenarios }: DCFPan
 
   const upsideLabel = result.upside > 0 ? 'Upside' : result.upside < 0 ? 'Downside' : 'At Fair Value';
 
-  const startComputing = () => {
+  const startComputing = async () => {
     setIsComputing(true);
     setElapsed(0);
     intervalRef.current = setInterval(() => {
       setElapsed((e) => e + 0.1);
     }, 100);
+
+    if (onRecalculate) {
+      try {
+        await onRecalculate();
+      } finally {
+        stopComputing();
+      }
+    }
   };
 
   const stopComputing = () => {

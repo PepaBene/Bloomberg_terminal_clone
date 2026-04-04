@@ -1,4 +1,4 @@
-import { useApiQuery } from './useApi';
+import { useApiQuery, useApiMutation } from './useApi';
 import { ANALYTICS } from '@/api/endpoints';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,34 @@ export function useVolatilityScore(secId: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Individual quality scores (Piotroski, Altman, Beneish)
+// ---------------------------------------------------------------------------
+
+export function usePiotroskiScore(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'piotroski'], ANALYTICS.piotroski(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useAltmanScore(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'altman'], ANALYTICS.altman(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useBeneishScore(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'beneish'], ANALYTICS.beneish(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useScoreHistory(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'score-history'], ANALYTICS.scoreHistory(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Ratio & DuPont analysis
 // ---------------------------------------------------------------------------
 
@@ -87,6 +115,74 @@ export function useHistoricalMultiples(secId: string | undefined) {
 
 export function useFairValue(secId: string | undefined) {
   return useApiQuery(['analytics', secId, 'fair-value'], ANALYTICS.fairValue(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// WACC
+// ---------------------------------------------------------------------------
+
+export function useWacc(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'wacc'], ANALYTICS.wacc(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useWaccHistory(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'wacc', 'history'], ANALYTICS.waccHistory(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useWaccComponents(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'wacc', 'components'], ANALYTICS.waccComponents(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TTM Metrics
+// ---------------------------------------------------------------------------
+
+export function useTTM(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'ttm'], ANALYTICS.ttm(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Comps / Comparable Analysis
+// ---------------------------------------------------------------------------
+
+export function useComps(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'comps'], ANALYTICS.comps(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+export function useCompsSummary(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'comps', 'summary'], ANALYTICS.compsSummary(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Industry KPIs
+// ---------------------------------------------------------------------------
+
+export function useIndustryKpis(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'kpis'], ANALYTICS.industryKpis(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Trends
+// ---------------------------------------------------------------------------
+
+export function useTrends(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'trends'], ANALYTICS.trends(secId!), undefined, {
     enabled: !!secId,
   });
 }
@@ -176,6 +272,14 @@ export function useScreener(filters?: Record<string, unknown>) {
   );
 }
 
+export function useRunScreen() {
+  return useApiMutation<any, any>(ANALYTICS.screen);
+}
+
+export function useSaveScreen() {
+  return useApiMutation<any, any>(ANALYTICS.screenSave, [['analytics', 'screen', 'history']]);
+}
+
 export function useScreenFields() {
   return useApiQuery(['analytics', 'screen', 'fields'], ANALYTICS.screenFields);
 }
@@ -193,5 +297,5 @@ export function useScreenHistory() {
 // ---------------------------------------------------------------------------
 
 export function useCorrelation() {
-  return useApiQuery(['analytics', 'correlation'], ANALYTICS.correlation);
+  return useApiQuery(['analytics', 'correlation'], ANALYTICS.correlation, undefined, { enabled: false });
 }

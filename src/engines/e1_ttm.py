@@ -136,14 +136,15 @@ def _has_quarter_gap(periods: list[FinancialPeriod]) -> bool:
 
 
 def _months_covered(periods: list[FinancialPeriod]) -> int:
-    """Estimate the number of months covered by the available quarters."""
+    """Estimate the number of months covered by the available quarters.
+
+    [Bug 9 fix] Count actual quarters × 3 months instead of date arithmetic
+    with an off-by-one constant.  This is correct for both Q1-only data
+    (3 months, not the erroneous 6) and any partial-year coverage.
+    """
     if not periods:
         return 0
-    newest = periods[0].period_end_date
-    oldest = periods[-1].period_end_date
-    # Each quarter covers ~3 months; add 3 for the oldest quarter itself
-    diff_months = (newest.year - oldest.year) * 12 + (newest.month - oldest.month)
-    return diff_months + 3
+    return len(periods) * 3
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +275,23 @@ class TTMEngine(BaseEngine):
                     )
 
             if all_none:
-                # Every quarter had None for this field — skip it
+                # [Bug 11 fix] Still emit metric with None value so downstream
+                # screener queries see a consistent schema across securities
+                outputs.append(
+                    EngineOutput(
+                        security_id=security_id,
+                        entity_id=entity_id,
+                        engine_id=self.engine_id,
+                        metric_name=f"ttm_{metric_name}",
+                        metric_category=_metric_category_for(model_cls),
+                        value=None,
+                        unit="CURRENCY",
+                        period=period_label,
+                        period_end_date=latest_period.period_end_date,
+                        data_quality="INSUFFICIENT_DATA",
+                        inputs=[],
+                    )
+                )
                 continue
 
             # Annualise if fewer than 4 quarters
@@ -305,9 +322,41 @@ class TTMEngine(BaseEngine):
         for metric_name, (model_cls, field_name) in TTM_STOCK_FIELDS.items():
             stmt_obj = _get_statement(latest_period, model_cls)
             if stmt_obj is None:
+                # [Bug 11 fix] emit with None value for consistent schema
+                outputs.append(
+                    EngineOutput(
+                        security_id=security_id,
+                        entity_id=entity_id,
+                        engine_id=self.engine_id,
+                        metric_name=f"ttm_{metric_name}",
+                        metric_category=_metric_category_for(model_cls),
+                        value=None,
+                        unit="CURRENCY",
+                        period=period_label,
+                        period_end_date=latest_period.period_end_date,
+                        data_quality="INSUFFICIENT_DATA",
+                        inputs=[],
+                    )
+                )
                 continue
             val = getattr(stmt_obj, field_name, None)
             if val is None:
+                # [Bug 11 fix] emit with None value for consistent schema
+                outputs.append(
+                    EngineOutput(
+                        security_id=security_id,
+                        entity_id=entity_id,
+                        engine_id=self.engine_id,
+                        metric_name=f"ttm_{metric_name}",
+                        metric_category=_metric_category_for(model_cls),
+                        value=None,
+                        unit="CURRENCY",
+                        period=period_label,
+                        period_end_date=latest_period.period_end_date,
+                        data_quality="INSUFFICIENT_DATA",
+                        inputs=[],
+                    )
+                )
                 continue
 
             val_float = float(val)

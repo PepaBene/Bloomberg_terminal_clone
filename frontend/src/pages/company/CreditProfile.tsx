@@ -45,7 +45,7 @@ const dataStyle: React.CSSProperties = {
 
 // --- Mock Data ---------------------------------------------------------------
 
-const company = { name: 'Apple Inc.', ticker: 'AAPL' };
+// [Bug 83 fix] — Removed hardcoded company constant; now uses store data in component
 
 const ratings = [
   { agency: 'Moody\'s', rating: 'Aaa', outlook: 'Stable', lastAction: '2024-09-15' },
@@ -158,6 +158,10 @@ export default function CreditProfile() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
+  // [Bug 83 fix] — Dynamic company name from store
+  const companyName = primary?.name ?? primary?.ticker ?? 'Unknown';
+  const companyTicker = primary?.ticker ?? resolvedId ?? '--';
+
   // Wire hooks
   const { data: apiRatings } = useCreditRatings(resolvedId);
   const { data: apiSpreads } = useCreditSpreads(resolvedId);
@@ -178,7 +182,7 @@ export default function CreditProfile() {
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
           Credit Profile
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name}</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>{companyTicker} &mdash; {companyName}</p>
       </div>
 
       {/* KPI Row */}
@@ -277,7 +281,7 @@ export default function CreditProfile() {
       </div>
 
       {/* Equity vs Credit Divergence */}
-      <EquityCreditDivergence data={equityCreditData} entityName={company.name} height={300} />
+      <EquityCreditDivergence data={equityCreditData} entityName={companyName} height={300} />
 
       {/* Default Probability */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', marginTop: 'var(--panel-gap)' }}>

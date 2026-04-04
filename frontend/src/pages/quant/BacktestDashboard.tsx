@@ -2,7 +2,7 @@
 // Backtest Dashboard — Strategy Backtesting, Results & History
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
-import { useBacktestStrategies, useBacktestHistory } from '@/hooks';
+import { useBacktestHistory, useScreenPrebuilt } from '@/hooks';
 import { api } from '@/api/client';
 import { BACKTESTING } from '@/api/endpoints';
 
@@ -101,15 +101,43 @@ export default function BacktestDashboard() {
   const [startDate, setStartDate] = useState('2019-01-01');
   const [endDate, setEndDate] = useState('2024-12-31');
 
-  const { data: apiStrategies } = useBacktestStrategies() as { data: any };
+  const { data: apiStrategies } = useScreenPrebuilt() as { data: any[] };
   const { data: apiHistory } = useBacktestHistory() as { data: any };
 
-  const activeStrategies = (apiStrategies as any)?.strategies ?? strategies;
-  const activeResults = (apiStrategies as any)?.results ?? backtestResults;
+  const activeStrategies = apiStrategies ?? strategies;
+  const activeResults = backtestResults; // Mocked until backend has true backtesting
   const activeHistory = (apiHistory as any)?.history ?? recentBacktests;
 
+  // Dynamic KPIs (Bug 91 fix)
+  const totalStrategies = activeStrategies?.length ?? 0;
+  const totalBacktests = activeHistory?.length ?? 0;
+  const bestResult = activeResults.reduce((max, r) => r.cagr > max.cagr ? r : max, activeResults[0]);
+  const avgSharpe = (activeResults.reduce((sum, r) => sum + r.sharpe, 0) / activeResults.length).toFixed(2);
+  const avgWinRate = (activeResults.reduce((sum, r) => sum + r.winRate, 0) / activeResults.length).toFixed(1);
+  const maxDrawdownObj = activeResults.reduce((min, r) => r.maxDrawdown < min.maxDrawdown ? r : min, activeResults[0]);
+
+  const dynamicKpis = [
+    { label: 'Strategies', value: totalStrategies.toString() },
+    { label: 'Backtests Run', value: totalBacktests.toString() },
+    { label: 'Best Strategy CAGR', value: `+${bestResult?.cagr?.toFixed(2)}%`, color: 'var(--color-signal-positive)' },
+    { label: 'Avg Sharpe', value: avgSharpe },
+    { label: 'Win Rate', value: `${avgWinRate}%` },
+    { label: 'Max Drawdown', value: `${maxDrawdownObj?.maxDrawdown?.toFixed(1)}%`, color: 'var(--color-signal-negative)' },
+  ];
+
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+
   const handleRunBacktest = useCallback(async () => {
-    try { await api.post(BACKTESTING.run, { strategy: selectedStrategy, universe, startDate, endDate }); } catch {}
+    setIsRunning(true);
+    setRunError(null);
+    try {
+      await api.post(BACKTESTING.run, { strategy: selectedStrategy, universe, startDate, endDate });
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Backtest failed. Please try again.');
+    } finally {
+      setIsRunning(false);
+    }
   }, [selectedStrategy, universe, startDate, endDate]);
 
   return (
@@ -123,7 +151,7 @@ export default function BacktestDashboard() {
 
       {/* KPI Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {kpiData.map((kpi) => (
+        {dynamicKpis.map((kpi) => (
           <div key={kpi.label} style={panelStyle}>
             <div style={labelStyle}>{kpi.label}</div>
             <div style={{ ...dataStyle, fontSize: 'var(--text-lg)', fontWeight: 600, marginTop: '4px', color: kpi.color ?? 'var(--color-text-primary)' }}>
@@ -181,6 +209,7 @@ export default function BacktestDashboard() {
           </div>
           <button
             onClick={handleRunBacktest}
+            disabled={isRunning}
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-sm)',
@@ -188,15 +217,21 @@ export default function BacktestDashboard() {
               padding: '8px 20px',
               borderRadius: '4px',
               border: 'none',
-              cursor: 'pointer',
+              cursor: isRunning ? 'wait' : 'pointer',
               background: 'var(--color-accent-primary)',
               color: 'var(--color-surface-base)',
               whiteSpace: 'nowrap',
+              opacity: isRunning ? 0.7 : 1,
             }}
           >
-            Run Backtest
+            {isRunning ? 'Running…' : 'Run Backtest'}
           </button>
         </div>
+        {runError && (
+          <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-negative) 10%, transparent)', color: 'var(--color-signal-negative)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)' }}>
+            {runError}
+          </div>
+        )}
       </div>
 
       {/* Backtest Results Table */}

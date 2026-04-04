@@ -4,7 +4,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
-import { useScreenPrebuilt, useScreenHistory } from '@/hooks';
+import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
 import { api } from '@/api/client';
 import { ANALYTICS } from '@/api/endpoints';
 
@@ -44,15 +44,15 @@ const MOCK_STOCKS: ScreenerRow[] = [
   { ticker: 'CAT',   name: 'Caterpillar Inc.',     sector: 'Industrials',     marketCapB: 178,  pe: 16.2,  roe: 54.8,  revGrowth: -2.4, piotroski: 6 },
 ];
 
-// --- ScreenBuilder available metrics -----------------------------------------
+// --- ScreenBuilder fallback metrics ------------------------------------------
 
-const EQUITY_METRICS: MetricDef[] = [
-  { key: 'pe', label: 'P/E Ratio', category: 'Valuation' },
-  { key: 'evEbitda', label: 'EV/EBITDA', category: 'Valuation' },
-  { key: 'marketCapB', label: 'Market Cap ($B)', category: 'Size' },
+const FALLBACK_EQUITY_METRICS: MetricDef[] = [
+  { key: 'pe_trailing', label: 'P/E Ratio', category: 'Valuation' },
+  { key: 'ev_ebitda', label: 'EV/EBITDA', category: 'Valuation' },
+  { key: 'market_cap', label: 'Market Cap ($B)', category: 'Size' },
   { key: 'roe', label: 'ROE (%)', category: 'Profitability' },
-  { key: 'revGrowth', label: 'Revenue Growth (%)', category: 'Growth' },
-  { key: 'piotroski', label: 'Piotroski F-Score', category: 'Quality' },
+  { key: 'revenue_growth_1y', label: 'Revenue Growth (%)', category: 'Growth' },
+  { key: 'piotroski_score', label: 'Piotroski F-Score', category: 'Quality' },
 ];
 
 // --- ScreenResults columns ---------------------------------------------------
@@ -68,6 +68,21 @@ const RESULT_COLUMNS: ScreenResultColumn[] = [
   { key: 'piotroski', label: 'Piotroski', format: 'number' },
 ];
 
+// --- Operator mapping for backend compatibility (Bug 46 fix) -----------------
+
+function mapOperatorToBackend(op: string): string {
+  switch (op) {
+    case '>': return 'GT';
+    case '<': return 'LT';
+    case '>=': return 'GTE';
+    case '<=': return 'LTE';
+    case '=': return 'EQ';
+    case '!=': return 'NEQ';
+    case 'between': return 'BETWEEN';
+    default: return op.toUpperCase();
+  }
+}
+
 // --- Component ---------------------------------------------------------------
 
 export default function ScreenerDashboard() {
@@ -77,39 +92,73 @@ export default function ScreenerDashboard() {
   const [screenName, setScreenName] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
+  const [isUsingMock, setIsUsingMock] = useState(false);
 
   // --- API hooks ---
   const { data: apiPrebuilt } = useScreenPrebuilt() as { data: any };
-  const { data: apiHistory, refetch: refetchHistory } = useScreenHistory() as { data: any };
+  const { data: apiHistory, refetch: refetchHistory } = useScreenHistory() as { data: any; refetch: () => void };
 
-  // --- Run screen against backend ---
+  // [Bug 49 fix] — Load fields dynamically from useScreenFields()
+  const { data: apiFields } = useScreenFields() as { data: any };
+  const availableMetrics: MetricDef[] = useMemo(() => {
+    if (apiFields && Array.isArray((apiFields as any)?.fields)) {
+      return (apiFields as any).fields.map((f: any) => ({
+        key: f.name ?? f.key ?? f.field,
+        label: f.label ?? f.display_name ?? f.name,
+        category: f.category ?? 'Other',
+      }));
+    }
+    return FALLBACK_EQUITY_METRICS;
+  }, [apiFields]);
+
+  const { mutateAsync: runScreen } = useRunScreen();
+  const { mutateAsync: saveScreen } = useSaveScreen();
+
+  // --- Run screen against backend (Bug 46 fix — correct filter format) ---
   const handleRunScreen = useCallback(async () => {
-    if (filters.length === 0) { setBackendResults(null); return; }
+    if (filters.length === 0) { setBackendResults(null); setIsUsingMock(false); return; }
     setScreening(true);
+    setIsUsingMock(false);
     try {
-      const payload = { filters: filters.map(f => ({ metric: f.metric, operator: f.operator, value: f.value, valueTo: f.valueTo })) };
-      const res = await api.post(ANALYTICS.screen, payload);
+      // [Bug 46 fix] — Map filter fields to match backend ScreenFilter schema:
+      // metric → field, operator → op (uppercase), valueTo → value2, add source
+      const payload = {
+        logic: 'AND',
+        filters: filters.map(f => ({
+          field: f.metric,
+          source: 'ANALYTICS_RESULT',
+          op: mapOperatorToBackend(f.operator),
+          value: f.value,
+          value2: f.valueTo ?? null,
+        })),
+      };
+      const res = await runScreen(payload);
       setBackendResults((res as any)?.results ?? (res as any)?.data ?? []);
-    } catch { setBackendResults(null); }
+    } catch {
+      // [Bug 85 fix] — Track that we're in mock mode
+      setBackendResults(null);
+      setIsUsingMock(true);
+    }
     setScreening(false);
-  }, [filters]);
+  }, [filters, runScreen]);
 
   // --- Save screen ---
   const handleSaveScreen = useCallback(async () => {
     if (!screenName.trim()) return;
     try {
-      await api.post(ANALYTICS.screenSave, { name: screenName, filters });
+      await saveScreen({ name: screenName, filters });
       setShowSaveModal(false);
       setScreenName('');
       refetchHistory();
     } catch { /* ignore */ }
-  }, [screenName, filters, refetchHistory]);
+  }, [screenName, filters, saveScreen, refetchHistory]);
 
   // --- Load prebuilt screen ---
   const handleLoadPrebuilt = useCallback((screen: any) => {
     if (screen?.filters) {
       setFilters(screen.filters);
       setBackendResults(null);
+      setIsUsingMock(false);
     }
     setShowLoadModal(false);
   }, []);
@@ -119,6 +168,7 @@ export default function ScreenerDashboard() {
     if (screen?.filters) {
       setFilters(screen.filters);
       setBackendResults(null);
+      setIsUsingMock(false);
     }
     setShowLoadModal(false);
   }, []);
@@ -144,6 +194,7 @@ export default function ScreenerDashboard() {
   const handleFiltersChange = useCallback((newFilters: ScreenFilter[]) => {
     setFilters(newFilters);
     setBackendResults(null); // reset backend results on filter change
+    setIsUsingMock(false);
   }, []);
 
   // Use backend results if available, otherwise fall back to local filtering
@@ -151,7 +202,9 @@ export default function ScreenerDashboard() {
     () => backendResults ?? filtered.map((s) => ({ ...s } as unknown as Record<string, unknown>)),
     [backendResults, filtered],
   );
-  const totalCount = backendResults ? (backendResults.length) : MOCK_STOCKS.length;
+
+  // [Bug 85 fix] — Show null count in mock mode so LivePreviewCount can display fallback message
+  const totalCount = backendResults ? backendResults.length : (isUsingMock ? null : MOCK_STOCKS.length);
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -179,17 +232,23 @@ export default function ScreenerDashboard() {
         </div>
       </div>
 
-      {/* ScreenBuilder replaces inline filter controls */}
+      {/* ScreenBuilder — [Bug 49 fix] uses dynamic metrics from API */}
       <div style={{ marginBottom: 'var(--panel-gap)' }}>
         <ScreenBuilder
           filters={filters}
           onChange={handleFiltersChange}
-          availableMetrics={EQUITY_METRICS}
+          availableMetrics={availableMetrics}
         />
       </div>
 
-      {/* LivePreviewCount between builder and results */}
-      <LivePreviewCount count={resultRows.length} total={totalCount} />
+      {/* LivePreviewCount — [Bug 85 fix] shows demo mode when backend unreachable */}
+      {isUsingMock ? (
+        <div style={{ padding: '8px 12px', marginBottom: '8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-warning, #f0ad4e) 10%, transparent)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-warning, #f0ad4e)' }}>
+          Demo mode — backend unavailable. Showing local mock results.
+        </div>
+      ) : (
+        <LivePreviewCount count={resultRows.length} total={totalCount ?? resultRows.length} />
+      )}
 
       {/* ScreenResults replaces inline results table */}
       <div style={{ marginTop: 'var(--panel-gap)' }}>

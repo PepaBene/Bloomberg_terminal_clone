@@ -316,7 +316,10 @@ async def get_dupont(
 
     result = await session.execute(
         select(DuPontDecomposition)
-        .where(DuPontDecomposition.entity_id == sec.issuer_entity_id)
+        .where(
+            DuPontDecomposition.entity_id == sec.issuer_entity_id,
+            DuPontDecomposition.security_id == security_id,
+        )
         .order_by(DuPontDecomposition.period.desc())
         .limit(2)  # latest 3-factor + 5-factor
     )
@@ -634,6 +637,8 @@ async def get_trends(
                 else:
                     by_ratio[base][field_key] = float(r.value) if r.value is not None else None
                 break
+        else:
+            logger.warning("Unrecognized metric_name suffix in trends: %s", name)
 
     # Filter if specific ratio requested
     if ratio:
@@ -1139,6 +1144,7 @@ async def get_comps(
             comps = result2.scalar_one_or_none()
         except Exception as exc:
             logger.error("Comps computation failed: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Comps computation failed: {exc}")
 
     if comps is None:
         raise HTTPException(status_code=404, detail="No comparable analysis available")
@@ -1189,7 +1195,7 @@ async def get_football_field(
         results = await engine.compute(session, security_id=security_id)
     except Exception as exc:
         logger.error("Football field failed: %s", exc)
-        results = []
+        raise HTTPException(status_code=500, detail=f"Football field failed: {exc}")
 
     # Build response from EngineOutput list
     from src.schemas.analytics import ValuationMethodRange
@@ -1245,6 +1251,9 @@ async def get_composite_scores(
     for r in rows:
         if r.score_type not in by_type:
             by_type[r.score_type] = r
+
+    if not by_type:
+        raise HTTPException(status_code=404, detail="No composite scores available")
 
     def _to_response(cs: CompositeScore | None) -> CompositeScoreResponse | None:
         if cs is None:

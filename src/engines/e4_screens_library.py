@@ -183,6 +183,9 @@ PREBUILT_SCREENS: dict[str, dict] = {
         "filters": {
             "logic": "AND",
             "filters": [
+                {"field": "consecutive_dividend_years", "source": "ANALYTICS_RESULT", "op": "GTE", "value": 25},
+                {"field": "dividend_growth_1y", "source": "ANALYTICS_RESULT", "op": "GT", "value": 0},
+                {"field": "dividend_growth_3y", "source": "ANALYTICS_RESULT", "op": "GT", "value": 0},
                 {"field": "dividend_growth_5y", "source": "ANALYTICS_RESULT", "op": "GT", "value": 0},
                 {"field": "payout_ratio", "source": "ANALYTICS_RESULT", "op": "LT", "value": 0.75},
                 {"field": "dividend_yield", "source": "ANALYTICS_RESULT", "op": "GT", "value": 0.02},

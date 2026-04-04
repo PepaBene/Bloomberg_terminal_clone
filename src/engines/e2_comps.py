@@ -49,12 +49,14 @@ DEFAULT_MULTIPLES: list[str] = [
 # Format: (denominator_metric, needs_ev_bridge)
 #   - needs_ev_bridge=True  → implied equity = peer_median * subj_denom − net_debt
 #   - needs_ev_bridge=False → implied price = peer_median * subj_denom_per_share
+# [Bug 30 fix] Aligned metric names with actual E1 TTM engine output.
+# Original names like "eps_diluted" don't match E1 output "ttm_diluted_eps".
 _MULTIPLE_DENOM_MAP: dict[str, tuple[str, bool]] = {
-    "pe_trailing": ("eps_diluted", False),
-    "ev_ebitda": ("ebitda_per_share", True),
-    "ev_sales": ("revenue_per_share", True),
-    "pb": ("book_value_per_share", False),
-    "dividend_yield": ("dividend_per_share", False),
+    "pe_trailing": ("ttm_diluted_eps", False),
+    "ev_ebitda": ("ttm_ebitda", True),
+    "ev_sales": ("ttm_total_revenue", True),
+    "pb": ("ttm_bvps", False),
+    "dividend_yield": ("ttm_dividends_per_share", False),
 }
 
 
@@ -145,8 +147,16 @@ class CompsEngine(BaseEngine):
                 p for p in peer_group.peers if p.security_id in peer_ids
             ]
             if not peer_group.peers:
-                # Fallback: build minimal peer group from supplied ids
-                peer_group = await peer_svc.get_peers(session, security_id)
+                # [Bug 29 fix] Respect caller intent: if none of the specified
+                # peer_ids are valid, raise rather than silently falling back
+                logger.warning(
+                    "Comps: none of the %d specified peer_ids matched valid peers for %s",
+                    len(peer_ids), security_id,
+                )
+                raise ValueError(
+                    f"None of the specified {len(peer_ids)} peer_ids are valid "
+                    f"peers for security {security_id}"
+                )
         else:
             peer_group = await peer_svc.get_peers(session, security_id)
 
@@ -343,7 +353,9 @@ class CompsEngine(BaseEngine):
             current_price=current_price,
             data_quality=quality_flag,
         )
-        session.add(comps_row)
+        # [Bug 31 fix] Use merge() for upsert semantics so re-running the
+        # batch on the same day doesn't raise IntegrityError.
+        await session.merge(comps_row)
 
         logger.info(
             "Comps: computed %d metrics for security %s — "

@@ -450,7 +450,16 @@ class WACCEngine(BaseEngine):
         # After-tax cost of debt
         cost_of_debt_aftertax: float | None = None
         if cost_of_debt_pretax is not None:
-            tax_mult = 1.0 - (effective_tax_rate if effective_tax_rate is not None else 0.21)
+            # [Bug 24 fix] Use 0% for companies with zero or negative pretax
+            # income (pre-revenue, loss-carry-forward, tax-exempt).  Only
+            # apply 21% statutory when pretax income is positive but no tax
+            # data is available.
+            if effective_tax_rate is not None:
+                tax_mult = 1.0 - effective_tax_rate
+            elif pretax_income is not None and pretax_income > 0:
+                tax_mult = 1.0 - 0.21  # positive pretax, missing tax detail
+            else:
+                tax_mult = 1.0  # zero/negative pretax → no tax shield
             cost_of_debt_aftertax = cost_of_debt_pretax * tax_mult
 
         # ------------------------------------------------------------------

@@ -30,10 +30,12 @@ from src.models.security import Security
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Ratios to track
+# Ratios to track — fallback list used when dynamic discovery is unavailable
+# [Bug 5 fix] Prefer dynamic discovery from AnalyticsResult; this list
+# serves only as a default when no prior E1 results exist yet.
 # ---------------------------------------------------------------------------
 
-TREND_RATIOS: list[str] = [
+_DEFAULT_TREND_RATIOS: list[str] = [
     "gross_margin", "operating_margin", "ebitda_margin", "net_margin", "fcf_margin",
     "roe", "roa", "roic", "roce",
     "debt_to_equity", "net_debt_to_ebitda", "interest_coverage", "current_ratio",
@@ -42,6 +44,11 @@ TREND_RATIOS: list[str] = [
     "dso", "dio", "dpo", "ccc",
     "payout_ratio",
 ]
+
+# Keep module-level alias for backward compatibility
+TREND_RATIOS = _DEFAULT_TREND_RATIOS
+
+_MIN_STDEV_POINTS = 4  # [Bug 12] minimum data points for reliable stdev
 
 _STABLE_PCT = 0.05
 _COV_HIGHLY_CONSISTENT = 0.15
@@ -160,6 +167,9 @@ class _RatioHistory:
         """1Y momentum computed one period earlier (for acceleration calc).
 
         Takes the second-latest point and the point ~1 year before it.
+        [Bug 14 fix] Requires the comparison point to be at least
+        180 days before the reference point to avoid matching the
+        same observation twice in sparse series.
         """
         if len(self.points) < 3:
             return None
@@ -168,6 +178,10 @@ class _RatioHistory:
         target = prior_date - timedelta(days=365)
         best: tuple[int, float] | None = None
         for dt, val in self.points[:-1]:
+            # [Bug 14] Skip points that are too close to the reference
+            separation = (prior_date - dt).days
+            if separation < 180:
+                continue
             delta = abs((dt - target).days)
             if best is None or delta < best[0]:
                 best = (delta, val)
@@ -209,7 +223,25 @@ class TrendEngine(BaseEngine):
             return []
         entity_id: UUID = security.issuer_entity_id
 
-        # 2. Load all E1 ratio history for this security
+        # 2. [Bug 5 fix] Dynamically discover all E1 metric names for this
+        #    security, falling back to _DEFAULT_TREND_RATIOS if no prior
+        #    results exist yet.
+        from sqlalchemy import distinct as sa_distinct
+
+        disc_stmt = (
+            select(sa_distinct(AnalyticsResult.metric_name))
+            .where(
+                AnalyticsResult.security_id == security_id,
+                AnalyticsResult.engine_id == "E1",
+                AnalyticsResult.metric_category != "TREND",  # exclude our own output
+                AnalyticsResult.value.is_not(None),
+            )
+        )
+        disc_rows = await session.execute(disc_stmt)
+        discovered_ratios = [row[0] for row in disc_rows.all()]
+        ratio_list = discovered_ratios if discovered_ratios else list(_DEFAULT_TREND_RATIOS)
+
+        # Load all E1 ratio history for this security
         stmt = (
             select(
                 AnalyticsResult.metric_name,
@@ -219,7 +251,7 @@ class TrendEngine(BaseEngine):
             .where(
                 AnalyticsResult.security_id == security_id,
                 AnalyticsResult.engine_id == "E1",
-                AnalyticsResult.metric_name.in_(TREND_RATIOS),
+                AnalyticsResult.metric_name.in_(ratio_list),
                 AnalyticsResult.value.is_not(None),
                 AnalyticsResult.period_end_date.is_not(None),
             )
@@ -239,7 +271,7 @@ class TrendEngine(BaseEngine):
 
         # 3. Compute trend metrics for each ratio
         outputs: list[EngineOutput] = []
-        for ratio_name in TREND_RATIOS:
+        for ratio_name in ratio_list:
             hist = histories.get(ratio_name)
             if hist is None or hist.n < 2:
                 continue
@@ -317,12 +349,17 @@ class TrendEngine(BaseEngine):
         cov_5y: float | None = None
         consistency: str | None = None
 
-        if n5 >= 2:
+        # [Bug 12 fix] Require minimum _MIN_STDEV_POINTS for reliable stdev
+        if n5 >= _MIN_STDEV_POINTS:
             std_5y = statistics.stdev(vals_5y)
             mean_5y = statistics.mean(vals_5y)
             if mean_5y != 0:
                 cov_5y = std_5y / abs(mean_5y)
             consistency = _consistency_label(cov_5y)
+        elif n5 >= 2:
+            # Enough for mean but not for reliable stdev
+            mean_5y = statistics.mean(vals_5y)
+            dq_5y = "INSUFFICIENT_DATA"
 
         outputs.append(_out(
             f"{name}_std_5y", std_5y, dq=dq_5y,
@@ -343,9 +380,15 @@ class TrendEngine(BaseEngine):
         # -- Mean Reversion -------------------------------------------------
         zscore: float | None = None
         mr_signal: str | None = None
-        if std_5y is not None and mean_5y is not None and std_5y != 0 and current is not None:
-            zscore = (current - mean_5y) / std_5y
-            mr_signal = _mean_reversion_label(zscore)
+        if std_5y is not None and mean_5y is not None and current is not None:
+            if std_5y == 0:
+                # [Bug 13 fix] Zero variance means perfectly stable
+                zscore = 0.0
+                mr_signal = "NORMAL"
+                dq_5y = "HIGHLY_CONSISTENT"
+            else:
+                zscore = (current - mean_5y) / std_5y
+                mr_signal = _mean_reversion_label(zscore)
 
         outputs.append(_out(
             f"{name}_zscore_5y", zscore, unit="SCORE", dq=dq_5y,

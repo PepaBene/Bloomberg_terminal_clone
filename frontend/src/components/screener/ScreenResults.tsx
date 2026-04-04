@@ -31,19 +31,33 @@ function signalColor(value: unknown): string | undefined {
 
 function formatValue(value: unknown, format?: string): string {
   if (value == null) return '\u2014';
-  if (typeof value !== 'number') return String(value);
+
+  // [Bug 98 fix] — Parse to number safely; API may return string representations
+  let numValue: number;
+  if (typeof value === 'number') {
+    numValue = value;
+  } else if (typeof value === 'string' && format) {
+    const parsed = parseFloat(value);
+    if (isNaN(parsed)) return String(value);
+    numValue = parsed;
+  } else {
+    return String(value);
+  }
 
   switch (format) {
     case 'pct':
-      return `${value.toFixed(1)}%`;
+    case 'percent':
+      return `${numValue.toFixed(1)}%`;
     case 'currency':
-      if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-      if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
-      return `$${value.toFixed(2)}`;
+      if (Math.abs(numValue) >= 1e9) return `$${(numValue / 1e9).toFixed(1)}B`;
+      if (Math.abs(numValue) >= 1e6) return `$${(numValue / 1e6).toFixed(1)}M`;
+      return `$${numValue.toFixed(2)}`;
     case 'multiple':
-      return `${value.toFixed(1)}x`;
+      return `${numValue.toFixed(1)}x`;
+    case 'number':
+      return numValue.toLocaleString();
     default:
-      return value.toLocaleString();
+      return numValue.toLocaleString();
   }
 }
 

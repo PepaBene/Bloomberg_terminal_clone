@@ -261,34 +261,53 @@ class PiotroskiEngine(BaseEngine):
         # ------------------------------------------------------------------
         # 7. Profitability Signals (F1-F4)
         # ------------------------------------------------------------------
+        negative_equity = (total_equity_curr is not None and total_equity_curr < 0)
 
         # F1: Net Income > 0
-        if net_income_curr is not None:
+        if negative_equity:
+            f1 = None
+            f1_qual = "NEGATIVE_EQUITY"
+        elif net_income_curr is not None:
             f1 = 1 if net_income_curr > 0 else 0
+            f1_qual = base_quality
         else:
-            f1 = 0  # conservative: missing data -> 0
+            f1 = None
+            f1_qual = "INSUFFICIENT_DATA"
 
         # F2: Operating Cash Flow > 0
-        if ocf_curr is not None:
+        if negative_equity:
+            f2 = None
+            f2_qual = "NEGATIVE_EQUITY"
+        elif ocf_curr is not None:
             f2 = 1 if ocf_curr > 0 else 0
+            f2_qual = base_quality
         else:
-            f2 = 0
+            f2 = None
+            f2_qual = "INSUFFICIENT_DATA"
 
         # F3: ROA improving YoY
         roa_curr = safe_divide(net_income_curr, total_assets_curr)
         roa_prior = safe_divide(net_income_prior, total_assets_prior)
-        if has_prior and roa_curr is not None and roa_prior is not None:
+        if negative_equity:
+            f3 = None
+            f3_qual = "NEGATIVE_EQUITY"
+        elif has_prior and roa_curr is not None and roa_prior is not None:
             f3 = 1 if roa_curr > roa_prior else 0
+            f3_qual = score_quality
         else:
-            f3 = 0
+            f3 = None
+            f3_qual = "INSUFFICIENT_DATA"
 
         # F4: Operating Cash Flow > Net Income (earnings quality)
-        if ocf_curr is not None and net_income_curr is not None:
+        if negative_equity:
+            f4 = None
+            f4_qual = "NEGATIVE_EQUITY"
+        elif ocf_curr is not None and net_income_curr is not None:
             f4 = 1 if ocf_curr > net_income_curr else 0
+            f4_qual = base_quality
         else:
-            f4 = 0
-
-        profitability_subscore = f1 + f2 + f3 + f4
+            f4 = None
+            f4_qual = "INSUFFICIENT_DATA"
 
         # ------------------------------------------------------------------
         # 8. Leverage & Liquidity Signals (F5-F7)
@@ -316,10 +335,10 @@ class PiotroskiEngine(BaseEngine):
         # F7: No new equity issued (shares unchanged or decreased)
         if has_prior and shares_curr is not None and shares_prior is not None:
             f7 = 1 if shares_curr <= shares_prior else 0
-        elif has_prior and shares_curr is not None and shares_prior is None:
-            f7 = 0  # can't confirm, conservative
+            f7_qual = score_quality
         else:
-            f7 = 0
+            f7 = None
+            f7_qual = "INSUFFICIENT_DATA"
 
         # ------------------------------------------------------------------
         # 9. Operating Efficiency Signals (F8-F9)
@@ -344,7 +363,8 @@ class PiotroskiEngine(BaseEngine):
         # ------------------------------------------------------------------
         # 10. Aggregate score and zone
         # ------------------------------------------------------------------
-        f_score = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9
+        f_score_components = (f1, f2, f3, f4, f5, f6, f7, f8, f9)
+        f_score = sum(x for x in f_score_components if x is not None)
 
         if f_score >= 8:
             zone = "STRONG"
@@ -366,10 +386,10 @@ class PiotroskiEngine(BaseEngine):
             _build_output(
                 security_id, entity_id,
                 "piotroski_f1_positive_income",
-                float(f1),
+                float(f1) if f1 is not None else None,
                 period_label, curr_period.period_end_date,
                 [_inp("net_income", net_income_curr)],
-                data_quality=base_quality,
+                data_quality=f1_qual,
             )
         )
 
@@ -378,10 +398,10 @@ class PiotroskiEngine(BaseEngine):
             _build_output(
                 security_id, entity_id,
                 "piotroski_f2_positive_ocf",
-                float(f2),
+                float(f2) if f2 is not None else None,
                 period_label, curr_period.period_end_date,
                 [_inp("cash_from_operations", ocf_curr)],
-                data_quality=base_quality,
+                data_quality=f2_qual,
             )
         )
 
@@ -390,7 +410,7 @@ class PiotroskiEngine(BaseEngine):
             _build_output(
                 security_id, entity_id,
                 "piotroski_f3_improving_roa",
-                float(f3),
+                float(f3) if f3 is not None else None,
                 period_label, curr_period.period_end_date,
                 [
                     _inp("net_income_curr", net_income_curr),
@@ -400,7 +420,7 @@ class PiotroskiEngine(BaseEngine):
                     _inp("total_assets_prior", total_assets_prior, prior_label),
                     _inp("roa_prior", roa_prior, prior_label),
                 ],
-                data_quality=score_quality,
+                data_quality=f3_qual,
             )
         )
 
@@ -409,13 +429,13 @@ class PiotroskiEngine(BaseEngine):
             _build_output(
                 security_id, entity_id,
                 "piotroski_f4_earnings_quality",
-                float(f4),
+                float(f4) if f4 is not None else None,
                 period_label, curr_period.period_end_date,
                 [
                     _inp("cash_from_operations", ocf_curr),
                     _inp("net_income", net_income_curr),
                 ],
-                data_quality=base_quality,
+                data_quality=f4_qual,
             )
         )
 
@@ -462,13 +482,13 @@ class PiotroskiEngine(BaseEngine):
             _build_output(
                 security_id, entity_id,
                 "piotroski_f7_no_dilution",
-                float(f7),
+                float(f7) if f7 is not None else None,
                 period_label, curr_period.period_end_date,
                 [
                     _inp("shares_outstanding_curr", shares_curr),
                     _inp("shares_outstanding_prior", shares_prior, prior_label),
                 ],
-                data_quality=score_quality,
+                data_quality=f7_qual,
             )
         )
 

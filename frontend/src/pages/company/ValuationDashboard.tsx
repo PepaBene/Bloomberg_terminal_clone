@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
 // Valuation Dashboard — DCF Inputs, Multiples, Peer Valuation
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
 import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useDCFSensitivity, useFootballField } from '@/hooks';
 import { api } from '@/api/client';
+import { ANALYTICS } from '@/api/endpoints';
 import { RatioDashboard } from '@/components/company/RatioDashboard';
 import type { DuPontData, MultiplesPoint } from '@/components/company/RatioDashboard';
 import { MultiplesOverTime, PeerScatter, DCFPanel, SensitivityMatrix } from '@/components/valuation';
@@ -40,11 +41,9 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Mock Data (fallback only) -----------------------------------------------
 
-const company = { name: 'Apple Inc.', ticker: 'AAPL', price: 178.72 };
-
-const peerValuation = [
+const MOCK_PEER_VALUATION = [
   { ticker: 'AAPL', name: 'Apple', pe: 28.6, evEbitda: 22.1, pfcf: 25.7, evRev: 7.4, mktCap: '2.78T' },
   { ticker: 'MSFT', name: 'Microsoft', pe: 34.2, evEbitda: 24.8, pfcf: 33.1, evRev: 12.8, mktCap: '3.12T' },
   { ticker: 'GOOGL', name: 'Alphabet', pe: 24.5, evEbitda: 16.2, pfcf: 28.4, evRev: 6.1, mktCap: '2.05T' },
@@ -52,15 +51,14 @@ const peerValuation = [
   { ticker: 'META', name: 'Meta', pe: 22.8, evEbitda: 14.5, pfcf: 20.1, evRev: 8.7, mktCap: '1.28T' },
 ];
 
-// RatioDashboard mock data
-const dupontData: DuPontData = {
+const MOCK_DUPONT: DuPontData = {
   roe: 1.37,
   profitMargin: 0.26,
   assetTurnover: 1.11,
   equityMultiplier: 4.76,
 };
 
-const multiplesHistory: MultiplesPoint[] = [
+const MOCK_MULTIPLES_HISTORY: MultiplesPoint[] = [
   { period: '2018', pe: 14.5, evEbitda: 10.8, pbv: 8.2 },
   { period: '2019', pe: 20.3, evEbitda: 15.2, pbv: 13.5 },
   { period: '2020', pe: 35.2, evEbitda: 26.4, pbv: 28.7 },
@@ -71,9 +69,9 @@ const multiplesHistory: MultiplesPoint[] = [
   { period: '2025', pe: 28.6, evEbitda: 22.1, pbv: 45.2 },
 ];
 
-// --- MultiplesOverTime 5Y mock data ------------------------------------------
+// --- MultiplesOverTime 5Y mock data (fallback) -------------------------------
 
-const multiplesOverTimeData: MultiplesDataPoint[] = [
+const MOCK_MULTIPLES_OVER_TIME: MultiplesDataPoint[] = [
   { date: '2021-03', pe: 28.8, evEbitda: 22.1, ps: 8.4, pbv: 35.6 },
   { date: '2021-06', pe: 27.5, evEbitda: 21.0, ps: 8.1, pbv: 33.8 },
   { date: '2021-09', pe: 26.2, evEbitda: 19.8, ps: 7.8, pbv: 36.2 },
@@ -96,9 +94,9 @@ const multiplesOverTimeData: MultiplesDataPoint[] = [
   { date: '2025-12', pe: 28.6, evEbitda: 22.1, ps: 7.4, pbv: 45.2 },
 ];
 
-// --- PeerScatter data --------------------------------------------------------
+// --- PeerScatter mock (fallback) ---------------------------------------------
 
-const peerScatterData: PeerPoint[] = [
+const MOCK_PEER_SCATTER: PeerPoint[] = [
   { name: 'Apple', ticker: 'AAPL', x: 5.2, y: 28.6, marketCap: 2780 },
   { name: 'Microsoft', ticker: 'MSFT', x: 12.8, y: 34.2, marketCap: 3120 },
   { name: 'Alphabet', ticker: 'GOOGL', x: 15.4, y: 24.5, marketCap: 2050 },
@@ -107,16 +105,16 @@ const peerScatterData: PeerPoint[] = [
   { name: 'NVIDIA', ticker: 'NVDA', x: 122.4, y: 62.4, marketCap: 2180 },
 ];
 
-// --- DCFPanel data -----------------------------------------------------------
+// --- DCFPanel mock (fallback) ------------------------------------------------
 
-const dcfAssumptions: DCFAssumptions = {
+const MOCK_DCF_ASSUMPTIONS: DCFAssumptions = {
   wacc: 0.098,
   terminalGrowth: 0.025,
   projectionYears: 10,
   currentFCF: 105.6e9,
 };
 
-const dcfResult: DCFResult = {
+const MOCK_DCF_RESULT: DCFResult = {
   enterpriseValue: 2.78e12,
   equityValue: 2.72e12,
   impliedPrice: 180.53,
@@ -124,11 +122,11 @@ const dcfResult: DCFResult = {
   upside: 0.010,
 };
 
-// --- SensitivityMatrix data --------------------------------------------------
+// --- SensitivityMatrix mock (fallback) ---------------------------------------
 
-const waccValues = [0.08, 0.085, 0.09, 0.095, 0.10, 0.105, 0.11];
-const growthValues = [0.015, 0.02, 0.025, 0.03, 0.035];
-const priceMatrix = [
+const MOCK_WACC_VALUES = [0.08, 0.085, 0.09, 0.095, 0.10, 0.105, 0.11];
+const MOCK_GROWTH_VALUES = [0.015, 0.02, 0.025, 0.03, 0.035];
+const MOCK_PRICE_MATRIX = [
   [228.4, 248.2, 272.6, 302.8, 340.2],
   [210.6, 226.8, 246.4, 270.2, 299.4],
   [195.2, 208.4, 224.1, 243.2, 266.8],
@@ -145,6 +143,11 @@ export default function ValuationDashboard() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
+  // [Bug 83 fix] — Read company info from store instead of hardcoding
+  const companyName = primary?.name ?? primary?.ticker ?? 'Unknown';
+  const companyTicker = primary?.ticker ?? resolvedId ?? '--';
+  const companyPrice = (primary as any)?.price ?? (primary as any)?.last_price ?? 0;
+
   // Wire hooks
   const { data: apiDupont } = useDuPont(resolvedId);
   const { data: apiMultiples } = useMultiplesHistory(resolvedId);
@@ -154,31 +157,64 @@ export default function ValuationDashboard() {
   const { data: apiFootball } = useFootballField(resolvedId);
 
   // Use API data with mock fallback
-  const activeDupont = (apiDupont as any) ?? dupontData;
-  const activeMultiplesHistory = (apiMultiples as any[]) ?? multiplesHistory;
-  const activePeers = (apiPeers as any[]) ?? peerScatterData;
-  const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? dcfAssumptions;
-  const activeDcfResult = (apiDcf as any)?.result ?? dcfResult;
+  const activeDupont = (apiDupont as any) ?? MOCK_DUPONT;
+  const activeMultiplesHistory = (apiMultiples as any[]) ?? MOCK_MULTIPLES_HISTORY;
+  const activePeers = (apiPeers as any[]) ?? MOCK_PEER_SCATTER;
+  const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? MOCK_DCF_ASSUMPTIONS;
+  const activeDcfResult = (apiDcf as any)?.result ?? MOCK_DCF_RESULT;
+
+  // [Bug 79 fix] — Wire MultiplesOverTime chart to API data instead of separate hardcoded array
+  const activeMultiplesOverTime = (apiMultiples as any)?.history ?? (apiMultiples as any[]) ?? MOCK_MULTIPLES_OVER_TIME;
+
+  // [Bug 81 fix] — Wire sensitivity data from API instead of hardcoded grid
+  const activeWaccValues = (apiSensitivity as any)?.waccValues ?? MOCK_WACC_VALUES;
+  const activeGrowthValues = (apiSensitivity as any)?.growthValues ?? MOCK_GROWTH_VALUES;
+  const activePriceMatrix = (apiSensitivity as any)?.priceMatrix ?? MOCK_PRICE_MATRIX;
+
+  // [Bug 80 fix] — Wire football field data from API
+  const activeFootballData = (apiFootball as any)?.methodologies ?? null;
+
+  // Get current price from API data or store
+  const currentPrice = (apiDcf as any)?.result?.currentPrice ?? companyPrice ?? MOCK_DCF_RESULT.currentPrice;
+
+  // [Bug 82 fix] — Wire peer valuation table to API data
+  const activePeerValuation = useMemo(() => {
+    if (apiPeers && Array.isArray(apiPeers)) {
+      return apiPeers;
+    }
+    return MOCK_PEER_VALUATION;
+  }, [apiPeers]);
 
   // Editable DCF inputs
   const [editableWacc, setEditableWacc] = useState<number>(activeDcfAssumptions.wacc);
   const [editableGrowth, setEditableGrowth] = useState<number>(activeDcfAssumptions.terminalGrowth);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lassoPeers, setLassoPeers] = useState<string[]>([]);
+  const [dcfError, setDcfError] = useState<string | null>(null);
 
+  // [Bug 78 fix] — Fixed DCF recalculate POST URL to use correct backend path
   const handleDCFRecalculate = useCallback(async () => {
     if (!resolvedId) return;
     setIsSubmitting(true);
+    setDcfError(null);
     try {
-      await api.post(`/v2/analytics/securities/${resolvedId}/dcf`, {
+      await api.post(ANALYTICS.dcfPost(resolvedId), {
         wacc: editableWacc,
         terminalGrowth: editableGrowth,
       });
-    } catch {
-      // Silently fail — mock mode
+    } catch (err) {
+      // [Bug 78 fix] — Show error feedback instead of silently catching
+      setDcfError(err instanceof Error ? err.message : 'DCF recalculation failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   }, [resolvedId, editableWacc, editableGrowth]);
+
+  const displayPeers = useMemo(() => {
+    return lassoPeers.length > 0
+      ? activePeerValuation.filter((p: any) => lassoPeers.includes(p.ticker) || p.ticker === companyTicker)
+      : activePeerValuation;
+  }, [lassoPeers, activePeerValuation, companyTicker]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -186,7 +222,10 @@ export default function ValuationDashboard() {
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
           Valuation Dashboard
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name} &mdash; ${company.price.toFixed(2)}</p>
+        {/* [Bug 83 fix] — Dynamic company header from store */}
+        <p style={{ ...labelStyle, marginTop: '4px' }}>
+          {companyTicker} &mdash; {companyName}{companyPrice ? ` — $${Number(companyPrice).toFixed(2)}` : ''}
+        </p>
       </div>
 
       {/* DuPont Decomposition + Multiples History via RatioDashboard */}
@@ -194,23 +233,24 @@ export default function ValuationDashboard() {
         <RatioDashboard dupont={activeDupont} multiplesHistory={activeMultiplesHistory} />
       </div>
 
-      {/* MultiplesOverTime (5Y history) */}
+      {/* MultiplesOverTime (5Y history) — [Bug 79 fix] wired to API data */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Multiples Over Time (5Y)</h2>
         <MultiplesOverTime
-          data={multiplesOverTimeData}
+          data={activeMultiplesOverTime}
           peerMedians={{ pe: 29.0, evEbitda: 19.2 }}
         />
       </div>
 
-      {/* PeerScatter: P/E vs Revenue Growth */}
+      {/* PeerScatter: P/E vs Revenue Growth — [Bug 82 fix] wired to API data */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
         <h2 style={sectionTitle}>Peer Comparison: P/E vs Revenue Growth</h2>
         <PeerScatter
           peers={activePeers}
           xLabel="Revenue Growth (%)"
           yLabel="P/E Ratio"
-          highlightTicker="AAPL"
+          highlightTicker={companyTicker}
+          onLassoSelect={setLassoPeers}
         />
       </div>
 
@@ -259,25 +299,31 @@ export default function ValuationDashboard() {
               {isSubmitting ? 'Calculating...' : 'Recalculate'}
             </button>
           </div>
+          {/* [Bug 78 fix] — Show DCF recalculate errors to user */}
+          {dcfError && (
+            <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-negative) 10%, transparent)', color: 'var(--color-signal-negative)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)' }}>
+              {dcfError}
+            </div>
+          )}
         </div>
 
         {/* DCFPanel Component */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} />
+          <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} onRecalculate={handleDCFRecalculate} />
         </div>
 
-        {/* SensitivityMatrix below DCF */}
+        {/* SensitivityMatrix — [Bug 81 fix] wired to API data */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>WACC / Terminal Growth Sensitivity ($)</h2>
           <SensitivityMatrix
-            waccValues={waccValues}
-            growthValues={growthValues}
-            priceMatrix={priceMatrix}
-            currentPrice={company.price}
+            waccValues={activeWaccValues}
+            growthValues={activeGrowthValues}
+            priceMatrix={activePriceMatrix}
+            currentPrice={currentPrice}
           />
         </div>
 
-        {/* Peer Valuation Table (existing) */}
+        {/* Peer Valuation Table — [Bug 82 fix] wired to API data */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Peer Valuation</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -289,13 +335,13 @@ export default function ValuationDashboard() {
               </tr>
             </thead>
             <tbody>
-              {peerValuation.map((p) => (
-                <tr key={p.ticker} style={{ height: 'var(--table-row-height)', background: p.ticker === 'AAPL' ? 'var(--color-surface-overlay)' : 'transparent' }}>
+              {displayPeers.map((p: any) => (
+                <tr key={p.ticker} style={{ height: 'var(--table-row-height)', background: p.ticker === companyTicker ? 'var(--color-surface-overlay)' : 'transparent' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{p.ticker}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.pe.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.evEbitda.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.pfcf.toFixed(1)}x</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.evRev.toFixed(1)}x</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{typeof p.pe === 'number' ? `${p.pe.toFixed(1)}x` : '--'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{typeof p.evEbitda === 'number' ? `${p.evEbitda.toFixed(1)}x` : '--'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{typeof p.pfcf === 'number' ? `${p.pfcf.toFixed(1)}x` : '--'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{typeof p.evRev === 'number' ? `${p.evRev.toFixed(1)}x` : '--'}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>${p.mktCap}</td>
                 </tr>
               ))}

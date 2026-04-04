@@ -65,7 +65,7 @@ const intelModules: IntelModule[] = [
 
 // --- Mock Data ---------------------------------------------------------------
 
-const company = { name: 'Apple Inc.', ticker: 'AAPL' };
+// [Bug 83 fix] — Removed hardcoded company; now uses store data in component
 
 const businessModel = [
   { segment: 'iPhone', revPct: 52.1, marginPct: 42.3, growth: 3.8 },
@@ -104,6 +104,10 @@ export default function CompanyIntelligence() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
+  // [Bug 83 fix] — Dynamic company name from store
+  const companyName = primary?.name ?? primary?.ticker ?? 'Unknown';
+  const companyTicker = primary?.ticker ?? resolvedId ?? '--';
+
   // Wire hooks
   const { data: apiIntel } = useCompanyIntelligence(resolvedId);
   const { data: apiBizModel } = useBusinessModel(resolvedId);
@@ -130,7 +134,7 @@ export default function CompanyIntelligence() {
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
           Company Intelligence
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>{company.ticker} &mdash; {company.name}</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>{companyTicker} &mdash; {companyName}</p>
       </div>
 
       {/* Intelligence Summary + Sentiment */}
@@ -138,7 +142,7 @@ export default function CompanyIntelligence() {
         <CompanyIntelCard modules={activeModules} />
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Entity Sentiment</h2>
-          <SentimentGauge value={0.42} momentum="IMPROVING" label={`${company.ticker} Sentiment`} />
+          <SentimentGauge value={0.42} momentum="IMPROVING" label={`${companyTicker} Sentiment`} />
         </div>
       </div>
 

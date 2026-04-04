@@ -240,8 +240,12 @@ class DuPontEngine(BaseEngine):
         # Direct ROE for cross-check
         direct_roe = safe_divide(net_income, total_equity)
         roe_3f_quality = "COMPLETE"
+        # [Bug 6 fix] propagate NEGATIVE_EQUITY to composite 3F ROE
+        if eq_mult_quality == "NEGATIVE_EQUITY":
+            roe_3f_quality = "NEGATIVE_EQUITY"
         if roe_3f is not None and direct_roe is not None:
-            if not math.isclose(roe_3f, direct_roe, abs_tol=_CROSS_CHECK_TOL):
+            # [Bug 7 fix] use both relative and absolute tolerance
+            if not math.isclose(roe_3f, direct_roe, rel_tol=0.005, abs_tol=_CROSS_CHECK_TOL):
                 roe_3f_quality = "CROSS_CHECK_MISMATCH"
                 logger.warning(
                     "DuPont 3F cross-check: product=%.6f vs direct=%.6f for %s",
@@ -331,8 +335,12 @@ class DuPontEngine(BaseEngine):
                 roe_5f *= f  # type: ignore[operator]
 
         roe_5f_quality = "COMPLETE"
+        # [Bug 6 fix] propagate NEGATIVE_EQUITY to composite 5F ROE
+        if eq_mult_quality == "NEGATIVE_EQUITY":
+            roe_5f_quality = "NEGATIVE_EQUITY"
         if roe_5f is not None and direct_roe is not None:
-            if not math.isclose(roe_5f, direct_roe, abs_tol=_CROSS_CHECK_TOL):
+            # [Bug 7 fix] use both relative and absolute tolerance
+            if not math.isclose(roe_5f, direct_roe, rel_tol=0.005, abs_tol=_CROSS_CHECK_TOL):
                 roe_5f_quality = "CROSS_CHECK_MISMATCH"
                 logger.warning(
                     "DuPont 5F cross-check: product=%.6f vs direct=%.6f for %s",

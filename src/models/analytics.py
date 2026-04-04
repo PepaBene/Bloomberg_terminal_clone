@@ -7,7 +7,7 @@ WACC results, and calculation lineage for audit/reproducibility.
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,7 +41,7 @@ class AnalyticsResult(TimestampMixin, Base):
     period: Mapped[str] = mapped_column(String(20), nullable=False)
     period_end_date: Mapped[date | None] = mapped_column(Date)
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
     inputs: Mapped[dict | None] = mapped_column(JSONB)
     calculation_version: Mapped[str] = mapped_column(String(10), nullable=False, default="1.0")
 
@@ -49,6 +49,7 @@ class AnalyticsResult(TimestampMixin, Base):
         Index("idx_ar_security_metric", "security_id", "metric_name", "period"),
         Index("idx_ar_entity_metric", "entity_id", "metric_name"),
         Index("idx_ar_category_date", "metric_category", "as_of_date"),
+        CheckConstraint("metric_category = UPPER(metric_category)", name="ck_ar_metric_category_upper"),
     )
 
 
@@ -81,11 +82,12 @@ class DuPontDecomposition(TimestampMixin, Base):
     interest_burden: Mapped[float | None] = mapped_column(Numeric(12, 6))
     operating_margin: Mapped[float | None] = mapped_column(Numeric(12, 6))
 
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
     inputs: Mapped[dict | None] = mapped_column(JSONB)
 
     __table_args__ = (
         Index("idx_dupont_entity_period", "entity_id", "period"),
+        Index("idx_dupont_security", "security_id"),
     )
 
 
@@ -153,7 +155,7 @@ class WACCResult(TimestampMixin, Base):
     market_cap: Mapped[float | None] = mapped_column(Numeric(20, 2))
     total_debt: Mapped[float | None] = mapped_column(Numeric(20, 2))
     assumptions: Mapped[dict | None] = mapped_column(JSONB)
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
 
     __table_args__ = (
         Index("idx_wacc_entity_date", "entity_id", "calculation_date"),
@@ -206,7 +208,7 @@ class DCFResult(TimestampMixin, Base):
     # Sensitivity
     sensitivity_grid: Mapped[dict | None] = mapped_column(JSONB)
 
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
     currency: Mapped[str | None] = mapped_column(String(3))
 
     __table_args__ = (
@@ -237,7 +239,7 @@ class CompsResult(TimestampMixin, Base):
     primary_multiple: Mapped[str | None] = mapped_column(String(20))
     composite_implied_price: Mapped[float | None] = mapped_column(Numeric(18, 6))
     current_price: Mapped[float | None] = mapped_column(Numeric(18, 6))
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
 
     __table_args__ = (
         Index("idx_comps_security_date", "security_id", "calculation_date"),
@@ -263,7 +265,7 @@ class CompositeScore(TimestampMixin, Base):
     score_value: Mapped[float | None] = mapped_column(Numeric(6, 2))
     classification: Mapped[str | None] = mapped_column(String(30))
     components: Mapped[dict | None] = mapped_column(JSONB)
-    data_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETE")
+    data_quality: Mapped[str] = mapped_column(String(100), nullable=False, default="COMPLETE")
 
     __table_args__ = (
         Index("idx_composite_security_type", "security_id", "score_type", "calculation_date"),
@@ -302,4 +304,6 @@ class CalculationLineage(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_lineage_security_metric", "security_id", "output_metric", "period"),
+        Index("idx_lineage_entity", "entity_id"),
+        Index("idx_lineage_calculated_at", "calculated_at"),
     )

@@ -229,6 +229,7 @@ class DCFEngine(BaseEngine):
             discount_rate,
             terminal_growth,
             assumptions["projection_years"],
+            projected_fcfs=result.get("projected_fcfs"),  # [Bug 19] pass FCFs for full re-discount
         )
 
         # 10. Persist DCFResult
@@ -853,8 +854,14 @@ class DCFEngine(BaseEngine):
         base_discount: float,
         base_terminal_growth: float,
         projection_years: int,
+        projected_fcfs: list[float] | None = None,
     ) -> dict[str, Any]:
         """Build a 7x7 sensitivity table varying discount rate and terminal growth.
+
+        [Bug 19 fix] Re-discounts ALL explicit-period FCFs plus a new terminal
+        value at each (WACC, growth) combination.  The previous implementation
+        only varied the terminal value while keeping explicit-period PV fixed,
+        which produced incorrect implied prices.
 
         Returns a dict with:
             wacc_values: list of discount rates tested
@@ -874,6 +881,9 @@ class DCFEngine(BaseEngine):
             g = base_terminal_growth + i * (_SENSITIVITY_GROWTH_RANGE / half_g)
             growth_values.append(round(max(g, 0.0), 4))
 
+        # Use actual projected FCFs if available; otherwise just use last_fcf
+        fcfs = projected_fcfs if projected_fcfs else [last_fcf] * projection_years
+
         grid: list[list[float | None]] = []
         for w in wacc_values:
             row: list[float | None] = []
@@ -883,27 +893,18 @@ class DCFEngine(BaseEngine):
                     row.append(None)
                     continue
 
-                # Gordon Growth terminal value
+                # [Bug 19 fix] Full DCF re-computation per grid cell
+                # 1. Re-discount all explicit-period FCFs at new WACC
+                pv_explicit = 0.0
+                for yr_idx, fcf in enumerate(fcfs):
+                    pv_explicit += fcf / ((1.0 + w) ** (yr_idx + 1))
+
+                # 2. Gordon Growth terminal value with new growth
                 tv = last_fcf * (1.0 + g) / (w - g)
                 pv_tv = tv / ((1.0 + w) ** projection_years)
-                # Use base_ev's explicit PV proportion for simplicity
-                # Re-derive: EV approx = (base_ev - base pv_tv component) + new pv_tv
-                # For a proper sensitivity we'd re-discount all FCFs, but the terminal
-                # value dominates.  We use a simplified approach that re-discounts the
-                # explicit FCFs at the new rate.
-                # Since we don't store individual FCFs here, approximate by scaling:
-                if base_ev != 0:
-                    base_pv_terminal = base_ev - (base_ev - pv_tv)  # placeholder
-                # Actually, just recompute EV from pv_explicit ratio + new pv_terminal
-                # For clean sensitivity: EV_new = base_pv_explicit * (base_w/new_w) + pv_tv_new
-                # Simpler and standard: re-discount all from terminal only
-                # Most analyst sensitivity tables only vary TV, keeping explicit PV as-is
-                pv_explicit_approx = base_ev - (last_fcf * (1.0 + base_terminal_growth) /
-                                                 (base_discount - base_terminal_growth) /
-                                                 ((1.0 + base_discount) ** projection_years)
-                                                 if (base_discount - base_terminal_growth) > 0 else 0.0)
 
-                ev_new = pv_explicit_approx + pv_tv
+                # 3. Enterprise value → equity value → per-share price
+                ev_new = pv_explicit + pv_tv
                 eq_new = ev_new - net_debt
 
                 if shares is not None and shares > 0:

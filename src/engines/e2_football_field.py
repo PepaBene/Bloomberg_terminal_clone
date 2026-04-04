@@ -184,13 +184,13 @@ class FootballFieldEngine(BaseEngine):
         outputs.append(self._o(
             security_id, entity_id, today,
             "football_consensus_view",
-            None,  # classification stored as data_quality / string
+            consensus_view,  # [Bug 35 fix] stored in value instead of data_quality
             "CLASSIFICATION",
             [
                 make_input("midpoint_count", "computed", float(len(midpoints))),
                 make_input("current_price", "eod_prices", current_price),
             ],
-            data_quality=consensus_view,
+            data_quality="COMPLETE" if consensus_view != "INSUFFICIENT_DATA" else "INSUFFICIENT_DATA",
         ))
 
         # Determine overall quality
@@ -290,11 +290,19 @@ class FootballFieldEngine(BaseEngine):
         low: float | None = None
         high: float | None = None
 
-        if dcf.sensitivity_grid and isinstance(dcf.sensitivity_grid, dict):
-            grid_values = self._extract_grid_values(dcf.sensitivity_grid)
-            if grid_values:
-                low = min(grid_values)
-                high = max(grid_values)
+        if dcf.sensitivity_grid:
+            grid = dcf.sensitivity_grid
+            if isinstance(grid, str):
+                import json
+                try:
+                    grid = json.loads(grid)
+                except Exception:
+                    grid = {}
+            if isinstance(grid, dict):
+                grid_values = self._extract_grid_values(grid)
+                if grid_values:
+                    low = min(grid_values)
+                    high = max(grid_values)
 
         # Fallback: ±15% around mid if no grid
         if low is None and mid is not None:
@@ -366,8 +374,15 @@ class FootballFieldEngine(BaseEngine):
             return None, None, None
 
         mid = statistics.median(implied_prices)
-        low = min(implied_prices)
-        high = max(implied_prices)
+        
+        # [Bug 33 fix] Ensure an artificial spread so single-point comps
+        # still render correctly on the football field.
+        if len(implied_prices) == 1:
+            low = mid * 0.90
+            high = mid * 1.10
+        else:
+            low = min(implied_prices)
+            high = max(implied_prices)
 
         return low, mid, high
 
@@ -382,7 +397,8 @@ class FootballFieldEngine(BaseEngine):
         average from MultipleTimeSeries and multiplies by current EPS.
         """
         # Load current EPS
-        eps = await self._latest_metric(session, security_id, "eps_diluted")
+        # [Bug 32 fix] Use emitted name "ttm_diluted_eps"
+        eps = await self._latest_metric(session, security_id, "ttm_diluted_eps")
         if eps is None or eps <= 0:
             return None, None, None
 

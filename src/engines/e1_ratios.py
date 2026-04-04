@@ -276,13 +276,34 @@ class RatioEngine(BaseEngine):
     def _prior(snapshots: list[_FinancialSnapshot], years_back: int) -> _FinancialSnapshot | None:
         """Find the snapshot approximately *years_back* years before the latest.
 
-        Uses simple heuristic: look for a period whose end date is within
-        a 45-day window of (latest_date - years_back * 365).
+        [Bug 4 fix] Matches on fiscal_year and fiscal_quarter identifiers
+        first, falling back to a ±60-day date-based heuristic only when
+        fiscal identifiers are unavailable.
         """
         if not snapshots:
             return None
-        target = snapshots[0].period_end_date
-        target_ordinal = target.toordinal() - years_back * 365
+        latest = snapshots[0]
+        latest_fy = latest.period.fiscal_year
+        latest_fq = latest.period.fiscal_quarter
+
+        # Prefer fiscal-year + fiscal-quarter match
+        if latest_fy is not None:
+            target_fy = latest_fy - years_back
+            for s in snapshots[1:]:
+                if s.period.fiscal_year == target_fy:
+                    # Match quarter too if available
+                    if latest_fq is not None and s.period.fiscal_quarter is not None:
+                        if s.period.fiscal_quarter == latest_fq:
+                            return s
+                    elif latest_fq is None and s.period.fiscal_quarter is None:
+                        return s
+            # Quarter-agnostic fallback: accept any period in the target fiscal year
+            for s in snapshots[1:]:
+                if s.period.fiscal_year == target_fy:
+                    return s
+
+        # Fallback to date arithmetic with a 60-day window
+        target_ordinal = latest.period_end_date.toordinal() - years_back * 365
         best: _FinancialSnapshot | None = None
         best_diff = 9999
         for s in snapshots[1:]:
@@ -290,7 +311,7 @@ class RatioEngine(BaseEngine):
             if diff < best_diff:
                 best_diff = diff
                 best = s
-        if best is not None and best_diff <= 45:
+        if best is not None and best_diff <= 60:
             return best
         return None
 
@@ -433,7 +454,9 @@ class RatioEngine(BaseEngine):
                 ic -= float(cash)
             invested_capital = ic
         roic = safe_divide(nopat, invested_capital)
+        # [Bug 2 fix] Propagate NEGATIVE_EQUITY to ROIC (invested_capital includes equity)
         out.append(self._out(ctx, "roic", CAT, roic, "PERCENT",
+                             quality=equity_quality if roic is not None else None,
                              inputs=_mi([("nopat", nopat), ("total_equity", total_equity),
                                          ("total_debt", total_debt), ("cash_and_equivalents", cash)])))
 
@@ -443,7 +466,9 @@ class RatioEngine(BaseEngine):
         if total_assets is not None and cur_liab is not None:
             capital_employed = float(total_assets) - float(cur_liab)
         roce = safe_divide(op_inc, capital_employed)
+        # [Bug 2 fix] Propagate NEGATIVE_EQUITY to ROCE
         out.append(self._out(ctx, "roce", CAT, roce, "PERCENT",
+                             quality=equity_quality if roce is not None else None,
                              inputs=_mi([("operating_income", op_inc), ("total_assets", total_assets),
                                          ("total_current_liabilities", cur_liab)])))
 
@@ -477,9 +502,11 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("cost_of_revenue", cogs), ("total_revenue", revenue)])))
 
         # Operating expense ratio = (revenue - operating_income) / revenue = 1 - operating_margin
-        opex_ratio: float | None = None
-        if revenue is not None and op_inc is not None and float(revenue) != 0:
-            opex_ratio = (float(revenue) - float(op_inc)) / float(revenue)
+        # [Bug 3 fix] Use safe_divide instead of manual guard
+        opex_numerator: float | None = None
+        if revenue is not None and op_inc is not None:
+            opex_numerator = float(revenue) - float(op_inc)
+        opex_ratio = safe_divide(opex_numerator, revenue)
         out.append(self._out(ctx, "operating_expense_ratio", CAT, opex_ratio, "PERCENT",
                              inputs=_mi([("total_revenue", revenue), ("operating_income", op_inc)])))
 
@@ -597,10 +624,12 @@ class RatioEngine(BaseEngine):
                                          ("total_current_liabilities", cur_liab)])))
 
         # Quick ratio = (current_assets - inventory) / current_liabilities
-        quick: float | None = None
-        if cur_assets is not None and cur_liab is not None and float(cur_liab) != 0:
+        # [Bug 3 fix] Use safe_divide instead of manual guard
+        quick_numerator: float | None = None
+        if cur_assets is not None:
             inv_val = float(inventory) if inventory is not None else 0.0
-            quick = (float(cur_assets) - inv_val) / float(cur_liab)
+            quick_numerator = float(cur_assets) - inv_val
+        quick = safe_divide(quick_numerator, cur_liab)
         out.append(self._out(ctx, "quick_ratio", CAT, quick, "RATIO",
                              inputs=_mi([("total_current_assets", cur_assets),
                                          ("inventory", inventory),
