@@ -1076,19 +1076,9 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("cash_from_operations", ocf),
                                          ("diluted_shares", shares_diluted)])))
 
-        # Net income per employee (if employee_count available on entity)
-        net_inc = s.iv("net_income")
-        employee_count = s.iv("employee_count") or s.bv("employee_count")
-        ni_per_emp = safe_divide(net_inc, employee_count)
-        out.append(self._out(ctx, "net_income_per_employee", CAT, ni_per_emp, "CURRENCY",
-                             inputs=_mi([("net_income", net_inc),
-                                         ("employee_count", employee_count)])))
-
-        # Revenue per employee
-        rev_per_emp = safe_divide(revenue, employee_count)
-        out.append(self._out(ctx, "revenue_per_employee", CAT, rev_per_emp, "CURRENCY",
-                             inputs=_mi([("total_revenue", revenue),
-                                         ("employee_count", employee_count)])))
+        # Removed: net_income_per_employee and revenue_per_employee metrics.
+        # employee_count does not exist in IncomeStatement or BalanceSheet schemas,
+        # so these metrics always silently returned None. (Bug 1)
 
         return out
 

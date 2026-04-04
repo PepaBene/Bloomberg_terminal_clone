@@ -126,7 +126,20 @@ async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None 
         for name, engine_cls in engine_map.items():
             engine = engine_cls()
             logger.info("Running engine: %s (%s)", name, engine.engine_id)
-            outputs = await engine.compute_batch(session, security_ids)
+            outputs: list[EngineOutput] = []
+            for security_id in security_ids:
+                try:
+                    result = await asyncio.wait_for(
+                        engine.compute(session, security_id=security_id),
+                        timeout=30,
+                    )
+                    outputs.extend(result)
+                except asyncio.TimeoutError:
+                    logger.warning("Engine %s timed out for security %s after 30s, skipping", name, security_id)
+                    continue
+                except Exception:
+                    logger.exception("Engine %s failed for security %s", name, security_id)
+                    continue
             logger.info("  → %d metrics computed", len(outputs))
             total_outputs += len(outputs)
 

@@ -69,6 +69,7 @@ _SENSITIVITY_WACC_RANGE = 0.02           # +/- 2%
 _SENSITIVITY_GROWTH_RANGE = 0.015        # +/- 1.5%
 _UNDERVALUED_THRESHOLD = 0.15            # upside > 15%
 _OVERVALUED_THRESHOLD = -0.15            # downside < -15%
+_DEFAULT_EXIT_MULTIPLE = 10.0            # sector median EV/EBITDA fallback
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +247,9 @@ class DCFEngine(BaseEngine):
                 "fcfs": projected_fcfs,
             },
             terminal_value=terminal_value,
-            terminal_method="GORDON_GROWTH",
+            terminal_method=assumptions.get("terminal_method", "GORDON_GROWTH"),
             terminal_growth_rate=terminal_growth,
-            terminal_exit_multiple=None,
+            terminal_exit_multiple=assumptions.get("terminal_exit_multiple"),
             pv_terminal=pv_terminal,
             terminal_pct_of_ev=terminal_pct,
             pv_of_fcf=pv_explicit,
@@ -283,6 +284,7 @@ class DCFEngine(BaseEngine):
             pv_terminal=pv_terminal,
             projection_years=assumptions["projection_years"],
             terminal_growth=terminal_growth,
+            terminal_method=assumptions.get("terminal_method", "GORDON_GROWTH"),
             implied_vs_current=implied_vs_current,
             data_quality=data_quality,
         )
@@ -648,6 +650,8 @@ class DCFEngine(BaseEngine):
             "dna_to_revenue": round(dna_rev, 4),
             "wc_to_revenue": round(wc_rev, 4),
             "terminal_method": "GORDON_GROWTH",
+            "terminal_exit_multiple": None,
+            "leverage_target": None,  # [Bug 21] will be resolved in _project_fcfe if still None
             "historical_cagr": round(hist_cagr, 4) if hist_cagr is not None else None,
             "historical_years": num_hist_years,
         }
@@ -658,6 +662,7 @@ class DCFEngine(BaseEngine):
                 "projection_years", "terminal_growth", "discount_rate",
                 "revenue_growth_path", "ebit_margin", "tax_rate",
                 "capex_to_revenue", "dna_to_revenue", "wc_to_revenue",
+                "terminal_method", "terminal_exit_multiple", "leverage_target",
             ):
                 if key in user_overrides:
                     assumptions[key] = user_overrides[key]
@@ -723,15 +728,32 @@ class DCFEngine(BaseEngine):
         for yr_idx, fcf in enumerate(projected_fcfs):
             pv_explicit += fcf / ((1.0 + discount_rate) ** (yr_idx + 1))
 
-        # Terminal value (Gordon Growth)
+        # Terminal value
         last_fcf = projected_fcfs[-1]
-        denom = discount_rate - terminal_growth
-        if denom <= 0:
-            # Should not happen after assumption capping, but guard anyway
-            logger.warning("DCF FCFF: discount_rate <= terminal_growth, cannot compute TV")
-            return None
+        terminal_method = assumptions.get("terminal_method", "GORDON_GROWTH")
 
-        terminal_value = last_fcf * (1.0 + terminal_growth) / denom
+        if terminal_method == "EXIT_MULTIPLE":
+            # [Bug 22 fix] Exit multiple terminal value: TV = terminal EBITDA × multiple
+            exit_multiple = assumptions.get("terminal_exit_multiple")
+            if exit_multiple is None:
+                exit_multiple = _DEFAULT_EXIT_MULTIPLE
+                logger.info(
+                    "DCF FCFF: no exit_multiple provided, using sector median "
+                    "default EV/EBITDA of %.1fx", exit_multiple,
+                )
+            # Terminal EBITDA = last projected revenue × EBIT margin + D&A
+            last_revenue = projected_revenues[-1]
+            terminal_ebitda = last_revenue * ebit_margin + last_revenue * dna_rev
+            terminal_value = terminal_ebitda * exit_multiple
+        else:
+            # Gordon Growth: TV = FCF_last × (1 + g) / (r - g)
+            denom = discount_rate - terminal_growth
+            if denom <= 0:
+                # Should not happen after assumption capping, but guard anyway
+                logger.warning("DCF FCFF: discount_rate <= terminal_growth, cannot compute TV")
+                return None
+            terminal_value = last_fcf * (1.0 + terminal_growth) / denom
+
         pv_terminal = terminal_value / ((1.0 + discount_rate) ** n)
 
         return {
@@ -771,8 +793,11 @@ class DCFEngine(BaseEngine):
         # Estimate net income margin from latest data
         ni_margin = safe_divide(hist["net_income"], base_revenue) or (ebit_margin * (1 - tax_rate))
 
-        # Net borrowing as fraction of revenue (hold constant)
+        # [Bug 21 fix] Fade net borrowing ratio toward target over projection period
         nb_rev = safe_divide(hist["net_borrowing"], base_revenue) or 0.0
+        leverage_target = assumptions.get("leverage_target")
+        if leverage_target is None:
+            leverage_target = nb_rev * 0.5  # default: halve current leverage
 
         projected_fcfs: list[float] = []
         projected_revenues: list[float] = []
@@ -790,7 +815,10 @@ class DCFEngine(BaseEngine):
             wc = revenue * wc_rev
             delta_wc = wc - prev_wc
             prev_wc = wc
-            net_borrowing = revenue * nb_rev
+            # Fade nb_rev linearly from current value to leverage_target
+            fade_factor = (yr + 1) / n
+            nb_rev_yr = nb_rev + (leverage_target - nb_rev) * fade_factor
+            net_borrowing = revenue * nb_rev_yr
 
             fcfe = net_income + dna - capex - delta_wc + net_borrowing
             projected_fcfs.append(round(fcfe, 2))
@@ -800,14 +828,31 @@ class DCFEngine(BaseEngine):
         for yr_idx, fcf in enumerate(projected_fcfs):
             pv_explicit += fcf / ((1.0 + discount_rate) ** (yr_idx + 1))
 
-        # Terminal value (Gordon Growth)
+        # Terminal value
         last_fcf = projected_fcfs[-1]
-        denom = discount_rate - terminal_growth
-        if denom <= 0:
-            logger.warning("DCF FCFE: discount_rate <= terminal_growth, cannot compute TV")
-            return None
+        terminal_method = assumptions.get("terminal_method", "GORDON_GROWTH")
 
-        terminal_value = last_fcf * (1.0 + terminal_growth) / denom
+        if terminal_method == "EXIT_MULTIPLE":
+            # [Bug 22 fix] Exit multiple terminal value: TV = terminal EBITDA × multiple
+            exit_multiple = assumptions.get("terminal_exit_multiple")
+            if exit_multiple is None:
+                exit_multiple = _DEFAULT_EXIT_MULTIPLE
+                logger.info(
+                    "DCF FCFE: no exit_multiple provided, using sector median "
+                    "default EV/EBITDA of %.1fx", exit_multiple,
+                )
+            # Terminal EBITDA = last projected revenue × EBIT margin + D&A
+            last_revenue = projected_revenues[-1]
+            terminal_ebitda = last_revenue * ebit_margin + last_revenue * dna_rev
+            terminal_value = terminal_ebitda * exit_multiple
+        else:
+            # Gordon Growth: TV = FCF_last × (1 + g) / (r - g)
+            denom = discount_rate - terminal_growth
+            if denom <= 0:
+                logger.warning("DCF FCFE: discount_rate <= terminal_growth, cannot compute TV")
+                return None
+            terminal_value = last_fcf * (1.0 + terminal_growth) / denom
+
         pv_terminal = terminal_value / ((1.0 + discount_rate) ** n)
 
         return {
@@ -943,6 +988,7 @@ class DCFEngine(BaseEngine):
         pv_terminal: float,
         projection_years: int,
         terminal_growth: float,
+        terminal_method: str,
         implied_vs_current: str,
         data_quality: str,
     ) -> list[EngineOutput]:
@@ -1118,7 +1164,7 @@ class DCFEngine(BaseEngine):
                 "dcf_terminal_method",
                 None,
                 unit="CLASSIFICATION",
-                dq="GORDON_GROWTH",
+                dq=terminal_method,
                 inputs=[],
             )
         )

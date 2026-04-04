@@ -93,6 +93,31 @@ TTM_STOCK_FIELDS: dict[str, tuple[type, str]] = {
 
 
 # ---------------------------------------------------------------------------
+# Field-mapping validation (Bug 10 fix)
+# ---------------------------------------------------------------------------
+# If a model field is renamed in a migration, getattr(obj, field_name, None)
+# silently returns None at query time.  Catch mismatches at import time so
+# the error surfaces immediately rather than producing silent data loss.
+
+def _validate_field_mappings() -> None:
+    """Verify all TTM field mappings reference real model attributes."""
+    for metric_name, (model_cls, field_name) in TTM_FLOW_FIELDS.items():
+        if not hasattr(model_cls, field_name):
+            raise ImportError(
+                f"TTM field mapping error: {model_cls.__name__}.{field_name} "
+                f"does not exist (metric: {metric_name})"
+            )
+    for metric_name, (model_cls, field_name) in TTM_STOCK_FIELDS.items():
+        if not hasattr(model_cls, field_name):
+            raise ImportError(
+                f"TTM field mapping error: {model_cls.__name__}.{field_name} "
+                f"does not exist (metric: {metric_name})"
+            )
+
+_validate_field_mappings()
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

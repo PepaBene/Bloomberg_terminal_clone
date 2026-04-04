@@ -819,6 +819,7 @@ export const BENCHMARKS = {
   returns: (id: string) => `/v1/benchmarks/${id}/returns`,
   constituents: (id: string) => `/v1/benchmarks/${id}/constituents`,
   compare: '/v1/benchmarks/compare',
+  create: '/v1/benchmarks/create',
   factSheets: (id: string) => `/v1/benchmarks/${id}/fact-sheet`,
 } as const;
 

@@ -168,12 +168,28 @@ def _reits(d: _Data) -> list[EngineOutput]:
     ni = d.iv("net_income") or d.t("ttm_net_income")
     da = (d.cv("depreciation_amortization") or d.t("ttm_cf_depreciation_amortization")
           or d.iv("depreciation_amortization") or d.t("ttm_depreciation_amortization"))
-    gain = 0.0  # gain_on_sale not in standard schema
+    # [Bug 15 fix] Attempt to load gain_on_sale from AnalyticsResult / TTM;
+    # if unavailable, keep gain=0.0 but flag FFO quality as ESTIMATED so
+    # consumers know the FFO excludes gains on property sales.
+    gain = d.t("gain_on_sale") or d.t("ttm_gain_on_sale") or d.iv("gain_on_sale")
+    if gain is not None:
+        ffo_quality = "COMPLETE"
+        gain_source = "analytics_results"
+    else:
+        gain = 0.0
+        ffo_quality = "ESTIMATED"
+        gain_source = "estimated"
+        logger.warning(
+            "REIT FFO: gain_on_sale not available for security %s; "
+            "FFO excludes gains and is marked ESTIMATED",
+            d.security_id,
+        )
     ffo = (ni + da - gain) if ni is not None and da is not None else None
-    out.append(_o(d, "ffo", ffo, unit="CURRENCY", inp=[
+    out.append(_o(d, "ffo", ffo, unit="CURRENCY",
+                  dq=ffo_quality if ffo is not None else None, inp=[
         _mi("net_income", "income_statement", ni),
         _mi("depreciation_amortization", "cash_flow", da),
-        _mi("gain_on_sale", "estimated", gain),
+        _mi("gain_on_sale", gain_source, gain),
     ]))
     shares = d.iv("diluted_shares_outstanding")
     out.append(_o(d, "ffo_per_share", safe_divide(ffo, shares), unit="CURRENCY", inp=[
@@ -242,12 +258,23 @@ def _retail(d: _Data) -> list[EngineOutput]:
 def _insurance(d: _Data) -> list[EngineOutput]:
     """Insurance (GICS 4030)."""
     out: list[EngineOutput] = []
+    # [Bug 18 fix] The combined ratio ideally uses actual incurred losses and
+    # underwriting expense ratio data.  These fields are not available in the
+    # standard schema, so we fall back to cost_of_revenue (loss proxy) and
+    # selling_general_admin (expense proxy) divided by total_revenue (premium
+    # proxy).  The result is marked ESTIMATED to alert consumers.
     losses = d.iv("cost_of_revenue")
     opex = d.iv("selling_general_admin")
     prem = d.iv("total_revenue")
     comb: float | None = None
     if losses is not None and opex is not None and prem is not None and prem != 0:
         comb = (losses + opex) / prem
+        logger.warning(
+            "Insurance combined_ratio for security %s uses proxy fields "
+            "(cost_of_revenue, selling_general_admin, total_revenue) — "
+            "actual loss/expense ratio data is not available",
+            d.security_id,
+        )
     out.append(_o(d, "combined_ratio", comb,
                   dq="ESTIMATED" if comb is not None else None, inp=[
         _mi("losses_proxy", "income_statement", losses),

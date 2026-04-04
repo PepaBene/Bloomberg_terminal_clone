@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.engines.base import BaseEngine, EngineOutput, safe_divide, make_input
 from src.models.analytics import AnalyticsResult, MultipleTimeSeries
 from src.models.estimates import ConsensusEstimate
+from src.models.fundamentals import FinancialPeriod
 from src.models.security import EODPrice, Security
 
 logger = logging.getLogger(__name__)
@@ -140,8 +141,58 @@ async def _load_prior_year_eps(
 ) -> float | None:
     """Fetch the prior-year diluted EPS from E1 analytics for growth calc.
 
-    Looks for a TTM diluted EPS with as_of_date roughly one year ago.
+    Uses fiscal year matching via FinancialPeriod to find the correct
+    prior-year EPS.  Falls back to date arithmetic if fiscal year info
+    is unavailable.
     """
+    # Step 1: Determine the current fiscal year from FinancialPeriod
+    fy_stmt = (
+        select(FinancialPeriod.fiscal_year, FinancialPeriod.fiscal_quarter)
+        .where(FinancialPeriod.entity_id == entity_id)
+        .order_by(FinancialPeriod.period_end_date.desc())
+        .limit(1)
+    )
+    fy_result = await session.execute(fy_stmt)
+    fy_row = fy_result.first()
+
+    if fy_row is not None:
+        current_fiscal_year = fy_row.fiscal_year
+
+        # Query for prior fiscal year EPS
+        prior_fy = current_fiscal_year - 1
+
+        stmt = (
+            select(AnalyticsResult.value)
+            .where(
+                AnalyticsResult.security_id == security_id,
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.engine_id == "E1",
+                AnalyticsResult.metric_name == "ttm_diluted_eps",
+                AnalyticsResult.period.like(f"%{prior_fy}%"),
+            )
+            .order_by(AnalyticsResult.as_of_date.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return float(row)
+
+        logger.debug(
+            "Prior-year EPS not found for fiscal_year=%d, entity=%s; "
+            "trying date-based fallback",
+            prior_fy,
+            entity_id,
+        )
+
+    else:
+        logger.warning(
+            "No FinancialPeriod found for entity %s; "
+            "falling back to date-based prior-year EPS lookup",
+            entity_id,
+        )
+
+    # Fallback: date-based approach
     one_year_ago = date.today() - timedelta(days=365)
     stmt = (
         select(AnalyticsResult.value)
@@ -372,6 +423,8 @@ class MultiplesEngine(BaseEngine):
                 forward_period=fwd_period,
             )
             await session.merge(ts_row)
+
+        await session.flush()
 
         logger.info(
             "Multiples: computed %d multiples for security %s (price=%.2f, mkt_cap=%s)",

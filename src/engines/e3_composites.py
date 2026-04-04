@@ -264,30 +264,37 @@ class CompositeScoreEngine(BaseEngine):
         data_quality: str,
     ) -> None:
         """Upsert a row into the ``composite_scores`` table."""
-        stmt = select(CompositeScore).where(
-            CompositeScore.security_id == security_id,
-            CompositeScore.score_type == score_type,
-            CompositeScore.calculation_date == date.today()
-        )
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-
-        if existing:
-            existing.score_value = score_value
-            existing.classification = classification
-            existing.components = components
-            existing.data_quality = data_quality
-        else:
-            record = CompositeScore(
-                security_id=security_id,
-                entity_id=entity_id,
-                calculation_date=date.today(),
-                score_type=score_type,
-                score_value=score_value,
-                classification=classification,
-                components=components,
-                data_quality=data_quality,
+        try:
+            stmt = select(CompositeScore).where(
+                CompositeScore.security_id == security_id,
+                CompositeScore.score_type == score_type,
+                CompositeScore.calculation_date == date.today()
             )
-            session.add(record)
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+
+            if existing:
+                existing.score_value = score_value
+                existing.classification = classification
+                existing.components = components
+                existing.data_quality = data_quality
+            else:
+                record = CompositeScore(
+                    security_id=security_id,
+                    entity_id=entity_id,
+                    calculation_date=date.today(),
+                    score_type=score_type,
+                    score_value=score_value,
+                    classification=classification,
+                    components=components,
+                    data_quality=data_quality,
+                )
+                session.add(record)
+        except Exception:
+            logger.error(
+                "Composites: failed to persist %s for security %s — "
+                "DB write skipped (schema mismatch or constraint violation)",
+                score_type, security_id, exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Score 1: Earnings Quality (0-100)

@@ -86,10 +86,18 @@ export default function CustomIndexBuilder() {
   // [Bug 94 fix] — Try correct API response key first, then fallback
   const activeIndices = (apiBenchmarks as any)?.benchmarks ?? (apiBenchmarks as any)?.indices ?? customIndices;
 
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const handleCreateIndex = useCallback(async () => {
     if (!name.trim()) return;
-    // [Bug 95 fix] — Don't POST to the list endpoint; use a proper create path
-    try { await api.post(BENCHMARKS.list + '/create', { name, weighting, universe }); } catch {}
+    setCreateError(null);
+    try {
+      await api.post(BENCHMARKS.create, { name, weighting, universe });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create index. Please try again.';
+      setCreateError(message);
+      console.error('[CustomIndexBuilder] create index failed:', err);
+    }
   }, [name, weighting, universe]);
 
   return (
@@ -169,6 +177,11 @@ export default function CustomIndexBuilder() {
             Create Index
           </button>
         </div>
+        {createError && (
+          <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-negative) 10%, transparent)', color: 'var(--color-signal-negative)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)' }}>
+            {createError}
+          </div>
+        )}
       </div>
 
       {/* Existing Custom Indices Table */}

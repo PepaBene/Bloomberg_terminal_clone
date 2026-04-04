@@ -189,7 +189,22 @@ export default function QuantDashboard() {
 
         {/* Volatility Surface Placeholder */}
         <div style={panelStyle}>
-          <h2 style={sectionTitle}>Implied Volatility Surface (SPX) <span style={{ fontWeight: 400, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>Illustrative — not from live data</span></h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <h2 style={{ ...sectionTitle, margin: 0 }}>Implied Volatility Surface (SPX)</h2>
+            <span style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 'var(--text-xs)',
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: '3px',
+              background: 'color-mix(in srgb, var(--color-quality-2) 20%, transparent)',
+              color: 'var(--color-quality-2)',
+              border: '1px solid color-mix(in srgb, var(--color-quality-2) 40%, transparent)',
+              whiteSpace: 'nowrap',
+            }}>
+              Illustrative — not from live data
+            </span>
+          </div>
           <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
             {tenors.map((t) => (
               <button

@@ -257,6 +257,8 @@ class PiotroskiEngine(BaseEngine):
             quality_flags.append("NEGATIVE_EQUITY")
 
         base_quality = quality_flags[0] if quality_flags else "COMPLETE"
+        # [Bug 36 fix] Define score_quality before use in F3/F7
+        score_quality = "INSUFFICIENT_DATA" if not has_prior else base_quality
 
         # ------------------------------------------------------------------
         # 7. Profitability Signals (F1-F4)
@@ -364,6 +366,7 @@ class PiotroskiEngine(BaseEngine):
         # 10. Aggregate score and zone
         # ------------------------------------------------------------------
         f_score_components = (f1, f2, f3, f4, f5, f6, f7, f8, f9)
+        none_count = sum(1 for x in f_score_components if x is None)
         f_score = sum(x for x in f_score_components if x is not None)
 
         if f_score >= 8:
@@ -373,8 +376,13 @@ class PiotroskiEngine(BaseEngine):
         else:
             zone = "WEAK"
 
-        # If no prior-year data, flag everything as insufficient
-        score_quality = "INSUFFICIENT_DATA" if not has_prior else base_quality
+        # [Bug 37 fix] Flag aggregate score when negative equity reduces component count
+        if negative_equity:
+            aggregate_quality = "NEGATIVE_EQUITY"
+        elif none_count > 0:
+            aggregate_quality = "PARTIAL"
+        else:
+            aggregate_quality = score_quality
 
         # ------------------------------------------------------------------
         # 11. Build outputs
@@ -531,6 +539,7 @@ class PiotroskiEngine(BaseEngine):
         )
 
         # Profitability Subscore (F1+F2+F3+F4)
+        profitability_subscore = sum(x for x in (f1, f2, f3, f4) if x is not None)
         outputs.append(
             _build_output(
                 security_id, entity_id,
@@ -538,10 +547,10 @@ class PiotroskiEngine(BaseEngine):
                 float(profitability_subscore),
                 period_label, curr_period.period_end_date,
                 [
-                    _inp("f1_positive_income", float(f1)),
-                    _inp("f2_positive_ocf", float(f2)),
-                    _inp("f3_improving_roa", float(f3)),
-                    _inp("f4_earnings_quality", float(f4)),
+                    _inp("f1_positive_income", _f(f1)),
+                    _inp("f2_positive_ocf", _f(f2)),
+                    _inp("f3_improving_roa", _f(f3)),
+                    _inp("f4_earnings_quality", _f(f4)),
                 ],
                 data_quality=score_quality,
             )
@@ -555,17 +564,17 @@ class PiotroskiEngine(BaseEngine):
                 float(f_score),
                 period_label, curr_period.period_end_date,
                 [
-                    _inp("f1_positive_income", float(f1)),
-                    _inp("f2_positive_ocf", float(f2)),
-                    _inp("f3_improving_roa", float(f3)),
-                    _inp("f4_earnings_quality", float(f4)),
-                    _inp("f5_deleveraging", float(f5)),
-                    _inp("f6_improving_liquidity", float(f6)),
-                    _inp("f7_no_dilution", float(f7)),
-                    _inp("f8_improving_gross_margin", float(f8)),
-                    _inp("f9_improving_asset_turnover", float(f9)),
+                    _inp("f1_positive_income", _f(f1)),
+                    _inp("f2_positive_ocf", _f(f2)),
+                    _inp("f3_improving_roa", _f(f3)),
+                    _inp("f4_earnings_quality", _f(f4)),
+                    _inp("f5_deleveraging", _f(f5)),
+                    _inp("f6_improving_liquidity", _f(f6)),
+                    _inp("f7_no_dilution", _f(f7)),
+                    _inp("f8_improving_gross_margin", _f(f8)),
+                    _inp("f9_improving_asset_turnover", _f(f9)),
                 ],
-                data_quality=score_quality,
+                data_quality=aggregate_quality,
             )
         )
 

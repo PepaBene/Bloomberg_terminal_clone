@@ -2,7 +2,7 @@
 // Backtest Dashboard — Strategy Backtesting, Results & History
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
-import { useBacktestHistory, useScreenPrebuilt } from '@/hooks';
+import { useBacktestHistory, useBacktestStrategies } from '@/hooks';
 import { api } from '@/api/client';
 import { BACKTESTING } from '@/api/endpoints';
 
@@ -101,7 +101,7 @@ export default function BacktestDashboard() {
   const [startDate, setStartDate] = useState('2019-01-01');
   const [endDate, setEndDate] = useState('2024-12-31');
 
-  const { data: apiStrategies } = useScreenPrebuilt() as { data: any[] };
+  const { data: apiStrategies } = useBacktestStrategies() as { data: any[] };
   const { data: apiHistory } = useBacktestHistory() as { data: any };
 
   const activeStrategies = apiStrategies ?? strategies;

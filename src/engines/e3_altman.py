@@ -147,7 +147,8 @@ class AltmanZScoreEngine(BaseEngine):
         - ``altman_x1_wc_ta``     — Working Capital / Total Assets
         - ``altman_x2_re_ta``     — Retained Earnings / Total Assets
         - ``altman_x3_ebit_ta``   — EBIT / Total Assets
-        - ``altman_x4_equity_tl`` — MVE / TL (original) or BVE / TL (Z')
+        - ``altman_x4_value``     — MVE / TL (original) or BVE / TL (Z')
+        - ``altman_x4_description`` — describes which equity variant was used
         - ``altman_x5_sales_ta``  — Sales / Total Assets (original only)
         - ``altman_implied_pd``   — rough PD from zone mapping
         - ``altman_gics_sector``  — GICS sector used for model selection
@@ -538,7 +539,7 @@ class AltmanZScoreEngine(BaseEngine):
             )
         )
 
-        # --- altman_x4_equity_tl ---
+        # --- altman_x4_value ---
         x4_quality = data_quality
         if total_liabilities is None or total_liabilities == 0:
             x4_quality = "ZERO_DENOMINATOR"
@@ -552,14 +553,28 @@ class AltmanZScoreEngine(BaseEngine):
                 _inp("close_price", "eod_prices", close_price,
                      per=str(eod.price_date) if eod else ""),
             ])
+        x4_desc = "MVE/TL" if use_original else "BVE/TL"
         outputs.append(
             _build_output(
                 security_id, entity_id,
-                "altman_x4_equity_tl",
+                "altman_x4_value",
                 x4,
                 period_label, period.period_end_date,
                 x4_inputs,
                 data_quality=x4_quality,
+            )
+        )
+
+        # --- altman_x4_description ---
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "altman_x4_description",
+                None,
+                period_label, period.period_end_date,
+                x4_inputs,
+                data_quality=x4_desc,
+                unit="CLASSIFICATION",
             )
         )
 
@@ -637,7 +652,8 @@ class AltmanZScoreEngine(BaseEngine):
             ("altman_x1_wc_ta", "RATIO"),
             ("altman_x2_re_ta", "RATIO"),
             ("altman_x3_ebit_ta", "RATIO"),
-            ("altman_x4_equity_tl", "RATIO"),
+            ("altman_x4_value", "RATIO"),
+            ("altman_x4_description", "CLASSIFICATION"),
             ("altman_x5_sales_ta", "RATIO"),
             ("altman_implied_pd", "RATIO"),
             ("altman_gics_sector", "CLASSIFICATION"),
@@ -675,7 +691,8 @@ class AltmanZScoreEngine(BaseEngine):
             ("altman_x1_wc_ta", "RATIO"),
             ("altman_x2_re_ta", "RATIO"),
             ("altman_x3_ebit_ta", "RATIO"),
-            ("altman_x4_equity_tl", "RATIO"),
+            ("altman_x4_value", "RATIO"),
+            ("altman_x4_description", "CLASSIFICATION"),
             ("altman_x5_sales_ta", "RATIO"),
             ("altman_implied_pd", "RATIO"),
             ("altman_gics_sector", "CLASSIFICATION"),

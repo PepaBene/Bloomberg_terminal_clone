@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import statistics
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, func
@@ -80,6 +80,7 @@ class MetricComparison:
     peer_std: float | None
     percentile: int | None       # 0-100
     premium_discount: float | None  # (subj - median) / |median|
+    quality: str | None = None
 
 
 @dataclass
@@ -108,18 +109,21 @@ async def _estimate_market_cap(
     session: AsyncSession, security_id: UUID,
 ) -> float | None:
     """Best-effort market-cap: AnalyticsResult first, then EOD * shares."""
+    freshness_cutoff = date.today() - timedelta(days=30)
     ar = (
         await session.execute(
             select(AnalyticsResult.value).where(
                 AnalyticsResult.security_id == security_id,
                 AnalyticsResult.metric_name.ilike("%market_cap%"),
                 AnalyticsResult.value.isnot(None),
+                AnalyticsResult.as_of_date >= freshness_cutoff,
             ).order_by(AnalyticsResult.as_of_date.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if ar is not None:
         return float(ar)
 
+    # Fallback: real-time calculation from EOD price * shares
     shares = (
         await session.execute(
             select(EquityDetails.shares_outstanding).where(
@@ -297,8 +301,14 @@ class PeerService:
                 continue
 
             p_med = statistics.median(pv)
-            pct = _percentile(sv, pv + [sv]) if sv is not None else None
-            pd_ = ((sv - p_med) / abs(p_med)) if (sv is not None and p_med != 0) else None
+            pct = _percentile(sv, pv) if sv is not None else None
+            quality = None
+            if sv is not None and p_med != 0:
+                pd_ = (sv - p_med) / abs(p_med)
+            else:
+                pd_ = None
+                if p_med == 0:
+                    quality = "PEER_MEDIAN_ZERO"
             comparisons.append(MetricComparison(
                 metric_name=m,
                 subject_value=sv,
@@ -309,6 +319,7 @@ class PeerService:
                 peer_std=statistics.stdev(pv) if len(pv) >= 2 else 0.0,
                 percentile=pct,
                 premium_discount=pd_,
+                quality=quality,
             ))
 
         return PeerComparison(

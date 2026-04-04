@@ -413,7 +413,8 @@ class AltmanResponse(BaseModel):
     x1_wc_ta: float | None = None
     x2_re_ta: float | None = None
     x3_ebit_ta: float | None = None
-    x4_equity_tl: float | None = None  # MVE/TL or BVE/TL
+    x4_value: float | None = None  # MVE/TL or BVE/TL
+    x4_description: str | None = None  # "MVE/TL" or "BVE/TL"
     x5_sales_ta: float | None = None  # original model only
     implied_pd: float | None = None
     gics_sector: str | None = None

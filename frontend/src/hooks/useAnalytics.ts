@@ -297,5 +297,5 @@ export function useScreenHistory() {
 // ---------------------------------------------------------------------------
 
 export function useCorrelation() {
-  return useApiQuery(['analytics', 'correlation'], ANALYTICS.correlation, undefined, { enabled: false });
+  return useApiQuery(['analytics', 'correlation'], ANALYTICS.correlation);
 }

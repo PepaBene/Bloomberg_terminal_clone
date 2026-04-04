@@ -37,9 +37,17 @@ from src.config import settings
 from src.engines.base import BaseEngine, EngineOutput, safe_divide, make_input
 from src.models.analytics import AnalyticsResult, WACCResult
 from src.models.macro import MacroIndicator, MacroValue
+from src.models.entity import Entity
 from src.models.security import EODPrice, Security, SecurityIdentifier
 
 logger = logging.getLogger(__name__)
+
+# [Bug 25 fix] Shared constants for E1 metric names used by WACC
+E1_TTM_INTEREST_EXPENSE = "ttm_interest_expense"
+E1_TTM_TOTAL_DEBT = "ttm_total_debt"
+E1_TTM_PRETAX_INCOME = "ttm_pretax_income"
+E1_TTM_INCOME_TAX_EXPENSE = "ttm_income_tax_expense"
+E1_TTM_DILUTED_SHARES = "ttm_diluted_shares_outstanding"
 
 # Try numpy for fast OLS; fall back to pure-Python implementation
 try:
@@ -123,6 +131,57 @@ def run_ols(x: list[float], y: list[float]) -> tuple[float, float, float]:
     if _HAS_NUMPY:
         return _ols_numpy(x, y)
     return _ols_pure_python(x, y)
+
+
+# ---------------------------------------------------------------------------
+# [Bug 23 fix] Size premium by market cap range (approximate Duff & Phelps deciles)
+# ---------------------------------------------------------------------------
+
+_SIZE_PREMIUM_TABLE: list[tuple[float, float]] = [
+    # (max_market_cap_usd_billions, size_premium)
+    (0.3, 0.0560),    # Micro-cap (10th decile)
+    (0.8, 0.0390),    # 9th decile
+    (1.6, 0.0280),    # 8th decile
+    (2.5, 0.0190),    # 7th decile
+    (4.0, 0.0130),    # 6th decile
+    (7.5, 0.0090),    # 5th decile
+    (13.0, 0.0060),   # 4th decile
+    (25.0, 0.0030),   # 3rd decile
+    (55.0, 0.0010),   # 2nd decile
+    (float("inf"), 0.0),  # Mega-cap (1st decile)
+]
+
+
+def _lookup_size_premium(market_cap_usd: float | None) -> float:
+    if market_cap_usd is None:
+        return 0.0
+    cap_billions = market_cap_usd / 1e9
+    for max_cap, premium in _SIZE_PREMIUM_TABLE:
+        if cap_billions <= max_cap:
+            return premium
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# [Bug 23 fix] Country risk premium by ISO country code (Damodaran 2024 approximation)
+# ---------------------------------------------------------------------------
+
+_COUNTRY_RISK_PREMIUM: dict[str, float] = {
+    "US": 0.0, "GB": 0.0, "DE": 0.0, "FR": 0.0, "JP": 0.0, "CA": 0.0,
+    "AU": 0.0, "CH": 0.0, "NL": 0.0, "SE": 0.0, "DK": 0.0, "NO": 0.0,
+    "SG": 0.0, "HK": 0.005, "KR": 0.008, "TW": 0.005,
+    "CN": 0.012, "IN": 0.015, "BR": 0.035, "MX": 0.020,
+    "RU": 0.045, "ZA": 0.030, "TR": 0.035, "ID": 0.020,
+    "PH": 0.025, "TH": 0.015, "MY": 0.012, "CL": 0.010,
+    "CO": 0.025, "PE": 0.020, "AR": 0.055, "VN": 0.030,
+    "EG": 0.040, "NG": 0.045, "PK": 0.050, "KE": 0.040,
+}
+
+
+def _lookup_country_premium(country_code: str | None) -> float:
+    if not country_code:
+        return 0.0
+    return _COUNTRY_RISK_PREMIUM.get(country_code.upper(), 0.015)  # default 1.5% for unlisted
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +458,12 @@ class WACCEngine(BaseEngine):
         entity_id: UUID = security.issuer_entity_id
         today = date.today()
 
+        # [Bug 23 fix] Load entity for country_of_incorporation & market-cap lookups
+        entity_result = await session.execute(
+            select(Entity).where(Entity.entity_id == entity_id)
+        )
+        entity = entity_result.scalar_one_or_none()
+
         # ------------------------------------------------------------------
         # 2. Risk-free rate
         # ------------------------------------------------------------------
@@ -424,18 +489,19 @@ class WACCEngine(BaseEngine):
         # 4. CAPM parameters
         # ------------------------------------------------------------------
         erp = settings.ANALYTICS_DEFAULT_ERP
-        size_premium = 0.0  # TODO: implement market cap decile lookup
-        country_premium = 0.0  # TODO: implement country risk premium lookup
-
-        cost_of_equity = rf + beta * erp + size_premium + country_premium
+        # [Bug 23 fix] Country premium from entity's incorporation country
+        country_code = entity.incorporation_country if entity else None
+        country_premium = _lookup_country_premium(country_code)
+        # NOTE: size_premium and cost_of_equity are computed after market_cap
+        # is available (section 6a below).
 
         # ------------------------------------------------------------------
         # 5. Cost of debt
         # ------------------------------------------------------------------
-        interest_expense = await _load_ttm_value(session, security_id, entity_id, "ttm_interest_expense")
-        total_debt = await _load_ttm_value(session, security_id, entity_id, "ttm_total_debt")
-        pretax_income = await _load_ttm_value(session, security_id, entity_id, "ttm_pretax_income")
-        income_tax = await _load_ttm_value(session, security_id, entity_id, "ttm_income_tax_expense")
+        interest_expense = await _load_ttm_value(session, security_id, entity_id, E1_TTM_INTEREST_EXPENSE)
+        total_debt = await _load_ttm_value(session, security_id, entity_id, E1_TTM_TOTAL_DEBT)
+        pretax_income = await _load_ttm_value(session, security_id, entity_id, E1_TTM_PRETAX_INCOME)
+        income_tax = await _load_ttm_value(session, security_id, entity_id, E1_TTM_INCOME_TAX_EXPENSE)
 
         # Implied cost of debt (pre-tax)
         cost_of_debt_pretax = safe_divide(interest_expense, total_debt)
@@ -476,11 +542,17 @@ class WACCEngine(BaseEngine):
         price_val = price_result.scalar_one_or_none()
         price = float(price_val) if price_val is not None else None
 
-        shares = await _load_ttm_value(session, security_id, entity_id, "ttm_diluted_shares_outstanding")
+        shares = await _load_ttm_value(session, security_id, entity_id, E1_TTM_DILUTED_SHARES)
 
         market_cap: float | None = None
         if price is not None and shares is not None and price > 0 and shares > 0:
             market_cap = price * shares
+
+        # ------------------------------------------------------------------
+        # 6a. [Bug 23 fix] Size premium & cost of equity (needs market_cap)
+        # ------------------------------------------------------------------
+        size_premium = _lookup_size_premium(market_cap)
+        cost_of_equity = rf + beta * erp + size_premium + country_premium
 
         # Weights
         equity_weight: float | None = None

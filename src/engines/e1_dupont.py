@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engines.base import BaseEngine, EngineOutput, make_input, safe_divide
+from src.models.analytics import AnalyticsResult
 from src.models.fundamentals import (
     BalanceSheet,
     FinancialPeriod,
@@ -153,9 +154,10 @@ class DuPontEngine(BaseEngine):
 
         if period is None or inc is None or bs is None:
             logger.info(
-                "DuPont: no period with both IS and BS for entity %s", entity_id
+                "DuPont: no period with both IS and BS for entity %s — attempting TTM fallback",
+                entity_id,
             )
-            return []
+            return await self._ttm_fallback(session, security_id, entity_id)
 
         period_label = (
             f"Q{period.fiscal_quarter}_{period.fiscal_year}"
@@ -367,5 +369,145 @@ class DuPontEngine(BaseEngine):
         logger.info(
             "DuPont: computed %d metrics for security %s (period %s)",
             len(outputs), security_id, period_label,
+        )
+        return outputs
+
+    # ------------------------------------------------------------------
+    # TTM fallback (Bug 8 fix)
+    # ------------------------------------------------------------------
+
+    async def _ttm_fallback(
+        self,
+        session: AsyncSession,
+        security_id: UUID,
+        entity_id: UUID,
+    ) -> list[EngineOutput]:
+        """Build approximate 3-factor DuPont from TTM analytics results.
+
+        Called when no quarterly period has both an income statement and a
+        balance sheet.  Queries previously computed TTM metrics from
+        ``AnalyticsResult`` and derives profit margin, asset turnover, and
+        equity multiplier.  All outputs are marked ``ESTIMATED``.
+        """
+        ttm_rows = await session.execute(
+            select(AnalyticsResult).where(
+                AnalyticsResult.security_id == security_id,
+                AnalyticsResult.engine_id == "E1",
+                AnalyticsResult.metric_name.in_([
+                    "ttm_net_income",
+                    "ttm_total_revenue",
+                    "ttm_total_assets",
+                    "ttm_total_equity",
+                ]),
+            )
+        )
+        ttm_map: dict[str, float] = {
+            row.metric_name: float(row.value)
+            for row in ttm_rows.scalars().all()
+            if row.value is not None
+        }
+
+        needed = {"ttm_net_income", "ttm_total_revenue", "ttm_total_assets", "ttm_total_equity"}
+        if not needed.issubset(ttm_map):
+            logger.warning(
+                "DuPont TTM fallback: insufficient TTM data for security %s (have %s)",
+                security_id,
+                sorted(ttm_map.keys()),
+            )
+            return []
+
+        net_income = ttm_map["ttm_net_income"]
+        total_revenue = ttm_map["ttm_total_revenue"]
+        total_assets = ttm_map["ttm_total_assets"]
+        total_equity = ttm_map["ttm_total_equity"]
+
+        period_label = "TTM"
+        quality = "ESTIMATED"
+
+        def _inp(name: str, value: float) -> dict:
+            return make_input(
+                name=name,
+                source="analytics_results_ttm",
+                value=value,
+                period=period_label,
+            )
+
+        outputs: list[EngineOutput] = []
+
+        # Net Profit Margin
+        net_profit_margin = safe_divide(net_income, total_revenue)
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "dupont_net_profit_margin",
+                net_profit_margin,
+                period_label, None,
+                [_inp("ttm_net_income", net_income), _inp("ttm_total_revenue", total_revenue)],
+                data_quality=quality,
+            )
+        )
+
+        # Asset Turnover
+        asset_turnover = safe_divide(total_revenue, total_assets)
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "dupont_asset_turnover",
+                asset_turnover,
+                period_label, None,
+                [_inp("ttm_total_revenue", total_revenue), _inp("ttm_total_assets", total_assets)],
+                data_quality=quality,
+            )
+        )
+
+        # Equity Multiplier
+        equity_multiplier = safe_divide(total_assets, total_equity)
+        eq_quality = quality if total_equity >= 0 else "ESTIMATED_NEGATIVE_EQUITY"
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "dupont_equity_multiplier",
+                equity_multiplier,
+                period_label, None,
+                [_inp("ttm_total_assets", total_assets), _inp("ttm_total_equity", total_equity)],
+                data_quality=eq_quality,
+            )
+        )
+
+        # ROE (3-factor)
+        roe_3f: float | None = None
+        if all(v is not None for v in (net_profit_margin, asset_turnover, equity_multiplier)):
+            roe_3f = net_profit_margin * asset_turnover * equity_multiplier  # type: ignore[operator]
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "dupont_roe_3f",
+                roe_3f,
+                period_label, None,
+                [
+                    _inp("net_profit_margin", net_profit_margin or 0.0),
+                    _inp("asset_turnover", asset_turnover or 0.0),
+                    _inp("equity_multiplier", equity_multiplier or 0.0),
+                ],
+                data_quality=quality,
+            )
+        )
+
+        # Direct ROE for reference
+        direct_roe = safe_divide(net_income, total_equity)
+        outputs.append(
+            _build_output(
+                security_id, entity_id,
+                "dupont_roe_direct",
+                direct_roe,
+                period_label, None,
+                [_inp("ttm_net_income", net_income), _inp("ttm_total_equity", total_equity)],
+                data_quality=quality,
+            )
+        )
+
+        logger.info(
+            "DuPont TTM fallback: computed %d estimated metrics for security %s",
+            len(outputs), security_id,
         )
         return outputs

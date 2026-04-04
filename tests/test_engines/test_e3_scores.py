@@ -304,7 +304,7 @@ async def test_altman_components_present(
     results = await engine.compute(session, security_id=security_for_scores.security_id)
 
     by_name = {r.metric_name: r.value for r in results}
-    for comp in ["altman_x1_wc_ta", "altman_x2_re_ta", "altman_x3_ebit_ta", "altman_x4_mve_tl"]:
+    for comp in ["altman_x1_wc_ta", "altman_x2_re_ta", "altman_x3_ebit_ta", "altman_x4_value"]:
         assert comp in by_name, f"Missing component {comp}"
         assert by_name[comp] is not None, f"Component {comp} is None"
 
