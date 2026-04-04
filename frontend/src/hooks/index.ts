@@ -95,6 +95,7 @@ export {
   usePeerGroup,
   usePeerComparison,
   usePeerRanking,
+  useSavePeerGroup,
   useSectorRelative,
   useDCFModel,
   useDCFSensitivity,

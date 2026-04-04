@@ -240,6 +240,9 @@ class CashFlowStatement(Base):
     """Cash flow statement data (Spec 5.3)."""
 
     __tablename__ = "cash_flow_statements"
+    __table_args__ = (
+        CheckConstraint("dividends_paid <= 0", name="ck_cf_dividends_paid_negative"),
+    )
 
     statement_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -275,7 +278,9 @@ class CashFlowStatement(Base):
     debt_repaid: Mapped[float | None] = mapped_column(Numeric(20, 2))
     stock_issued: Mapped[float | None] = mapped_column(Numeric(20, 2))
     stock_repurchased: Mapped[float | None] = mapped_column(Numeric(20, 2))
-    dividends_paid: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    dividends_paid: Mapped[float | None] = mapped_column(
+        Numeric(20, 2), comment="Cash outflow, always <= 0 per GAAP convention"
+    )
     other_financing: Mapped[float | None] = mapped_column(Numeric(20, 2))
     cash_from_financing: Mapped[float | None] = mapped_column(Numeric(20, 2))
 

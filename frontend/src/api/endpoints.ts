@@ -77,6 +77,7 @@ export const ANALYTICS = {
   peerGroup: (secId: string) => `/v2/analytics/peers/${secId}`,
   peerComparison: (secId: string) => `/v2/analytics/ratios/${secId}/vs-peers`,
   peerRanking: (secId: string) => `/v2/analytics/peers/${secId}/ranking`,
+  peerCustomSave: (secId: string) => `/v2/analytics/peers/${secId}/custom`,
   dcf: (secId: string) => `/v2/analytics/dcf/${secId}/default`,
   dcfPost: (secId: string) => `/v2/analytics/dcf/${secId}`,
   dcfSensitivity: (secId: string) => `/v2/analytics/dcf/${secId}/sensitivity`,

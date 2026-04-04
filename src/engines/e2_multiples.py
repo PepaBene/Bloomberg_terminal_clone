@@ -297,10 +297,10 @@ class MultiplesEngine(BaseEngine):
         tangible_bvps = safe_divide(tangible_bv, shares)
         revenue_per_share = safe_divide(revenue, shares)
 
-        # Dividends per share (dividends_paid is usually negative in CF)
+        # dividends_paid is always <= 0 (cash outflow); negate to get positive DPS
         dps: float | None = None
         if dividends_paid is not None and shares is not None and shares > 0:
-            dps = abs(dividends_paid) / shares
+            dps = (-dividends_paid) / shares
 
         # EPS growth rate for PEG (trailing vs prior year)
         eps_growth: float | None = None

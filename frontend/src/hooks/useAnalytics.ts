@@ -1,4 +1,6 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiQuery, useApiMutation } from './useApi';
+import api from '@/api/client';
 import { ANALYTICS } from '@/api/endpoints';
 
 // ---------------------------------------------------------------------------
@@ -206,6 +208,17 @@ export function usePeerComparison(secId: string | undefined) {
 export function usePeerRanking(secId: string | undefined) {
   return useApiQuery(['analytics', secId, 'peer-ranking'], ANALYTICS.peerRanking(secId!), undefined, {
     enabled: !!secId,
+  });
+}
+
+export function useSavePeerGroup(securityId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (peerIds: string[]) =>
+      api.post(ANALYTICS.peerCustomSave(securityId!), { peer_ids: peerIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'peers'] });
+    },
   });
 }
 

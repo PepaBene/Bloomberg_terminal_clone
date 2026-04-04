@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections import defaultdict
 from datetime import date
 from typing import Any
 
@@ -794,6 +795,47 @@ async def get_peer_group(
     )
 
 
+@router.post("/peers/{security_id}/custom")
+async def save_custom_peer_group(
+    security_id: uuid.UUID,
+    body: dict,
+    session: AsyncSession = Depends(get_session),
+):
+    """Save a user-selected custom peer group for a security."""
+    peer_ids = body.get("peer_ids", [])
+    if not peer_ids:
+        raise HTTPException(400, "peer_ids list is required")
+
+    # Store as an AnalyticsResult with a special metric
+    existing = await session.execute(
+        select(AnalyticsResult).where(
+            AnalyticsResult.security_id == security_id,
+            AnalyticsResult.metric_name == "custom_peer_group",
+        )
+    )
+    row = existing.scalar_one_or_none()
+
+    if row:
+        row.inputs = {"peer_ids": peer_ids}
+        row.value = len(peer_ids)
+    else:
+        row = AnalyticsResult(
+            security_id=security_id,
+            entity_id=None,
+            engine_id="USER",
+            metric_name="custom_peer_group",
+            metric_category="PEERS",
+            value=len(peer_ids),
+            unit="COUNT",
+            data_quality="USER_DEFINED",
+            inputs={"peer_ids": peer_ids},
+        )
+        session.add(row)
+
+    await session.commit()
+    return {"saved": True, "peer_count": len(peer_ids)}
+
+
 # ---------------------------------------------------------------------------
 # Quality & Scoring (E3)
 # ---------------------------------------------------------------------------
@@ -1377,3 +1419,127 @@ async def get_value_trap(
         components=cs.components if isinstance(cs.components, list) else [],
         data_quality=cs.data_quality,
     )
+
+
+# ---------------------------------------------------------------------------
+# Correlation & Factor Performance (Bug 86)
+# ---------------------------------------------------------------------------
+
+# Factor definitions: each factor maps to underlying AnalyticsResult metric names.
+_FACTORS = ["value", "momentum", "quality", "size", "volatility", "growth"]
+_FACTOR_METRICS: dict[str, list[str]] = {
+    "value": ["pe_trailing", "pb", "ev_to_ebitda", "fcf_yield"],
+    "momentum": ["price_momentum_12m", "price_momentum_6m"],
+    "quality": ["roe", "roa", "gross_margin"],
+    "size": ["market_cap"],
+    "volatility": ["beta", "std_5y"],
+    "growth": ["revenue_growth_1y", "eps_growth_1y"],
+}
+_ALL_METRIC_NAMES = [m for metrics in _FACTOR_METRICS.values() for m in metrics]
+
+
+@router.get("/correlation")
+async def get_correlation(
+    session: AsyncSession = Depends(get_session),
+):
+    """Return cross-factor correlation matrix and factor performance summary.
+
+    Used by the Quant Dashboard (QuantDashboard.tsx) to populate the Factor
+    Performance table and optional correlation heat-map.
+    """
+    start = time.perf_counter()
+
+    # ------------------------------------------------------------------
+    # 1. Load metric values per security
+    # ------------------------------------------------------------------
+    result = await session.execute(
+        select(
+            AnalyticsResult.security_id,
+            AnalyticsResult.metric_name,
+            AnalyticsResult.value,
+        ).where(
+            AnalyticsResult.metric_name.in_(_ALL_METRIC_NAMES),
+            AnalyticsResult.value.isnot(None),
+        )
+    )
+    rows = result.all()
+
+    # security_id -> metric_name -> value
+    sec_metrics: dict[str, dict[str, float]] = defaultdict(dict)
+    for row in rows:
+        sec_metrics[str(row.security_id)][row.metric_name] = float(row.value)
+
+    # ------------------------------------------------------------------
+    # 2. Factor performance defaults (real return series would go here)
+    # ------------------------------------------------------------------
+    factor_performance: list[dict[str, Any]] = []
+    for factor in _FACTORS:
+        factor_performance.append({
+            "factor": factor.capitalize(),
+            "mtd": 0.0,
+            "qtd": 0.0,
+            "ytd": 0.0,
+            "oneYear": 0.0,
+            "sharpe": 0.0,
+            "ic": 0.0,
+        })
+
+    # ------------------------------------------------------------------
+    # 3. Correlation matrix (identity when data is sparse)
+    # ------------------------------------------------------------------
+    n = len(_FACTORS)
+    correlation_matrix: list[list[float]] = [
+        [1.0 if i == j else 0.0 for j in range(n)] for i in range(n)
+    ]
+
+    if len(sec_metrics) >= 10:
+        # Compute a simple average-of-available-metrics score per factor
+        factor_values: dict[str, list[float | None]] = {f: [] for f in _FACTORS}
+
+        for _sec_id, metrics in sec_metrics.items():
+            for factor, metric_names in _FACTOR_METRICS.items():
+                vals = [metrics[m] for m in metric_names if m in metrics]
+                if vals:
+                    factor_values[factor].append(sum(vals) / len(vals))
+                else:
+                    factor_values[factor].append(None)
+
+        # Pairwise Pearson correlation (pure-Python, no numpy dependency)
+        for i, f1 in enumerate(_FACTORS):
+            for j, f2 in enumerate(_FACTORS):
+                if i >= j:
+                    continue
+                v1 = factor_values[f1]
+                v2 = factor_values[f2]
+                pairs = [
+                    (a, b)
+                    for a, b in zip(v1, v2)
+                    if a is not None and b is not None
+                ]
+                if len(pairs) >= 5:
+                    xs, ys = zip(*pairs)
+                    mean_x = sum(xs) / len(xs)
+                    mean_y = sum(ys) / len(ys)
+                    cov = sum(
+                        (x - mean_x) * (y - mean_y) for x, y in pairs
+                    ) / len(pairs)
+                    std_x = (
+                        sum((x - mean_x) ** 2 for x in xs) / len(xs)
+                    ) ** 0.5
+                    std_y = (
+                        sum((y - mean_y) ** 2 for y in ys) / len(ys)
+                    ) ** 0.5
+                    if std_x > 0 and std_y > 0:
+                        corr = round(cov / (std_x * std_y), 4)
+                        correlation_matrix[i][j] = corr
+                        correlation_matrix[j][i] = corr
+
+    return {
+        "factorPerformance": factor_performance,
+        "correlationMatrix": {
+            "factors": [f.capitalize() for f in _FACTORS],
+            "matrix": correlation_matrix,
+        },
+        "securityCount": len(sec_metrics),
+        "meta": _build_meta("CORRELATION", start),
+    }

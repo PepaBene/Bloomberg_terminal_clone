@@ -4,7 +4,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
-import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useDCFSensitivity, useFootballField } from '@/hooks';
+import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useDCFSensitivity, useFootballField, useSavePeerGroup } from '@/hooks';
 import { api } from '@/api/client';
 import { ANALYTICS } from '@/api/endpoints';
 import { RatioDashboard } from '@/components/company/RatioDashboard';
@@ -190,6 +190,7 @@ export default function ValuationDashboard() {
   const [editableGrowth, setEditableGrowth] = useState<number>(activeDcfAssumptions.terminalGrowth);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lassoPeers, setLassoPeers] = useState<string[]>([]);
+  const savePeers = useSavePeerGroup(resolvedId);
   const [dcfError, setDcfError] = useState<string | null>(null);
 
   // [Bug 78 fix] — Fixed DCF recalculate POST URL to use correct backend path
@@ -209,6 +210,13 @@ export default function ValuationDashboard() {
       setIsSubmitting(false);
     }
   }, [resolvedId, editableWacc, editableGrowth]);
+
+  const handleLassoSelect = useCallback((tickers: string[]) => {
+    setLassoPeers(tickers);
+    if (tickers.length > 0) {
+      savePeers.mutate(tickers);
+    }
+  }, [savePeers]);
 
   const displayPeers = useMemo(() => {
     return lassoPeers.length > 0
@@ -250,7 +258,7 @@ export default function ValuationDashboard() {
           xLabel="Revenue Growth (%)"
           yLabel="P/E Ratio"
           highlightTicker={companyTicker}
-          onLassoSelect={setLassoPeers}
+          onLassoSelect={handleLassoSelect}
         />
       </div>
 
