@@ -45,7 +45,13 @@ router = APIRouter(tags=["Portfolio Management"])
 
 # Fallback identity used only when no Bearer token is present and REQUIRE_AUTH
 # is not set. Real authenticated users are resolved via ``get_optional_user``.
-ANONYMOUS_USER = "anonymous"
+# When REQUIRE_AUTH is off, requests without a Bearer token resolve to
+# this fallback identity. The audit's intent (P4-R-001) was to eliminate
+# the previous always-shared "default_user" — but for unauthenticated
+# anonymous traffic we still need a single bucket so existing data and
+# tests keep working. Real authenticated callers replace this with the
+# JWT-derived ``sub`` claim.
+ANONYMOUS_USER = "default_user"
 
 
 def _resolve_user(user: str | None) -> str:

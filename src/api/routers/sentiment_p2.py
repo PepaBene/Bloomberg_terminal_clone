@@ -162,7 +162,8 @@ async def get_watchlist_digest(
     watchlists yet.
     """
     d = target_date or date.today()
-    user_id = user or "anonymous"
+    # Use the same anonymous fallback identity as the portfolio routers.
+    user_id = user or "default_user"
 
     entity_rows = (
         await session.execute(

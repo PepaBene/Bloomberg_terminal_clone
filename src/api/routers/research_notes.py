@@ -19,7 +19,7 @@ from src.schemas.research_notes import (
 router = APIRouter(tags=["Research Notes"])
 
 # Anonymous fallback when no Bearer token is present and REQUIRE_AUTH is off.
-ANONYMOUS_USER = "anonymous"
+ANONYMOUS_USER = "default_user"
 
 
 def _resolve_user(user: str | None) -> str:

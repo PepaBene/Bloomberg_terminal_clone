@@ -985,11 +985,14 @@ async def pre_trade_check(
     proposed_nav = nav if nav > 0 else (trade_value if trade_value > 0 else 1.0)
 
     def _record(rule, message: str, *, severity: str | None = None) -> None:
-        bucket = warnings if (severity or rule.severity or "").upper() == "WARNING" else violations
-        bucket.append({
+        # Any matching rule blocks the trade (goes into violations).
+        # ``warnings`` is reserved for soft signals like "approaching
+        # limit" that we don't currently emit.
+        violations.append({
             "rule_id": str(rule.rule_id),
             "rule_name": rule.rule_name,
             "rule_type": rule.rule_type,
+            "severity": severity or rule.severity,
             "message": message,
         })
 

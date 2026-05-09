@@ -30,7 +30,7 @@ router = APIRouter(tags=["Portfolio Watchlists"])
 
 # Fallback identity used only when no Bearer token is present and REQUIRE_AUTH
 # is not set. Real authenticated users come from ``get_optional_user``.
-ANONYMOUS_USER = "anonymous"
+ANONYMOUS_USER = "default_user"
 
 
 def _resolve_user(user: str | None) -> str:

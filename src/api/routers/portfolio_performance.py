@@ -113,7 +113,9 @@ async def compare_portfolios(
     user when REQUIRE_AUTH is off). Portfolios belonging to other users are
     silently dropped from the result.
     """
-    requester = user or "anonymous"
+    # Match the same fallback identity as portfolios.py (``default_user``)
+    # so unauthenticated callers can still compare their own portfolios.
+    requester = user or "default_user"
     id_list = [uuid.UUID(x.strip()) for x in ids.split(",") if x.strip()]
     entries: list[PerformanceCompareEntry] = []
 

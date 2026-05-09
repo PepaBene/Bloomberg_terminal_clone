@@ -306,23 +306,19 @@ class TestPerShareRatios:
         assert "eps_basic" in names
         assert names["eps_basic"].value == pytest.approx(3.0)
 
-    def test_net_income_per_employee(self):
+    # Pillar 2 audit Bug 26: net_income_per_employee and
+    # revenue_per_employee were removed because no model populates the
+    # ``employee_count`` field. Both metrics silently emitted None for
+    # every security; the fix dropped them rather than adding an
+    # un-populated column. The tests below assert their absence so a
+    # future regression that re-adds them without the data will fail.
+    def test_per_employee_metrics_removed(self):
         engine = RatioEngine()
         ctx = _make_context()
         outputs = engine._per_share(ctx)
-        names = {o.metric_name: o for o in outputs}
-        assert "net_income_per_employee" in names
-        # net_income=150000, employee_count=500 -> 300
-        val = names["net_income_per_employee"]
-        assert val.value == pytest.approx(150_000 / 500)
-
-    def test_revenue_per_employee(self):
-        engine = RatioEngine()
-        ctx = _make_context()
-        outputs = engine._per_share(ctx)
-        names = {o.metric_name: o for o in outputs}
-        assert "revenue_per_employee" in names
-        assert names["revenue_per_employee"].value == pytest.approx(1_000_000 / 500)
+        names = {o.metric_name for o in outputs}
+        assert "net_income_per_employee" not in names
+        assert "revenue_per_employee" not in names
 
 
 class TestCashFlowQualityRatios:

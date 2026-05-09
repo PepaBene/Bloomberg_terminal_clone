@@ -17,9 +17,8 @@ class TransactionCreateRequest(BaseModel):
 
 
 class TransactionResponse(BaseModel):
-    """Transaction response. Monetary / share fields are ``Decimal`` so
-    audit-grade dollar figures and 6-decimal share counts survive
-    serialization without rounding (P4-M-003)."""
+    """Transaction response. Monetary / share fields stay as ``float``
+    on the wire (Pydantic v2 serializes Decimal as quoted string)."""
 
     id: UUID
     portfolio_id: UUID
@@ -28,12 +27,12 @@ class TransactionResponse(BaseModel):
     transaction_type: str
     transaction_date: date
     settlement_date: date | None = None
-    shares: Decimal | None = None
-    price_per_share: Decimal | None = None
-    gross_amount: Decimal | None = None
-    commission: Decimal | None = None
-    net_amount: Decimal | None = None
-    cash_impact: Decimal | None = None
+    shares: float | None = None
+    price_per_share: float | None = None
+    gross_amount: float | None = None
+    commission: float | None = None
+    net_amount: float | None = None
+    cash_impact: float | None = None
     source: str
     source_reference: str | None = None
     notes: str | None = None

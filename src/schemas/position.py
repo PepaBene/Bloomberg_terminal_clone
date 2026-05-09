@@ -15,25 +15,25 @@ class PositionAddRequest(BaseModel):
 
 
 class PositionResponse(BaseModel):
-    """Position response. All monetary / share fields kept as ``Decimal``
-    to preserve precision through serialization (P4-M-002) — share counts
-    in particular use Numeric(20, 6) and lose digits via float."""
+    """Position response. Monetary / share fields are ``float`` on the
+    wire (Pydantic v2 serializes ``Decimal`` as a string by default,
+    which would break every existing JSON consumer)."""
 
     id: UUID
     portfolio_id: UUID
     security_id: UUID | None = None
     ticker: str
     status: str
-    shares: Decimal | None = None
-    cost_basis_total: Decimal | None = None
-    cost_basis_per_share: Decimal | None = None
+    shares: float | None = None
+    cost_basis_total: float | None = None
+    cost_basis_per_share: float | None = None
     first_acquisition_date: date | None = None
-    market_value: Decimal | None = None
-    unrealized_pnl: Decimal | None = None
-    unrealized_pnl_pct: Decimal | None = None
-    weight: Decimal | None = None
-    closing_price: Decimal | None = None
-    day_change_pct: Decimal | None = None
+    market_value: float | None = None
+    unrealized_pnl: float | None = None
+    unrealized_pnl_pct: float | None = None
+    weight: float | None = None
+    closing_price: float | None = None
+    day_change_pct: float | None = None
     notes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
