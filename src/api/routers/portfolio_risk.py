@@ -9,7 +9,9 @@ from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import portfolio_risk_engine
 from src.models.portfolio import Portfolio
+from src.models.position import Position
 from src.models.portfolio_risk import (
     ConcentrationAnalysis,
     FactorExposureSnapshot,
@@ -465,6 +467,29 @@ async def get_unintended_factors(
 # ══════════════════════════════════════════════════════════════════════
 
 
+async def _load_position_dicts(
+    session: AsyncSession, portfolio_id: uuid.UUID
+) -> list[dict]:
+    """Load open positions for engine consumption."""
+    result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    return [
+        {
+            "ticker": pos.ticker,
+            "market_value": float(pos.market_value) if pos.market_value is not None else 0.0,
+            "asset_class": "equity",
+            "beta": 1.0,
+            "duration": 0.0,
+            "spread_duration": 0.0,
+        }
+        for pos in result.scalars().all()
+    ]
+
+
 @router.post(
     "/portfolios/{portfolio_id}/risk/stress/historical",
     response_model=StressTestResponse,
@@ -475,31 +500,59 @@ async def run_historical_stress_test(
     body: StressTestRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Run a historical stress test scenario."""
-    await _get_portfolio(session, portfolio_id)
+    """Run a historical stress test scenario via the portfolio risk engine."""
+    portfolio = await _get_portfolio(session, portfolio_id)
 
     today = date.today()
+    positions = await _load_position_dicts(session, portfolio_id)
+    portfolio_nav = float(portfolio.current_cash or 0.0) + sum(p["market_value"] for p in positions)
+
+    if not positions:
+        # No positions to stress — return a zero-result snapshot rather than
+        # fabricating numbers.
+        engine_result = portfolio_risk_engine.StressTestResult(
+            scenario_name=body.scenario_name,
+            scenario_type="historical",
+            total_pnl_dollar=0.0,
+            total_pnl_percent=0.0,
+            max_drawdown_pct=0.0,
+            recovery_time_months=0.0,
+            per_position_pnl={},
+            worst_positions=[],
+        )
+    else:
+        try:
+            engine_result = portfolio_risk_engine.run_stress_test(
+                positions=positions,
+                scenario_name=body.scenario_name,
+                portfolio_nav=portfolio_nav,
+                custom_params=body.shocks,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     result_record = PortfolioStressTestResult(
         id=uuid.uuid4(),
         portfolio_id=portfolio_id,
         snapshot_date=today,
-        scenario_name=body.scenario_name,
+        scenario_name=engine_result.scenario_name,
         scenario_type="HISTORICAL",
-        total_pnl_dollar=Decimal("-15000.00"),
-        total_pnl_percent=Decimal("-0.150000"),
-        max_drawdown_pct=Decimal("-0.250000"),
-        recovery_time_months=Decimal("18.0"),
-        per_position_pnl=body.shocks or {},
-        worst_positions={"worst": [{"ticker": "AAPL", "pnl": -5000}]},
+        total_pnl_dollar=Decimal(str(engine_result.total_pnl_dollar)),
+        total_pnl_percent=Decimal(str(engine_result.total_pnl_percent)),
+        max_drawdown_pct=Decimal(str(engine_result.max_drawdown_pct)),
+        recovery_time_months=Decimal(str(engine_result.recovery_time_months)),
+        per_position_pnl=engine_result.per_position_pnl,
+        worst_positions={"worst": engine_result.worst_positions},
         scenario_params=body.shocks,
     )
     session.add(result_record)
-    await session.flush()
+    await session.commit()
+    await session.refresh(result_record)
 
     return StressTestResponse(
         portfolio_id=portfolio_id,
         snapshot_date=today,
-        scenario_name=body.scenario_name,
+        scenario_name=engine_result.scenario_name,
         scenario_type="HISTORICAL",
         total_pnl_dollar=float(result_record.total_pnl_dollar),
         total_pnl_percent=float(result_record.total_pnl_percent),
@@ -521,26 +574,55 @@ async def run_hypothetical_stress_test(
     body: StressTestRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Run a hypothetical (custom shock) stress test."""
-    await _get_portfolio(session, portfolio_id)
+    """Run a hypothetical (custom shock) stress test via the portfolio risk engine."""
+    portfolio = await _get_portfolio(session, portfolio_id)
 
     today = date.today()
+    positions = await _load_position_dicts(session, portfolio_id)
+    portfolio_nav = float(portfolio.current_cash or 0.0) + sum(p["market_value"] for p in positions)
+
+    shocks = body.shocks or {}
+    equity_shock = float(shocks.get("equity_shock", -0.10))
+    rate_shock_bps = float(shocks.get("rate_shock_bps", 0.0))
+    spread_shock_bps = float(shocks.get("spread_shock_bps", 0.0))
+
+    if not positions:
+        engine_result = portfolio_risk_engine.StressTestResult(
+            scenario_name=body.scenario_name,
+            scenario_type="hypothetical",
+            total_pnl_dollar=0.0,
+            total_pnl_percent=0.0,
+            max_drawdown_pct=0.0,
+            recovery_time_months=0.0,
+            per_position_pnl={},
+            worst_positions=[],
+        )
+    else:
+        engine_result = portfolio_risk_engine.run_hypothetical_stress(
+            positions=positions,
+            equity_shock=equity_shock,
+            rate_shock_bps=rate_shock_bps,
+            spread_shock_bps=spread_shock_bps,
+            portfolio_nav=portfolio_nav,
+        )
+
     result_record = PortfolioStressTestResult(
         id=uuid.uuid4(),
         portfolio_id=portfolio_id,
         snapshot_date=today,
         scenario_name=body.scenario_name,
         scenario_type="HYPOTHETICAL",
-        total_pnl_dollar=Decimal("-8000.00"),
-        total_pnl_percent=Decimal("-0.080000"),
-        max_drawdown_pct=Decimal("-0.120000"),
-        recovery_time_months=Decimal("6.0"),
-        per_position_pnl=body.shocks or {},
-        worst_positions={"worst": [{"ticker": "MSFT", "pnl": -3000}]},
-        scenario_params=body.shocks,
+        total_pnl_dollar=Decimal(str(engine_result.total_pnl_dollar)),
+        total_pnl_percent=Decimal(str(engine_result.total_pnl_percent)),
+        max_drawdown_pct=Decimal(str(engine_result.max_drawdown_pct)),
+        recovery_time_months=Decimal(str(engine_result.recovery_time_months)),
+        per_position_pnl=engine_result.per_position_pnl,
+        worst_positions={"worst": engine_result.worst_positions},
+        scenario_params=shocks,
     )
     session.add(result_record)
-    await session.flush()
+    await session.commit()
+    await session.refresh(result_record)
 
     return StressTestResponse(
         portfolio_id=portfolio_id,
@@ -728,7 +810,8 @@ async def create_compliance_rule(
         is_active=body.is_active,
     )
     session.add(rule)
-    await session.flush()
+    await session.commit()
+    await session.refresh(rule)
 
     return ComplianceRuleResponse(
         rule_id=rule.rule_id,
@@ -784,7 +867,8 @@ async def update_compliance_rule(
     if body.is_active is not None:
         rule.is_active = body.is_active
 
-    await session.flush()
+    await session.commit()
+    await session.refresh(rule)
 
     return ComplianceRuleResponse(
         rule_id=rule.rule_id,
@@ -823,7 +907,7 @@ async def delete_compliance_rule(
         raise HTTPException(status_code=404, detail="Compliance rule not found")
 
     await session.delete(rule)
-    await session.flush()
+    await session.commit()
     return None
 
 
@@ -885,16 +969,94 @@ async def pre_trade_check(
     violations: list[dict] = []
     warnings: list[dict] = []
 
+    trade_value = body.shares * body.price
+
+    # Load NAV inputs for ratio-based checks (sector/single-security/leverage).
+    portfolio_obj = await _get_portfolio(session, portfolio_id)
+    pos_rows = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    positions = list(pos_rows.scalars().all())
+    total_mv = sum(float(p.market_value) for p in positions if p.market_value is not None)
+    nav = float(portfolio_obj.current_cash or 0.0) + total_mv
+    proposed_nav = nav if nav > 0 else (trade_value if trade_value > 0 else 1.0)
+
+    def _record(rule, message: str, *, severity: str | None = None) -> None:
+        bucket = warnings if (severity or rule.severity or "").upper() == "WARNING" else violations
+        bucket.append({
+            "rule_id": str(rule.rule_id),
+            "rule_name": rule.rule_name,
+            "rule_type": rule.rule_type,
+            "message": message,
+        })
+
     for rule in rules:
-        # Simplified pre-trade check: flag if rule_type == "POSITION_LIMIT"
-        if rule.rule_type == "POSITION_LIMIT" and rule.threshold is not None:
-            trade_value = body.shares * body.price
-            if trade_value > float(rule.threshold):
-                violations.append({
-                    "rule_id": str(rule.rule_id),
-                    "rule_name": rule.rule_name,
-                    "message": f"Trade value {trade_value} exceeds limit {float(rule.threshold)}",
-                })
+        if rule.threshold is None:
+            continue
+        threshold = float(rule.threshold)
+        rule_type = (rule.rule_type or "").upper()
+
+        if rule_type == "POSITION_LIMIT":
+            if trade_value > threshold:
+                _record(rule, f"Trade value {trade_value:.2f} exceeds limit {threshold:.2f}")
+
+        elif rule_type == "SINGLE_SECURITY_LIMIT":
+            existing_mv = sum(
+                float(p.market_value) for p in positions
+                if p.ticker == body.ticker and p.market_value is not None
+            )
+            new_mv = existing_mv + (trade_value if body.action.upper() == "BUY" else -trade_value)
+            ratio = new_mv / proposed_nav if proposed_nav > 0 else 0.0
+            if ratio > threshold:
+                _record(
+                    rule,
+                    f"{body.ticker} would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
+                )
+
+        elif rule_type == "CONCENTRATION_LIMIT":
+            # Largest single position weight (post-trade approximation).
+            weights = [
+                (p.ticker, float(p.market_value)) for p in positions
+                if p.market_value is not None
+            ]
+            top = max((mv for _, mv in weights), default=0.0)
+            if body.action.upper() == "BUY":
+                top = max(top, trade_value)
+            ratio = top / proposed_nav if proposed_nav > 0 else 0.0
+            if ratio > threshold:
+                _record(
+                    rule,
+                    f"Largest holding would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
+                )
+
+        elif rule_type == "SECTOR_LIMIT":
+            sector_target = (rule.rule_definition or {}).get("sector") if isinstance(rule.rule_definition, dict) else None
+            if sector_target:
+                same_sector_mv = sum(
+                    float(p.market_value) for p in positions
+                    if p.market_value is not None
+                    and (getattr(p, "sector", None) or "").lower() == sector_target.lower()
+                )
+                ratio = same_sector_mv / proposed_nav if proposed_nav > 0 else 0.0
+                if ratio > threshold:
+                    _record(
+                        rule,
+                        f"Sector {sector_target} would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
+                    )
+
+        elif rule_type == "LEVERAGE_LIMIT":
+            cash_after = float(portfolio_obj.current_cash or 0.0)
+            if body.action.upper() == "BUY":
+                cash_after -= trade_value
+            leverage = (proposed_nav - cash_after) / proposed_nav if proposed_nav > 0 else 0.0
+            if leverage > threshold:
+                _record(
+                    rule,
+                    f"Leverage would be {leverage*100:.1f}% (limit {threshold*100:.1f}%)",
+                )
 
     approved = len(violations) == 0
 
@@ -1084,7 +1246,8 @@ async def set_target_allocation(
         target_allocation=body,
     )
     session.add(snap)
-    await session.flush()
+    await session.commit()
+    await session.refresh(snap)
 
     return DriftResponse(
         portfolio_id=portfolio_id,

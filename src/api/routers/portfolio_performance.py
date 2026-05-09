@@ -9,7 +9,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.portfolio import Portfolio
 from src.models.position import Position
 from src.models.transaction import Transaction
@@ -105,8 +105,15 @@ async def compare_portfolios(
     ids: str = Query(..., description="Comma-separated portfolio UUIDs"),
     period: str = Query(default="YTD"),
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
-    """Compare performance across multiple portfolios."""
+    """Compare performance across multiple portfolios.
+
+    Restricted to portfolios owned by the caller (or the anonymous fallback
+    user when REQUIRE_AUTH is off). Portfolios belonging to other users are
+    silently dropped from the result.
+    """
+    requester = user or "anonymous"
     id_list = [uuid.UUID(x.strip()) for x in ids.split(",") if x.strip()]
     entries: list[PerformanceCompareEntry] = []
 
@@ -116,7 +123,7 @@ async def compare_portfolios(
             select(Portfolio).where(Portfolio.id == pid)
         )
         portfolio = p_result.scalar_one_or_none()
-        if not portfolio:
+        if not portfolio or portfolio.user_id != requester:
             continue
 
         # Get latest performance snapshot
@@ -641,7 +648,8 @@ async def _generate_report(
         result_data={"report_type": report_type, "portfolio_name": portfolio.portfolio_name},
     )
     session.add(report)
-    await session.flush()
+    await session.commit()
+    await session.refresh(report)
 
     return ReportResponse(
         report_id=report.id,
