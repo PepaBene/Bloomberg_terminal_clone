@@ -7,18 +7,15 @@ import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
-const query = 'companies with declining margins and increasing leverage in technology sector';
-const resultCount = 42;
+// F-008: page no longer pre-fills a semiconductor-focused query and 5
+// hardcoded INTC/QCOM/AMD/TXN/MU "results" — those rendered as if they
+// were a real semantic-search hit on whatever the user just typed.
+const query = '';
+const resultCount = 0;
 
 const filters = ['All Sources', '10-K/10-Q', 'Earnings Calls', 'News', 'Research', 'Credit Reports'];
 
-const results = [
-  { rank: 1, title: 'Intel Corp (INTC) — 10-K FY2025', snippet: '...gross margin declined to 41.5% from 45.2% in the prior year, driven by competitive pressure in data center and foundry ramp costs. Total debt increased to $52.8B...', relevance: 0.95, date: '2026-02-28', source: '10-K' },
-  { rank: 2, title: 'Qualcomm (QCOM) — Q4 2025 Earnings Call', snippet: '...operating margin compression of 280 bps year-over-year as we invested heavily in automotive and IoT diversification. Net debt position increased by $2.4B...', relevance: 0.88, date: '2025-11-05', source: 'Earnings Call' },
-  { rank: 3, title: 'AMD — 10-Q Q1 2026', snippet: '...EBITDA margin of 22.8% versus 26.1% in Q1 2025 reflecting pricing pressure in consumer GPU segment. Revolving credit facility drawn by $1.2B...', relevance: 0.84, date: '2026-01-31', source: '10-Q' },
-  { rank: 4, title: 'Texas Instruments (TXN) — Credit Research Note', snippet: '...leverage ratio increased to 2.1x from 1.4x following the $4B capacity expansion program. Operating margins expected to compress 150-200bps...', relevance: 0.81, date: '2026-03-15', source: 'Research' },
-  { rank: 5, title: 'Micron Technology (MU) — 10-K FY2025', snippet: '...net margin declined to 8.2% from 12.5% as memory pricing weakness persisted through H1. Long-term debt increased $3.5B to fund fab expansion...', relevance: 0.78, date: '2025-12-20', source: '10-K' },
-];
+const results: { rank: number; title: string; snippet: string; relevance: number; date: string; source: string }[] = [];
 
 export default function SemanticSearch() {
   const [searchQuery, setSearchQuery] = useState(query);

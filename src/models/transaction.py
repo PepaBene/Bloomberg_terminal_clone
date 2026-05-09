@@ -3,12 +3,16 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
+
+if TYPE_CHECKING:
+    from src.models.portfolio import Portfolio
 
 
 class Transaction(Base):
@@ -22,8 +26,13 @@ class Transaction(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False,
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    portfolio: Mapped["Portfolio"] = relationship(
+        "Portfolio", back_populates="transactions"
     )
     security_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ticker: Mapped[str | None] = mapped_column(String(20))
@@ -39,6 +48,10 @@ class Transaction(Base):
     source: Mapped[str] = mapped_column(String(20), default="MANUAL")
     source_reference: Mapped[str | None] = mapped_column(String(200))
     notes: Mapped[str | None] = mapped_column(Text)
+    # P4-M-027: audit trail fields so we can answer "who recorded this
+    # transaction" even after the user leaves the firm. Free-form for now
+    # (no users table to FK against).
+    created_by: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

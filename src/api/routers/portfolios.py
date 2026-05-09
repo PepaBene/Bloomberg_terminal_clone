@@ -880,15 +880,16 @@ async def get_nav(
     )
     unrealized_pnl = pnl_result.scalar() or Decimal("0")
 
-    cash = portfolio.current_cash
-    nav = float(market_value) + float(cash)
-    cash_weight = (float(cash) / nav * 100) if nav > 0 else 100.0
+    cash = portfolio.current_cash or Decimal("0")
+    market_value = market_value or Decimal("0")
+    nav = market_value + cash
+    cash_weight = float(cash / nav * 100) if nav > 0 else 100.0
 
     return NAVResponse(
         nav=nav,
-        market_value=float(market_value),
-        cash_balance=float(cash),
-        unrealized_pnl=float(unrealized_pnl),
+        market_value=market_value,
+        cash_balance=cash,
+        unrealized_pnl=unrealized_pnl,
         cash_weight=round(cash_weight, 2),
         position_count=position_count,
     )

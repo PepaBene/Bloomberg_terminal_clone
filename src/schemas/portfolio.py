@@ -17,6 +17,10 @@ class PortfolioCreateRequest(BaseModel):
 
 
 class PortfolioResponse(BaseModel):
+    """Portfolio response. Monetary fields are ``Decimal`` so we don't lose
+    precision on serialization (P4-M-001) — billion-dollar NAVs cannot
+    survive an intermediate ``float`` cast without rounding the cents."""
+
     id: UUID
     user_id: str
     portfolio_name: str
@@ -24,8 +28,8 @@ class PortfolioResponse(BaseModel):
     benchmark_id: str | None = None
     inception_date: date
     base_currency: str
-    initial_cash: float
-    current_cash: float
+    initial_cash: Decimal
+    current_cash: Decimal
     status: str
     tags: dict | None = None
     notes: str | None = None

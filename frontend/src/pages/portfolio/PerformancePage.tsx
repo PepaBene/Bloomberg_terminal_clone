@@ -158,8 +158,10 @@ function generateRollingReturns(): { date: string; value: number; portfolio: num
 }
 
 function CumulativeReturnChart({ data }: { data?: { date: string; value: number; portfolio: number; benchmark: number }[] }) {
-  const fallback = useMemo(() => generateCumulativeReturns(), []);
-  const chartData = data ?? fallback;
+  // P4-F-014: don't fabricate a Math.random() walk when the API hasn't
+  // returned data; render an empty chart instead so the user can tell
+  // real performance from synthetic noise.
+  const chartData = data ?? [];
   return (
     <TimeSeriesChart
       data={chartData}
@@ -198,8 +200,9 @@ export default function PerformancePage() {
   const returnsData = apiReturns?.data ?? undefined;
   const attributionData = apiAttribution?.sectors ?? mockAttribution;
   const factorData = apiFactorAttribution?.factors ?? mockFactorAttribution;
-  const drawdownData = useMemo(() => apiDrawdown?.data ?? generateDrawdownData(), [apiDrawdown]);
-  const rollingData = useMemo(() => apiRollingReturns?.data ?? generateRollingReturns(), [apiRollingReturns]);
+  // Same as above: no Math.random() walks when the API has no data.
+  const drawdownData = useMemo(() => apiDrawdown?.data ?? [], [apiDrawdown]);
+  const rollingData = useMemo(() => apiRollingReturns?.data ?? [], [apiRollingReturns]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>

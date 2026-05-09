@@ -13,55 +13,28 @@ const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSi
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
 
-// --- Mock data (fallback when portfolio risk API is unavailable) ---------------
+// --- Empty fallbacks (P4-F-020) ----------------------------------------------
+// We deliberately avoid hardcoded NVDA/MSFT/JPM VaR decompositions and
+// fabricated stress-test P&L. Empty arrays render an empty panel; live
+// data fills it.
 
 const MOCK_RISK_KPIS = [
-  { label: 'Portfolio VaR (95%)', value: '$2.4M' },
-  { label: 'Portfolio VaR (99%)', value: '$4.1M' },
-  { label: 'CVaR (95%)', value: '$3.8M' },
-  { label: 'Max Drawdown', value: '-8.2%' },
-  { label: 'Sharpe Ratio', value: '1.42' },
-  { label: 'Beta to S&P', value: '1.08' },
+  { label: 'Portfolio VaR (95%)', value: '—' },
+  { label: 'Portfolio VaR (99%)', value: '—' },
+  { label: 'CVaR (95%)', value: '—' },
+  { label: 'Max Drawdown', value: '—' },
+  { label: 'Sharpe Ratio', value: '—' },
+  { label: 'Beta to S&P', value: '—' },
 ];
 
-const MOCK_STRESS_TESTS = [
-  { scenario: '2020 COVID Crash', portfolioReturn: -28.5, spReturn: -33.9, relative: 5.4 },
-  { scenario: '2022 Rate Shock', portfolioReturn: -18.2, spReturn: -19.4, relative: 1.2 },
-  { scenario: 'China Hard Landing', portfolioReturn: -22.8, spReturn: -25.0, relative: 2.2 },
-  { scenario: 'Inflation Spike (+200bps)', portfolioReturn: -12.5, spReturn: -15.1, relative: 2.6 },
-  { scenario: 'Credit Crisis (IG +150)', portfolioReturn: -15.8, spReturn: -20.2, relative: 4.4 },
-];
+const MOCK_STRESS_TESTS: { scenario: string; portfolioReturn: number; spReturn: number; relative: number }[] = [];
 
-const MOCK_FACTOR_EXPOSURE = [
-  { factor: 'Market (Beta)', exposure: 1.08, contribution: 68.2 },
-  { factor: 'Size (SMB)', exposure: -0.15, contribution: -3.2 },
-  { factor: 'Value (HML)', exposure: -0.22, contribution: -5.8 },
-  { factor: 'Momentum', exposure: 0.35, contribution: 12.4 },
-  { factor: 'Quality', exposure: 0.42, contribution: 15.8 },
-  { factor: 'Low Volatility', exposure: -0.18, contribution: -4.2 },
-];
+const MOCK_FACTOR_EXPOSURE: { factor: string; exposure: number; contribution: number }[] = [];
 
-const MOCK_VAR_DECOMPOSITION = [
-  { position: 'NVDA',  var95: 420 },
-  { position: 'MSFT',  var95: 310 },
-  { position: 'JPM',   var95: 280 },
-  { position: 'META',  var95: 260 },
-  { position: 'AAPL',  var95: 240 },
-  { position: 'LLY',   var95: 220 },
-  { position: 'V',     var95: 180 },
-  { position: 'AMZN',  var95: 170 },
-  { position: 'GOOGL', var95: 160 },
-  { position: 'UNH',   var95: 150 },
-];
+const MOCK_VAR_DECOMPOSITION: { position: string; var95: number }[] = [];
 
-const MOCK_SECTOR_CONCENTRATION = [
-  { name: 'Technology', value: 38.2 },
-  { name: 'Healthcare', value: 14.5 },
-  { name: 'Financials', value: 12.8 },
-  { name: 'Consumer Disc.', value: 10.4 },
-  { name: 'Communication', value: 9.2 },
-  { name: 'Industrials', value: 7.8 },
-  { name: 'Other', value: 7.1 },
+const MOCK_SECTOR_CONCENTRATION: { name: string; value: number }[] = [
+  { name: 'Other', value: 0 },
 ];
 
 export default function RiskDashboard() {

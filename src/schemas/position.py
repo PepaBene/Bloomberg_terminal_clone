@@ -15,21 +15,25 @@ class PositionAddRequest(BaseModel):
 
 
 class PositionResponse(BaseModel):
+    """Position response. All monetary / share fields kept as ``Decimal``
+    to preserve precision through serialization (P4-M-002) — share counts
+    in particular use Numeric(20, 6) and lose digits via float."""
+
     id: UUID
     portfolio_id: UUID
     security_id: UUID | None = None
     ticker: str
     status: str
-    shares: float | None = None
-    cost_basis_total: float | None = None
-    cost_basis_per_share: float | None = None
+    shares: Decimal | None = None
+    cost_basis_total: Decimal | None = None
+    cost_basis_per_share: Decimal | None = None
     first_acquisition_date: date | None = None
-    market_value: float | None = None
-    unrealized_pnl: float | None = None
-    unrealized_pnl_pct: float | None = None
-    weight: float | None = None
-    closing_price: float | None = None
-    day_change_pct: float | None = None
+    market_value: Decimal | None = None
+    unrealized_pnl: Decimal | None = None
+    unrealized_pnl_pct: Decimal | None = None
+    weight: Decimal | None = None
+    closing_price: Decimal | None = None
+    day_change_pct: Decimal | None = None
     notes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

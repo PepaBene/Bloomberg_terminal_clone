@@ -3,12 +3,16 @@
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from src.models.portfolio import Portfolio
 
 
 class Position(TimestampMixin, Base):
@@ -25,9 +29,16 @@ class Position(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete positions with their parent portfolio so
+    # we don't strand orphans (or fail with a FK violation on portfolio
+    # deletion).
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
+    )
+    # P4-M-011: ORM-level back_populates so eager loading works.
+    portfolio: Mapped["Portfolio"] = relationship(
+        "Portfolio", back_populates="positions"
     )
     security_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ticker: Mapped[str] = mapped_column(String(20), nullable=False)
