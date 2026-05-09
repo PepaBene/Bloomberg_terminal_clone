@@ -475,12 +475,23 @@ def evaluate_flow_alerts(flow_data: dict) -> list[dict]:
 
     # Short interest spike
     short_change = flow_data.get("short_interest_change_pct")
+    short_base = flow_data.get("short_interest_base_pct")
     if short_change is not None and short_change > 25.0:
-        alerts.append({
-            "alert_type": "SHORT_SPIKE",
-            "severity": "HIGH",
-            "detail": f"Short interest increased {short_change:.1f}%",
-        })
+        # Scale-adjust the trigger so a +25% jump from 5% (small) doesn't
+        # fire the same severity as a +25% jump from 50% (big absolute
+        # move). Require an absolute change of at least 1.5pp when the
+        # base is known.
+        absolute_change = (short_change / 100.0) * short_base if short_base else None
+        if absolute_change is None or absolute_change >= 1.5:
+            severity = "HIGH" if absolute_change is None or absolute_change >= 3.0 else "MEDIUM"
+            alerts.append({
+                "alert_type": "SHORT_SPIKE",
+                "severity": severity,
+                "detail": (
+                    f"Short interest increased {short_change:.1f}%"
+                    + (f" (+{absolute_change:.1f}pp)" if absolute_change is not None else "")
+                ),
+            })
 
     # Insider cluster. When transactions carry an insider_id/insider_name we
     # count *unique* insiders so five trades by one CEO don't masquerade as

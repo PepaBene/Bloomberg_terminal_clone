@@ -73,7 +73,9 @@ class InflationComparison:
     """Cross-country inflation comparison."""
 
     country_data: list[dict]  # [{country, headline, core, trend}]
-    global_median_headline: float
+    # ``None`` distinguishes "no inflation data available" from a true
+    # zero-inflation reading. Callers must handle both.
+    global_median_headline: float | None
     countries_accelerating: int
     countries_decelerating: int
     countries_stable: int
@@ -291,7 +293,9 @@ def compute_inflation_comparison(
             "trend": trend,
         })
 
-    global_median = round(median(headlines), 2) if headlines else 0.0
+    # Distinguish "no data" (None) from a genuine zero-inflation median
+    # (0.0) so downstream comparisons aren't corrupted by the missing case.
+    global_median = round(median(headlines), 2) if headlines else None
 
     return InflationComparison(
         country_data=country_data,

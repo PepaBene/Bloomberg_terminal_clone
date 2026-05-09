@@ -107,10 +107,14 @@ def detect_fallen_angel_overhang(
     bbb_ratings = {"BBB+", "BBB", "BBB-"}
     if rating not in bbb_ratings:
         return None
-    if momentum != "DETERIORATING":
-        return None
 
     forced_selling = ig_holders_pct if ig_holders_pct is not None else 0.0
+
+    # A high forced-seller share is itself an overhang signal even when
+    # momentum is currently STABLE — the original code returned None in
+    # that case and silently dropped real risk.
+    if momentum != "DETERIORATING" and forced_selling < 50:
+        return None
 
     if rating == "BBB-" and forced_selling >= 50:
         risk_level = "HIGH"

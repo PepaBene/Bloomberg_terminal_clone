@@ -598,9 +598,14 @@ class DCFEngine(BaseEngine):
         else:
             hist_cagr = None
 
-        if hist_cagr is None or hist_cagr < -0.20 or hist_cagr > 0.50:
-            # Clamp to reasonable range or use moderate default
+        if hist_cagr is None:
             base_growth = 0.05
+        elif hist_cagr < -0.20 or hist_cagr > 0.50:
+            # CAGR is out of plausible range — likely noisy / single-event
+            # data. Clamp to the closest sensible bound rather than blindly
+            # defaulting to 5%, which over-states growth for declining
+            # businesses and under-states it for hypergrowth ones.
+            base_growth = max(-0.20, min(hist_cagr, 0.50))
         else:
             base_growth = hist_cagr
 

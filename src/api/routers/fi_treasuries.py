@@ -243,23 +243,36 @@ async def treasury_analytics(
     if years_to_maturity < 0:
         years_to_maturity = 0.0
 
-    # For zero-coupon bonds, use frequency=1 for discount-bond YTM calculation
-    calc_freq = freq if freq > 0 else 1
-
-    ytm = compute_treasury_ytm(
-        coupon_rate=coupon,
-        face_value=100.0,
-        price=price,
-        years_to_maturity=years_to_maturity,
-        frequency=calc_freq,
-    )
-
-    dur_conv = compute_duration_convexity(
-        ytm=ytm,
-        coupon_rate=coupon,
-        years_to_maturity=years_to_maturity,
-        frequency=calc_freq,
-    )
+    # Zero-coupon bonds (e.g. STRIPS) need the discount-bond YTM formula
+    # ``YTM = (face / price)^(1/T) - 1``; the coupon-bond solver gives the
+    # wrong answer when there are no coupon flows. Compute that closed-form
+    # for zero-coupons and only fall back to the iterative solver for
+    # coupon-bearing bonds.
+    if coupon == 0 and price > 0 and years_to_maturity > 0:
+        ytm = (100.0 / price) ** (1.0 / years_to_maturity) - 1.0
+        # Modified duration of a zero-coupon bond is years_to_maturity / (1+y)
+        # (continuous approximation). Convexity is T^2 / (1+y)^2.
+        modified_dur = years_to_maturity / (1.0 + ytm) if (1.0 + ytm) != 0 else years_to_maturity
+        dur_conv = {
+            "modified_duration": modified_dur,
+            "macaulay_duration": years_to_maturity,
+            "convexity": (years_to_maturity ** 2) / ((1.0 + ytm) ** 2 or 1.0),
+        }
+    else:
+        calc_freq = freq if freq > 0 else 1
+        ytm = compute_treasury_ytm(
+            coupon_rate=coupon,
+            face_value=100.0,
+            price=price,
+            years_to_maturity=years_to_maturity,
+            frequency=calc_freq,
+        )
+        dur_conv = compute_duration_convexity(
+            ytm=ytm,
+            coupon_rate=coupon,
+            years_to_maturity=years_to_maturity,
+            frequency=calc_freq,
+        )
 
     return TreasuryAnalyticsResponse(
         cusip=cusip,

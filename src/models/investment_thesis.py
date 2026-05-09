@@ -47,7 +47,12 @@ class ThesisVersion(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     thesis_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("investment_theses.id"), nullable=False
+        # M-003: cascade-delete versions when the parent thesis is removed
+        # so we don't accumulate orphaned snapshots.
+        UUID(as_uuid=True),
+        ForeignKey("investment_theses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     conviction_change: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
@@ -56,4 +61,8 @@ class ThesisVersion(Base):
     snapshot_data: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    # M-008: track post-hoc edits to version metadata.
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

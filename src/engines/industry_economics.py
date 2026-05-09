@@ -230,12 +230,12 @@ def compute_industry_economics(
         bottom_q = sorted_roics[q1_idx]
         top_q = sorted_roics[q3_idx]
 
-    # Capital cycle indicator
+    # Capital cycle indicator. The static ROIC-WACC spread is a *level*,
+    # not a trend (direction of change). Without per-period history we
+    # cannot compute a true trend; default to 0.0 (neutral) so we don't
+    # falsely classify a declining +5%-spread industry as "positive trend".
+    # Callers that have ROIC history should pass a precomputed roic_trend.
     roic_trend = 0.0
-    if len(roics) >= 2:
-        # Approximate trend from cross-sectional data is not ideal;
-        # use median ROIC vs WACC spread sign as proxy
-        roic_trend = spread if spread is not None else 0.0
 
     cycle = classify_capital_cycle(all_capex_growth, roic_trend)
 
