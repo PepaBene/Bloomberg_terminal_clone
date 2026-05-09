@@ -231,6 +231,12 @@ async def get_industry_companies(
         for e in ent_rows.scalars().all()
     ]
 
+    if profile is None and not companies:
+        # Preserve the 404 behaviour for unknown industries — the
+        # endpoint should signal "no such industry" rather than return
+        # an empty payload.
+        raise HTTPException(status_code=404, detail="Industry profile not found")
+
     return {
         "gics_code": gics_code,
         "gics_name": profile.gics_name if profile else None,
