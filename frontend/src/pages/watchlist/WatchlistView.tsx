@@ -10,52 +10,20 @@ import { WATCHLISTS } from '@/api/endpoints';
 
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
-const watchlistItems = [
-  { ticker: 'AAPL', name: 'Apple Inc.', price: 178.72, chg: -0.34, pe: 28.6, mktCap: '2.78T', alert: 'Earnings 4/25' },
-  { ticker: 'MSFT', name: 'Microsoft Corp', price: 422.15, chg: 0.82, pe: 34.2, mktCap: '3.12T', alert: 'Earnings 4/22' },
-  { ticker: 'NVDA', name: 'NVIDIA Corp', price: 878.36, chg: 4.82, pe: 62.5, mktCap: '2.18T', alert: 'Price > $875' },
-  { ticker: 'GOOGL', name: 'Alphabet Inc.', price: 155.42, chg: 1.15, pe: 24.5, mktCap: '2.05T', alert: '' },
-  { ticker: 'JPM', name: 'JPMorgan Chase', price: 195.80, chg: -0.52, pe: 11.8, mktCap: '$570B', alert: 'CDS widening' },
-  { ticker: 'AMZN', name: 'Amazon.com', price: 182.50, chg: 0.95, pe: 58.3, mktCap: '1.92T', alert: '' },
-  { ticker: 'META', name: 'Meta Platforms', price: 503.28, chg: 2.41, pe: 22.8, mktCap: '1.28T', alert: '' },
-];
+// --- Empty fallback (P4-F-016) -----------------------------------------------
+// We deliberately avoid hardcoded AAPL/MSFT/NVDA holdings, an Apple
+// earnings date, and a fake search-autocomplete list — those rendered as
+// "live" content for any user who hadn't built a watchlist yet. The
+// real search endpoint provides autocomplete; the watchlist API
+// provides holdings + earnings.
 
-const earningsCalendar = [
-  { date: '2026-04-15', ticker: 'JPM', name: 'JPMorgan Chase', time: 'BMO', epsEst: '$4.52', impliedMove: '3.2%' },
-  { date: '2026-04-22', ticker: 'MSFT', name: 'Microsoft', time: 'AMC', epsEst: '$3.18', impliedMove: '4.5%' },
-  { date: '2026-04-25', ticker: 'AAPL', name: 'Apple', time: 'AMC', epsEst: '$1.62', impliedMove: '3.8%' },
-  { date: '2026-04-25', ticker: 'GOOGL', name: 'Alphabet', time: 'AMC', epsEst: '$1.89', impliedMove: '5.1%' },
-  { date: '2026-04-30', ticker: 'AMZN', name: 'Amazon', time: 'AMC', epsEst: '$1.05', impliedMove: '6.2%' },
-];
-
-// --- Search Suggestions (offline fallback) -----------------------------------
-
-const SEARCH_SUGGESTIONS = [
-  { ticker: 'TSLA', name: 'Tesla Inc.' },
-  { ticker: 'AMD', name: 'Advanced Micro Devices' },
-  { ticker: 'NFLX', name: 'Netflix Inc.' },
-  { ticker: 'V', name: 'Visa Inc.' },
-  { ticker: 'DIS', name: 'Walt Disney Co.' },
-  { ticker: 'BA', name: 'Boeing Co.' },
-  { ticker: 'CRM', name: 'Salesforce Inc.' },
-  { ticker: 'INTC', name: 'Intel Corp.' },
-  { ticker: 'PYPL', name: 'PayPal Holdings' },
-  { ticker: 'UBER', name: 'Uber Technologies' },
-];
+const watchlistItems: { ticker: string; name: string; price: number; chg: number; pe: number; mktCap: string; alert: string }[] = [];
+const earningsCalendar: { date: string; ticker: string; name: string; time: string; epsEst: string; impliedMove: string }[] = [];
+const SEARCH_SUGGESTIONS: { ticker: string; name: string }[] = [];
 
 // --- Component Data ----------------------------------------------------------
 
-const initialEntities: WatchlistEntity[] = watchlistItems.map((w, i) => ({
-  id: `w-${i}`,
-  ticker: w.ticker,
-  name: w.name,
-  alertsEnabled: {
-    price: true,
-    filing: w.ticker === 'AAPL' || w.ticker === 'MSFT',
-    earnings: !!w.alert?.includes('Earnings'),
-    score: false,
-  },
-}));
+const initialEntities: WatchlistEntity[] = [];
 
 const earningsEvents: EarningsEvent[] = earningsCalendar.map((e, i) => ({
   id: `ec-${i}`,

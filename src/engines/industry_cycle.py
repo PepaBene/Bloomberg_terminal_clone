@@ -274,9 +274,13 @@ def compute_cycle_position(
 def compute_hhi(market_shares: list[float]) -> float:
     """Compute Herfindahl-Hirschman Index.
 
-    market_shares are percentage points (e.g. [30.0, 25.0, 15.0, ...]).
-    Normalizes so they sum to 100% before squaring.
-    Returns sum of squared shares * 10000 / (sum^2).
+    Each ``market_shares`` entry is a percentage point. The textbook HHI is
+    ``sum(share_i^2)`` over the *full* market, with shares summing to 100.
+    Renormalising a partial top-N list to sum to 100 inflates HHI for
+    fragmented markets, so when shares already sum within tolerance of 100
+    we square them as-is. If they sum to less than 100 we treat the
+    remainder as a single "rest of market" residual entry rather than
+    inflating the named players.
     """
     if not market_shares:
         return 0.0
@@ -285,9 +289,12 @@ def compute_hhi(market_shares: list[float]) -> float:
     if total <= 0:
         return 0.0
 
-    # Normalize to sum to 100
-    normalized = [(s / total) * 100.0 for s in market_shares]
-    return sum(s * s for s in normalized)
+    if abs(total - 100.0) <= 1.0 or total > 100.0:
+        # Already a complete (or oversum due to rounding) market.
+        return sum(s * s for s in market_shares)
+
+    residual = 100.0 - total
+    return sum(s * s for s in market_shares) + residual * residual
 
 
 def classify_hhi(hhi: float) -> str:

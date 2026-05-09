@@ -338,17 +338,17 @@ def compute_management_quality_score(
 ) -> float:
     """Compute overall management quality score (0-100).
 
-    Components:
-    - Execution track record (35 pts)
-    - Accounting quality (25 pts deduction for flags)
-    - Governance (20 pts)
-    - Compensation alignment (20 pts)
+    Components (weights sum to 1.00):
+    - Execution track record  (0.35)
+    - Accounting quality      (0.25 — applied as deductions for flags)
+    - Governance              (0.20)
+    - Compensation alignment  (0.20)
     """
     score = 50.0  # Baseline
 
-    # Execution (max +35)
+    # Execution: scale a 0-100 sub-score by its weight relative to baseline.
     if execution.composite_execution_score is not None:
-        score += (execution.composite_execution_score - 50) * 0.70
+        score += (execution.composite_execution_score - 50) * 0.35
 
     # Accounting deductions
     for flag in accounting_flags:
@@ -359,11 +359,11 @@ def compute_management_quality_score(
         elif flag.severity == "MEDIUM":
             score -= 4.0
 
-    # Governance (max +10)
+    # Governance
     if governance_score is not None:
         score += (governance_score - 50) * 0.20
 
-    # Compensation (max +10)
+    # Compensation alignment
     score += (compensation.alignment_score - 50) * 0.20
 
     return max(0.0, min(100.0, round(score, 2)))

@@ -39,6 +39,7 @@ def resolve_issuer_to_parent(
     issuer_lower = issuer_name.lower()
     best = None
     best_score = 0.0
+    best_match_len = 0
 
     for candidate in parent_candidates:
         cand_name = candidate.get("legal_name", "").lower()
@@ -61,8 +62,14 @@ def resolve_issuer_to_parent(
         shorter_len = min(len(issuer_lower), len(cand_name))
         confidence = prefix_score / shorter_len if shorter_len > 0 else 0.0
 
-        if confidence > best_score:
+        # Tie-breaker: prefer the longer match — "JPMorgan Chase" is a
+        # more specific parent than the 2-char "JP" even though both
+        # score 1.0 confidence on a "JPMorgan Chase Capital LLC" issuer.
+        if confidence > best_score or (
+            confidence == best_score and prefix_score > best_match_len
+        ):
             best_score = confidence
+            best_match_len = prefix_score
             best = candidate
 
     return best if best_score >= min_confidence else None

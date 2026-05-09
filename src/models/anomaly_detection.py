@@ -22,7 +22,7 @@ class DetectedAnomaly(TimestampMixin, Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
-    anomaly_type: Mapped[str] = mapped_column(String(25), nullable=False)
+    anomaly_type: Mapped[str] = mapped_column(String(60), nullable=False)
     severity_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     detected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -51,7 +51,7 @@ class AnomalyRule(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    anomaly_type: Mapped[str] = mapped_column(String(25), nullable=False)
+    anomaly_type: Mapped[str] = mapped_column(String(60), nullable=False)
     rule_name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     threshold_config: Mapped[dict | None] = mapped_column(JSONB)

@@ -123,6 +123,24 @@ class StressTestResult:
 # ── VaR Calculations ──────────────────────────────────────────────────
 
 
+def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
+    """Normalize weights so |weight| sums to 1.0 when caller passed dollar amounts.
+
+    The variance-covariance VaR formula assumes weights are fractions of NAV.
+    Callers occasionally pass raw dollar amounts; without rescaling the
+    output is off by orders of magnitude. We treat anything where the
+    absolute sum is far from 1.0 as un-normalized and rescale by absolute
+    sum (so long-short books, where signed weights can sum near 0, still
+    scale sensibly).
+    """
+    if not weights:
+        return {}
+    abs_sum = sum(abs(w) for w in weights.values())
+    if abs_sum == 0.0 or abs(abs_sum - 1.0) < 0.05:
+        return dict(weights)
+    return {t: w / abs_sum for t, w in weights.items()}
+
+
 def _portfolio_var_from_weights(
     weights: dict[str, float],
     individual_vars: dict[str, float],
@@ -132,6 +150,11 @@ def _portfolio_var_from_weights(
 
     portfolio_var = sqrt( w^T * Sigma * w )
     where Sigma_ij = var_i * var_j * rho_ij
+
+    Weights are taken as-is here so that perturbations used by the marginal
+    and incremental VaR helpers behave correctly. Public entry points that
+    accept caller-supplied weights normalize them first via
+    ``_normalize_weights``.
     """
     tickers = sorted(weights.keys())
     if not tickers:
@@ -272,6 +295,10 @@ def calculate_portfolio_var(
     VaRResult
         Complete VaR decomposition.
     """
+    # Normalize at the entry point so callers passing dollar amounts still
+    # get a correct answer. Internal helpers operate on the normalized dict.
+    weights = _normalize_weights(weights)
+
     # 1-day 95% diversified VaR
     var_1d_95 = _portfolio_var_from_weights(
         weights, individual_vars, correlation_matrix,
@@ -584,7 +611,10 @@ def _apply_shocks_to_positions(
         spread_duration = p.get("spread_duration", 0.0)
 
         if asset_class in ("equity", "stock"):
-            pnl_pct = equity_shock * beta
+            # Levered names (beta > 1) with a -50% shock can mathematically
+            # produce <-100% loss. A position cannot be more than wiped out;
+            # clamp at -100% to avoid implying liability.
+            pnl_pct = max(-1.0, equity_shock * beta)
         elif asset_class in ("bond", "fixed_income", "fi"):
             # Bond PnL ~ -duration * delta_rate - spread_duration * delta_spread
             rate_chg = rate_shock_bps / 10000.0

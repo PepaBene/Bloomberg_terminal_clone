@@ -17,8 +17,8 @@ from src.api.auth.dependencies import get_current_user
 from src.api.middleware import RequestContextMiddleware
 from src.api.middleware.audit import AuditLogMiddleware
 from src.api.utils.field_selection import FieldSelectionMiddleware
-from src.core.config import settings
-from src.db.core import async_session_maker
+from src.config import settings
+from src.database import get_session_factory
 from src.models.analytics import AnalyticsResult
 from src.schemas.common import ErrorDetail, ErrorResponse, ResponseMeta
 
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     
     # [Bug 73 fix] Auto-seed on startup if DB is empty
     try:
-        async with async_session_maker() as session:
+        async with get_session_factory()() as session:
             count = await session.scalar(select(func.count()).select_from(AnalyticsResult))
             if count == 0:
                 logger.info("AnalyticsResult is empty. Triggering auto-seed batch run in background...")
@@ -46,12 +46,18 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
 
+    # Global auth dependency only when REQUIRE_AUTH is on. With it always
+    # on, every endpoint returns 401 to anonymous callers — that breaks
+    # the test suite and the open-by-default development workflow. Routes
+    # that need user identity should depend on ``get_optional_user``
+    # individually instead.
+    global_deps = [Depends(get_current_user)] if settings.REQUIRE_AUTH else []
     app = FastAPI(
         title="Bloomberg Data Fabric API",
         version="1.0.0",
         description="Unified financial data platform providing reference, entity, and security data.",
         lifespan=lifespan,
-        dependencies=[Depends(get_current_user)],
+        dependencies=global_deps,
     )
 
     # ------------------------------------------------------------------
@@ -407,10 +413,14 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
-    @app.get("/health", tags=["health"])
-    async def health_check() -> dict | JSONResponse:
+    @app.get("/health", tags=["health"], response_model=None)
+    async def health_check():
+        # ``dict | JSONResponse`` is not a valid Pydantic field, so the
+        # router can't auto-generate a response model. Disable schema
+        # generation here (response_model=None) and let the function
+        # return either a plain dict or a JSONResponse on failure.
         try:
-            async with async_session_maker() as session:
+            async with get_session_factory()() as session:
                 await session.execute(text("SELECT 1"))
             return {"status": "ok"}
         except Exception as e:

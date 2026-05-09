@@ -17,6 +17,14 @@ class PortfolioCreateRequest(BaseModel):
 
 
 class PortfolioResponse(BaseModel):
+    """Portfolio response.
+
+    Monetary fields are ``float`` on the wire so JSON consumers don't
+    have to parse strings. The model still accepts ``Decimal`` from the
+    DB (Pydantic coerces); precision-sensitive callers should read the
+    underlying ORM model directly.
+    """
+
     id: UUID
     user_id: str
     portfolio_name: str

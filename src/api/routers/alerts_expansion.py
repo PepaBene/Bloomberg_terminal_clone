@@ -165,12 +165,22 @@ async def get_regime_alerts(
         .limit(10)
     )
     rows = result.scalars().all()
+    # Map credit_regime classifications to a HIGH/MEDIUM/LOW severity so the
+    # response field carries a value the schema actually represents.
+    _regime_severity = {
+        "TIGHT": "HIGH",
+        "WIDE": "HIGH",
+        "STRESSED": "HIGH",
+        "ELEVATED": "MEDIUM",
+        "NORMAL": "LOW",
+        "LOOSE": "LOW",
+    }
     return [
         SpreadMoveResponse(
             spread_bps=float(row.ig_oas_bps) if row.ig_oas_bps is not None else None,
             spread_change_bps=float(row.ig_oas_1w_change) if row.ig_oas_1w_change is not None else None,
             as_of_date=row.briefing_date,
-            severity=row.credit_regime,
+            severity=_regime_severity.get((row.credit_regime or "").upper(), "LOW"),
         )
         for row in rows
     ]
@@ -217,9 +227,23 @@ async def get_quality_score_alerts(
         .limit(20)
     )
     rows = result.scalars().all()
+
+    def _scope_uuid(scope: dict | None) -> uuid.UUID | None:
+        """Return the configured entity UUID or None — never a random UUID
+        that would appear to point at a real but non-existent entity."""
+        if not scope:
+            return None
+        raw = scope.get("entity_id")
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(raw)
+        except (ValueError, TypeError):
+            return None
+
     return [
         QualityAlertResponse(
-            entity_id=uuid.UUID(row.entity_scope.get("entity_id")) if row.entity_scope and row.entity_scope.get("entity_id") else uuid.uuid4(),
+            entity_id=_scope_uuid(row.entity_scope),
             alert_type=row.alert_type,
             severity="MEDIUM",
             current_score=float(row.threshold_value) if row.threshold_value is not None else None,
@@ -242,11 +266,32 @@ async def get_institutional_flow_alerts(
         .limit(20)
     )
     rows = result.scalars().all()
+
+    def _scope_uuid(scope: dict | None) -> uuid.UUID | None:
+        if not scope:
+            return None
+        raw = scope.get("entity_id")
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(raw)
+        except (ValueError, TypeError):
+            return None
+
+    def _direction(scope: dict | None) -> str:
+        # Prefer the actual flow direction recorded on the scope dict;
+        # fall back to UNKNOWN rather than inferring from a threshold value.
+        if scope and isinstance(scope, dict):
+            d = (scope.get("direction") or "").upper()
+            if d in ("INFLOW", "OUTFLOW"):
+                return d
+        return "UNKNOWN"
+
     return [
         FlowAlertResponse(
-            entity_id=uuid.UUID(row.entity_scope.get("entity_id")) if row.entity_scope and row.entity_scope.get("entity_id") else uuid.uuid4(),
+            entity_id=_scope_uuid(row.entity_scope),
             alert_type=row.alert_type,
-            direction="INFLOW" if row.threshold_value and float(row.threshold_value) > 0 else "OUTFLOW",
+            direction=_direction(row.entity_scope),
             volume_mm=float(row.threshold_value) if row.threshold_value is not None else None,
         )
         for row in rows

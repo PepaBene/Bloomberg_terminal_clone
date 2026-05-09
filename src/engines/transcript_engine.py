@@ -172,12 +172,40 @@ class TranscriptAnalysis:
 # ---------------------------------------------------------------------------
 
 
+_ABBREVIATIONS = {
+    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "St",
+    "Inc", "Corp", "Co", "Ltd", "LLC",
+    "U.S", "U.K", "E.U", "U.A.E", "etc", "vs",
+    "e.g", "i.e", "Q1", "Q2", "Q3", "Q4",
+}
+
+
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences by period followed by space or end."""
+    """Split text into sentences by sentence-terminating punctuation.
+
+    Handles common abbreviations (e.g. "Dr. Smith said...") so we don't
+    inflate sentence counts on every honorific or corporate suffix.
+    """
     if not text or not text.strip():
         return []
-    # Split on period + space or period at end of string
-    sentences = re.split(r"\.\s+", text.strip())
+
+    # Sentence boundary candidates
+    raw_parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    sentences: list[str] = []
+    buffer = ""
+    for part in raw_parts:
+        if not part:
+            continue
+        candidate = (buffer + " " + part).strip() if buffer else part
+        # If this part ends with an abbreviation, attach the next chunk too.
+        last_word = re.split(r"\s+", candidate.rstrip(".!?"))[-1]
+        if last_word in _ABBREVIATIONS:
+            buffer = candidate
+            continue
+        sentences.append(candidate)
+        buffer = ""
+    if buffer:
+        sentences.append(buffer)
     return [s.strip() for s in sentences if s.strip()]
 
 
@@ -488,8 +516,12 @@ def extract_topics(text: str, top_n: int = 5) -> list[str]:
     if not text or not text.strip():
         return []
 
-    # Tokenize: extract words (3+ characters to skip noise)
-    words = re.findall(r"\b[a-z]{3,}\b", text.lower())
+    # Tokenize: extract words (3+ characters to skip noise) PLUS a small
+    # whitelist of meaningful 2-char tokens that the length filter would
+    # otherwise drop (AI is the prototypical example in tech earnings).
+    short_whitelist = {"ai", "ar", "vr", "ev", "ex", "rd"}
+    words = re.findall(r"\b[a-z]{2,}\b", text.lower())
+    words = [w for w in words if len(w) >= 3 or w in short_whitelist]
 
     # Remove stopwords
     filtered = [w for w in words if w not in _STOPWORDS]

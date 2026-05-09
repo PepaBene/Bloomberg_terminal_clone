@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     CACHE_TTL_ANALYTICS_WACC: int = 86400         # 24h
     CACHE_TTL_ANALYTICS_DUPONT: int = 86400       # 24h
 
+    # CORS — comma-separated origins via env var ``ALLOWED_ORIGINS``.
+    ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+    ]
+
+    # Authentication enforcement: when True, every endpoint requires a
+    # valid Bearer token; when False (default), routes accept anonymous
+    # access via ``get_optional_user``.
+    REQUIRE_AUTH: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

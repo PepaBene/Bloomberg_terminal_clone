@@ -5,7 +5,20 @@ import unicodedata
 import logging
 from typing import Any
 
-from metaphone import doublemetaphone
+try:  # pragma: no cover — optional dependency
+    from metaphone import doublemetaphone
+except ImportError:
+    # Pure-Python fallback so the module loads even without the optional
+    # ``Metaphone`` package installed (e.g. in CI / minimal containers).
+    # Returns the input upper-cased and ASCII-folded as the primary key
+    # with no alternate. This is good enough to keep the resolution
+    # pipeline running; the real Double Metaphone encoding only kicks in
+    # when the package is present.
+    def doublemetaphone(name: str) -> tuple[str, str]:
+        if not name:
+            return ("", "")
+        cleaned = "".join(c for c in name.upper() if c.isalpha())
+        return (cleaned, "")
 
 logger = logging.getLogger(__name__)
 

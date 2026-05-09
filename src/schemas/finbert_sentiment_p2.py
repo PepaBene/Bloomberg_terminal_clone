@@ -17,7 +17,8 @@ class SentimentSummaryResponse(BaseModel):
 class PeerComparisonResponse(BaseModel):
     entity_id: UUID
     sentiment_30d: float | None = None
-    peer_median: float | None = None
+    peer_median: float | None = None  # absolute peer-group median sentiment
+    peer_rank_pct: float | None = None  # 0-100 percentile rank within peers
     z_score: float | None = None
     is_significant: bool = False
 

@@ -18,6 +18,12 @@ from src.engines.company_primer import (
 )
 from src.models.company_intelligence import CompanyPrimer
 from src.models.entity import Entity
+from src.models.fundamentals import (
+    BalanceSheet,
+    CashFlowStatement,
+    FinancialPeriod,
+    IncomeStatement,
+)
 from src.schemas.company_intelligence import (
     CompanyPrimerResponse,
     FinancialSummaryResponse,
@@ -35,6 +41,63 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
     return entity
+
+
+async def _assemble_financial_data(
+    session: AsyncSession, entity_id: uuid.UUID
+) -> dict:
+    """Pull the latest IS/BS/CF rows for a company so generate_primer has
+    real numbers to work with instead of empty dicts. Returns whatever the
+    DB has — missing periods are simply absent from the result.
+    """
+    period_row = await session.execute(
+        select(FinancialPeriod)
+        .where(FinancialPeriod.entity_id == entity_id)
+        .order_by(FinancialPeriod.period_end_date.desc())
+        .limit(1)
+    )
+    period = period_row.scalar_one_or_none()
+    if not period:
+        return {}
+
+    is_row = await session.execute(
+        select(IncomeStatement).where(IncomeStatement.period_id == period.period_id)
+    )
+    bs_row = await session.execute(
+        select(BalanceSheet).where(BalanceSheet.period_id == period.period_id)
+    )
+    cf_row = await session.execute(
+        select(CashFlowStatement).where(CashFlowStatement.period_id == period.period_id)
+    )
+
+    income = is_row.scalar_one_or_none()
+    balance = bs_row.scalar_one_or_none()
+    cash = cf_row.scalar_one_or_none()
+
+    return {
+        "fiscal_year": period.fiscal_year,
+        "fiscal_quarter": period.fiscal_quarter,
+        "period_end_date": period.period_end_date.isoformat(),
+        "income_statement": _to_plain_dict(income),
+        "balance_sheet": _to_plain_dict(balance),
+        "cash_flow": _to_plain_dict(cash),
+    }
+
+
+def _to_plain_dict(orm_obj) -> dict:
+    """Convert an ORM row into a JSON-friendly dict (numerics → float)."""
+    if orm_obj is None:
+        return {}
+    out: dict = {}
+    for column in orm_obj.__table__.columns:
+        value = getattr(orm_obj, column.name, None)
+        if value is None:
+            continue
+        try:
+            out[column.name] = float(value) if column.type.python_type in (float, int) else value
+        except (AttributeError, NotImplementedError, TypeError):
+            out[column.name] = value
+    return out
 
 
 @router.get(
@@ -64,10 +127,10 @@ async def get_company_primer(
 
     # Generate new primer
     llm = get_llm_client()
-    financial_data = {}  # In production, assemble from DB
-    valuation_data = {}
-    ownership_data = {}
-    risk_data = {}
+    financial_data = await _assemble_financial_data(session, entity_id)
+    valuation_data: dict = {}  # populated by valuation engines once wired
+    ownership_data: dict = {}
+    risk_data: dict = {}
 
     primer = generate_primer(
         entity_id=str(entity_id),
@@ -112,8 +175,8 @@ async def get_financial_summary(
     """Get financial summary only (no AI needed)."""
     await _get_entity(session, entity_id)
 
-    financial_data = {}
-    valuation_data = {}
+    financial_data = await _assemble_financial_data(session, entity_id)
+    valuation_data: dict = {}
 
     return FinancialSummaryResponse(
         entity_id=entity_id,

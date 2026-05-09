@@ -388,11 +388,14 @@ export default function CompanyIntelligence() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>SWOT Analysis</h2>
           {(() => {
+            // Removed Apple-specific SWOT fallback so any entity that
+            // lacks SWOT data gets an empty quadrant instead of being
+            // labelled as Apple.
             const swot = (apiSWOT as any) ?? {
-              strengths: ['Unmatched brand loyalty & ecosystem', 'Services revenue growing 14%+ YoY', 'Massive cash generation ($107B FCF)'],
-              weaknesses: ['iPhone concentration risk (52% of revenue)', 'Limited AI/cloud presence vs peers', 'Current ratio below 1.0'],
-              opportunities: ['Vision Pro / spatial computing', 'AI integration across product line', 'Healthcare & automotive adjacencies'],
-              threats: ['Regulatory antitrust actions globally', 'China revenue & supply chain risk', 'Commoditization of hardware features'],
+              strengths: [],
+              weaknesses: [],
+              opportunities: [],
+              threats: [],
             };
             return (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

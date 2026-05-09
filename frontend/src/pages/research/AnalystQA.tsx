@@ -8,40 +8,23 @@ const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
-const suggestedQuestions = [
-  'What is Apple\'s revenue growth trajectory for the next 3 years?',
-  'Compare NVDA and AMD gross margins over the last 8 quarters',
-  'Which S&P 500 companies have the highest buyback yield?',
-  'Summarize JPMorgan\'s latest credit risk factors from their 10-K',
-  'What are the key differences between Q1 and Q4 earnings calls for MSFT?',
+// F-003: removed the prepopulated multi-turn Apple/MSFT/GOOGL chat
+// transcript. A user opening the page fresh now sees an empty chat
+// instead of a fabricated conversation about a specific company.
+const suggestedQuestions: string[] = [
+  'Summarise the latest 10-K risk factors',
+  'Compare gross margins for two tickers over the last 8 quarters',
+  'Which companies have the highest buyback yield?',
+  'What changed between Q1 and Q4 earnings calls for a given ticker?',
 ];
 
-const chatHistory = [
-  {
-    role: 'user' as const,
-    text: 'What is Apple\'s current capital return program and how does it compare to peers?',
-    time: '09:15',
-  },
-  {
-    role: 'assistant' as const,
-    text: 'Apple returned $105.3B to shareholders in FY2025 through buybacks ($90.1B) and dividends ($15.2B). This represents 98% of free cash flow. Compared to mega-cap tech peers:\n\n- MSFT: $45.2B returned (55% of FCF)\n- GOOGL: $62.8B returned (72% of FCF)\n- META: $38.5B returned (68% of FCF)\n\nApple leads on absolute return and payout ratio. The buyback has reduced shares outstanding by 38% over the past decade.',
-    time: '09:15',
-    sources: ['AAPL 10-K FY2025', 'MSFT 10-K FY2025', 'GOOGL 10-K FY2025', 'META 10-K FY2025'],
-    confidence: 96,
-  },
-  {
-    role: 'user' as const,
-    text: 'Is the buyback pace sustainable given current cash generation?',
-    time: '09:18',
-  },
-  {
-    role: 'assistant' as const,
-    text: 'Yes, the current pace appears sustainable. Apple generated $107.3B in FCF in FY2025 vs $105.3B in total capital returns, implying a 98% payout ratio. Key factors:\n\n1. Cash position: $29.9B cash + $136.6B in marketable securities = $166.5B total liquidity\n2. FCF trend: Growing at ~5% CAGR over 3 years\n3. Net cash target: Management has reiterated intent to reach net cash neutral over time\n4. Debt capacity: Leverage at 0.4x EBITDA provides significant headroom\n\nThe main risk is a material FCF decline from iPhone revenue contraction, which would require either reduced buybacks or increased leverage.',
-    time: '09:18',
-    sources: ['AAPL 10-K FY2025', 'Q1 2026 Earnings Call Transcript'],
-    confidence: 92,
-  },
-];
+const chatHistory: {
+  role: 'user' | 'assistant';
+  text: string;
+  time: string;
+  sources?: string[];
+  confidence?: number;
+}[] = [];
 
 export default function AnalystQA() {
   const [messages, setMessages] = useState(chatHistory);

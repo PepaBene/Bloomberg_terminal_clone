@@ -293,7 +293,7 @@ async def acknowledge_alert(
     row.is_acknowledged = True
     row.acknowledged_by = acknowledged_by
     row.acknowledged_at = datetime.now(timezone.utc)
-    await session.flush()
+    await session.commit()
 
     return _alert_response(row)
 

@@ -253,19 +253,36 @@ async def get_country_events(
     session: AsyncSession = Depends(get_session),
 ):
     """Get active geopolitical events for a country."""
-    # GeopoliticalEvent stores countries_involved as JSONB; we load all and filter
-    result = await session.execute(
-        select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nulls_last())
-    )
-    rows = result.scalars().all()
     cc = country_code.upper()
-    filtered = []
-    for r in rows:
-        involved = r.countries_involved or []
-        if isinstance(involved, list) and cc in involved:
-            filtered.append(r)
-        elif isinstance(involved, dict) and cc in involved:
-            filtered.append(r)
+    # On PostgreSQL push the JSONB membership filter into SQL via the
+    # ``?`` operator. SQLite (used in tests) lacks that operator, so we
+    # fall back to in-memory filtering on dialect mismatch — still
+    # bounded to the most recent rows.
+    dialect = session.bind.dialect.name if session.bind else ""
+    try:
+        if dialect == "postgresql":
+            result = await session.execute(
+                select(GeopoliticalEvent)
+                .where(GeopoliticalEvent.countries_involved.op("?")(cc))
+                .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+                .limit(200)
+            )
+            filtered = list(result.scalars().all())
+        else:
+            raise NotImplementedError
+    except (NotImplementedError, Exception):
+        result = await session.execute(
+            select(GeopoliticalEvent)
+            .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+            .limit(500)
+        )
+        filtered = []
+        for r in result.scalars():
+            involved = r.countries_involved or []
+            if isinstance(involved, list) and cc in involved:
+                filtered.append(r)
+            elif isinstance(involved, dict) and cc in involved:
+                filtered.append(r)
     return [
         GeopoliticalEventResponse(
             id=r.id,

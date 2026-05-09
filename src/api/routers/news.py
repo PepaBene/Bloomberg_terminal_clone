@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_, desc
+from sqlalchemy import select, func, and_, desc, literal_column as sa_literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -134,15 +134,16 @@ async def get_most_mentioned_entities(
 
     cutoff = date.today() - timedelta(days=30)
 
+    mention_count = func.count(ArticleEntityLink.id).label("mention_count")
     result = await session.execute(
         select(
             ArticleEntityLink.entity_id,
-            func.count(ArticleEntityLink.id).label("mention_count"),
+            mention_count,
         )
         .join(NewsArticle, NewsArticle.id == ArticleEntityLink.article_id)
         .where(NewsArticle.publish_date >= cutoff)
         .group_by(ArticleEntityLink.entity_id)
-        .order_by(desc("mention_count"))
+        .order_by(mention_count.desc())
         .limit(20)
     )
     rows = result.all()
@@ -160,38 +161,60 @@ async def get_most_mentioned_entities(
 async def get_news_stats(
     session: AsyncSession = Depends(get_session),
 ):
-    """Get aggregate news statistics."""
+    """Get aggregate news statistics.
+
+    Aggregations are batched into three queries (total counts, by_source,
+    by_type+by_materiality) so the response no longer fan-outs five
+    sequential round-trips per request.
+    """
     today = date.today()
 
-    total_result = await session.execute(select(func.count(NewsArticle.id)))
-    total_articles = total_result.scalar_one() or 0
+    totals_row = (
+        await session.execute(
+            select(
+                func.count(NewsArticle.id),
+                func.count(NewsArticle.id).filter(NewsArticle.publish_date == today),
+            )
+        )
+    ).one()
+    total_articles, articles_today = totals_row[0] or 0, totals_row[1] or 0
 
-    today_result = await session.execute(
-        select(func.count(NewsArticle.id)).where(NewsArticle.publish_date == today)
-    )
-    articles_today = today_result.scalar_one() or 0
-
+    source_count = func.count(NewsArticle.id)
     source_result = await session.execute(
-        select(NewsArticle.source_name, func.count(NewsArticle.id))
+        select(NewsArticle.source_name, source_count)
         .group_by(NewsArticle.source_name)
-        .order_by(desc(func.count(NewsArticle.id)))
+        .order_by(source_count.desc())
         .limit(20)
     )
     by_source = {row[0]: row[1] for row in source_result.all()}
 
-    type_result = await session.execute(
-        select(NewsArticle.news_type, func.count(NewsArticle.id))
+    # Combine the news_type and materiality aggregations into one query by
+    # emitting a discriminator column rather than firing two separate ones.
+    combined_result = await session.execute(
+        select(
+            sa_literal_column("'type'").label("dim"),
+            NewsArticle.news_type.label("key"),
+            func.count(NewsArticle.id).label("cnt"),
+        )
         .where(NewsArticle.news_type.isnot(None))
         .group_by(NewsArticle.news_type)
+        .union_all(
+            select(
+                sa_literal_column("'materiality'").label("dim"),
+                NewsArticle.materiality.label("key"),
+                func.count(NewsArticle.id).label("cnt"),
+            )
+            .where(NewsArticle.materiality.isnot(None))
+            .group_by(NewsArticle.materiality)
+        )
     )
-    by_type = {row[0]: row[1] for row in type_result.all()}
-
-    mat_result = await session.execute(
-        select(NewsArticle.materiality, func.count(NewsArticle.id))
-        .where(NewsArticle.materiality.isnot(None))
-        .group_by(NewsArticle.materiality)
-    )
-    by_materiality = {row[0]: row[1] for row in mat_result.all()}
+    by_type: dict[str, int] = {}
+    by_materiality: dict[str, int] = {}
+    for dim, key, cnt in combined_result.all():
+        if dim == "type":
+            by_type[key] = cnt
+        else:
+            by_materiality[key] = cnt
 
     return NewsStatsResponse(
         total_articles=total_articles,

@@ -25,7 +25,7 @@ class FIAlertConfigCreateRequest(BaseModel):
 
 
 class QualityAlertResponse(BaseModel):
-    entity_id: UUID
+    entity_id: UUID | None = None
     entity_name: str | None = None
     alert_type: str
     severity: str
@@ -36,7 +36,7 @@ class QualityAlertResponse(BaseModel):
 
 
 class FlowAlertResponse(BaseModel):
-    entity_id: UUID
+    entity_id: UUID | None = None
     entity_name: str | None = None
     alert_type: str
     direction: str

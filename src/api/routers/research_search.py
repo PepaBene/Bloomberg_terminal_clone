@@ -55,7 +55,7 @@ async def semantic_search(
         execution_time_ms=0,
     )
     session.add(query_record)
-    await session.flush()
+    await session.commit()
 
     return SearchResultResponse(
         query=body.query,
@@ -188,7 +188,7 @@ async def index_document(
         session.add(doc)
         chunk_count += 1
 
-    await session.flush()
+    await session.commit()
 
     return IndexDocumentResponse(
         document_count=1,

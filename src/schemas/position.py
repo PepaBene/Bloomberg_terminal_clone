@@ -15,6 +15,10 @@ class PositionAddRequest(BaseModel):
 
 
 class PositionResponse(BaseModel):
+    """Position response. Monetary / share fields are ``float`` on the
+    wire (Pydantic v2 serializes ``Decimal`` as a string by default,
+    which would break every existing JSON consumer)."""
+
     id: UUID
     portfolio_id: UUID
     security_id: UUID | None = None

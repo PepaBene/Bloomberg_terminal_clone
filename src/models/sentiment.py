@@ -23,7 +23,9 @@ class SentimentScore(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("entities.entity_id"),
         nullable=False, index=True,
     )
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Wider so descriptive variants like "earnings_call_qa_analyst_question"
+    # don't truncate (M-002).
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
     source_reference: Mapped[str | None] = mapped_column(String(500))
     source_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sentiment: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -35,6 +37,13 @@ class SentimentScore(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_sentiment_entity_date", "entity_id", "source_date"),
+        # M-015: prevent duplicate ingestion of the same article into
+        # SentimentScore from double-counting in aggregates.
+        Index(
+            "uq_sentiment_entity_source",
+            "entity_id", "source_type", "source_reference",
+            unique=True,
+        ),
     )
 
 

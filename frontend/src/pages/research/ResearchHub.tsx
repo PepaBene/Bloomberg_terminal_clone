@@ -1,30 +1,11 @@
 // ---------------------------------------------------------------------------
 // AI Research Hub
 // ---------------------------------------------------------------------------
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@/api/client';
 import { CompanyIntelCard } from '@/components/intelligence';
 import type { IntelModule } from '@/components/intelligence';
 import { useCompanyIntelligence } from '@/hooks';
 import { useSecurityStore } from '@/stores/securityContext';
-
-// --- Skeleton ----------------------------------------------------------------
-
-function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?: string }) {
-  return (
-    <div
-      style={{
-        width,
-        height,
-        background: 'linear-gradient(90deg, var(--color-surface-raised) 25%, var(--color-surface-overlay) 50%, var(--color-surface-raised) 75%)',
-        backgroundSize: '200% 100%',
-        animation: 'shimmer 1.5s infinite',
-        borderRadius: 'var(--radius-sm)',
-      }}
-    />
-  );
-}
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -125,13 +106,10 @@ export default function ResearchHub() {
 
   const activeModules = (apiIntel as any)?.modules ?? quickIntelModules;
 
-  // Fetch module status from API
-  const { data: modulesData, isLoading } = useQuery<ResearchCard[]>({
-    queryKey: ['research', 'modules'],
-    queryFn: () => api.get('/v4/research/modules'),
-    retry: 0,
-  });
-  const researchCards = modulesData ?? MOCK_CARDS;
+  // No /v4/research/modules endpoint exists; the previous query 404'd on
+  // every page load. Use the static module catalog directly until a real
+  // status endpoint is wired up.
+  const researchCards = MOCK_CARDS;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -157,20 +135,7 @@ export default function ResearchHub() {
       </div>
 
       {/* Cards Grid */}
-      {isLoading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="terminal-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '180px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Skeleton width="140px" height="18px" />
-                <Skeleton width="60px" height="18px" />
-              </div>
-              <Skeleton width="100%" height="48px" />
-              <Skeleton width="80px" height="28px" />
-            </div>
-          ))}
-        </div>
-      ) : (
+      {(
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
           {researchCards.map((card) => (
             <div

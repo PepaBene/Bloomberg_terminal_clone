@@ -1,5 +1,7 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiQuery, useApiMutation, useApiUpdate, useApiDelete } from './useApi';
 import { PORTFOLIOS, PORTFOLIO_PERFORMANCE, PORTFOLIO_RISK, WATCHLISTS } from '@/api/endpoints';
+import api from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Portfolio CRUD
@@ -28,10 +30,13 @@ export function useDeletePortfolio() {
 }
 
 export function useClonePortfolio() {
-  return useApiMutation<unknown, { id: string }>(
-    PORTFOLIOS.create, // POST to clone endpoint handled per-call
-    [['portfolios']]
-  );
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, { id: string }>({
+    mutationFn: ({ id }) => api.post<unknown>(PORTFOLIOS.clone(id), {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -51,11 +56,71 @@ export function usePortfolioTransactions(id: string | undefined) {
 }
 
 export function useAddPosition() {
-  return useApiMutation(PORTFOLIOS.list, [['portfolios']]);
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, { portfolioId: string; body: unknown }>({
+    mutationFn: ({ portfolioId, body }) =>
+      api.post<unknown>(PORTFOLIOS.positions(portfolioId), body),
+    onSuccess: (_, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'positions'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId] });
+    },
+  });
 }
 
 export function useRecordTransaction() {
-  return useApiMutation(PORTFOLIOS.list, [['portfolios']]);
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, { portfolioId: string; body: unknown }>({
+    mutationFn: ({ portfolioId, body }) =>
+      api.post<unknown>(PORTFOLIOS.transactions(portfolioId), body),
+    onSuccess: (_, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'positions'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'nav'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rebalance / Optimize / What-If / Upload (P4-F-004 — previously unreachable)
+// ---------------------------------------------------------------------------
+
+export function useRebalancePortfolio() {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, { portfolioId: string; body?: unknown }>({
+    mutationFn: ({ portfolioId, body }) =>
+      api.post<unknown>(PORTFOLIOS.rebalance(portfolioId), body ?? {}),
+    onSuccess: (_, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId] });
+    },
+  });
+}
+
+export function useOptimizePortfolio() {
+  return useMutation<unknown, Error, { portfolioId: string; body?: unknown }>({
+    mutationFn: ({ portfolioId, body }) =>
+      api.post<unknown>(PORTFOLIOS.optimize(portfolioId), body ?? {}),
+  });
+}
+
+export function usePortfolioWhatIf() {
+  return useMutation<unknown, Error, { portfolioId: string; body: unknown }>({
+    mutationFn: ({ portfolioId, body }) =>
+      api.post<unknown>(PORTFOLIOS.whatIf(portfolioId), body),
+  });
+}
+
+export function usePortfolioUploadPreview() {
+  return useApiMutation<unknown, { csv_content: string }>(
+    PORTFOLIOS.uploadPreview,
+    [],
+  );
+}
+
+export function usePortfolioUploadCommit() {
+  return useApiMutation<unknown, { csv_content: string; portfolio_name: string }>(
+    PORTFOLIOS.uploadCommit,
+    [['portfolios']],
+  );
 }
 
 // ---------------------------------------------------------------------------

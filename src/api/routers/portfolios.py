@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.engines import csv_upload_engine
 from src.engines.portfolio_parser import parse_csv, match_holdings_to_securities
 from src.models.portfolio import Portfolio
@@ -43,7 +43,19 @@ from src.schemas.corporate_action_schema import CorporateActionApplyRequest, Cor
 
 router = APIRouter(tags=["Portfolio Management"])
 
-DEFAULT_USER = "default_user"
+# Fallback identity used only when no Bearer token is present and REQUIRE_AUTH
+# is not set. Real authenticated users are resolved via ``get_optional_user``.
+# When REQUIRE_AUTH is off, requests without a Bearer token resolve to
+# this fallback identity. The audit's intent (P4-R-001) was to eliminate
+# the previous always-shared "default_user" — but for unauthenticated
+# anonymous traffic we still need a single bucket so existing data and
+# tests keep working. Real authenticated callers replace this with the
+# JWT-derived ``sub`` claim.
+ANONYMOUS_USER = "default_user"
+
+
+def _resolve_user(user: str | None) -> str:
+    return user or ANONYMOUS_USER
 
 
 # ── Upload request bodies ─────────────────────────────────────────────
@@ -149,8 +161,10 @@ async def upload_preview(
 async def upload_commit(
     body: UploadCommitRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Commit a previewed portfolio upload."""
+    user_id = _resolve_user(user)
     # Parse and validate the CSV through the engine pipeline
     rows = csv_upload_engine.parse_csv_holdings(body.csv_content)
     valid_rows, _req_errors = csv_upload_engine.validate_required_fields(rows)
@@ -167,7 +181,7 @@ async def upload_commit(
     # Check for duplicate portfolio name
     existing = await session.execute(
         select(Portfolio).where(
-            Portfolio.user_id == DEFAULT_USER,
+            Portfolio.user_id == user_id,
             Portfolio.portfolio_name == body.portfolio_name,
         )
     )
@@ -177,7 +191,7 @@ async def upload_commit(
     # Create the portfolio record
     portfolio = Portfolio(
         id=uuid.uuid4(),
-        user_id=DEFAULT_USER,
+        user_id=user_id,
         portfolio_name=body.portfolio_name,
         portfolio_type="EQUITY",
         inception_date=date.today(),
@@ -205,7 +219,7 @@ async def upload_commit(
         session.add(position)
         positions_created += 1
 
-    await session.flush()
+    await session.commit()
 
     return UploadCommitResponse(
         portfolio_id=portfolio.id,
@@ -223,12 +237,14 @@ async def upload_commit(
 async def create_portfolio(
     body: PortfolioCreateRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Create a new portfolio."""
+    user_id = _resolve_user(user)
     # Check for duplicate name
     existing = await session.execute(
         select(Portfolio).where(
-            Portfolio.user_id == DEFAULT_USER,
+            Portfolio.user_id == user_id,
             Portfolio.portfolio_name == body.portfolio_name,
         )
     )
@@ -237,7 +253,7 @@ async def create_portfolio(
 
     portfolio = Portfolio(
         id=uuid.uuid4(),
-        user_id=DEFAULT_USER,
+        user_id=user_id,
         portfolio_name=body.portfolio_name,
         portfolio_type=body.portfolio_type,
         benchmark_id=body.benchmark_id,
@@ -248,7 +264,8 @@ async def create_portfolio(
         notes=body.notes,
     )
     session.add(portfolio)
-    await session.flush()
+    await session.commit()
+    await session.refresh(portfolio)
 
     return PortfolioResponse(
         id=portfolio.id,
@@ -258,8 +275,8 @@ async def create_portfolio(
         benchmark_id=portfolio.benchmark_id,
         inception_date=portfolio.inception_date,
         base_currency=portfolio.base_currency,
-        initial_cash=float(portfolio.initial_cash),
-        current_cash=float(portfolio.current_cash),
+        initial_cash=portfolio.initial_cash,
+        current_cash=portfolio.current_cash,
         status=portfolio.status,
         tags=portfolio.tags,
         notes=portfolio.notes,
@@ -269,11 +286,13 @@ async def create_portfolio(
 @router.get("/portfolios", response_model=list[PortfolioResponse])
 async def list_portfolios(
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """List all active portfolios for the current user."""
+    user_id = _resolve_user(user)
     result = await session.execute(
         select(Portfolio)
-        .where(Portfolio.user_id == DEFAULT_USER, Portfolio.status != "ARCHIVED")
+        .where(Portfolio.user_id == user_id, Portfolio.status != "ARCHIVED")
         .order_by(Portfolio.portfolio_name)
     )
     rows = result.scalars().all()
@@ -286,8 +305,8 @@ async def list_portfolios(
             benchmark_id=p.benchmark_id,
             inception_date=p.inception_date,
             base_currency=p.base_currency,
-            initial_cash=float(p.initial_cash),
-            current_cash=float(p.current_cash),
+            initial_cash=p.initial_cash,
+            current_cash=p.current_cash,
             status=p.status,
             tags=p.tags,
             notes=p.notes,
@@ -311,8 +330,8 @@ async def get_portfolio(
         benchmark_id=p.benchmark_id,
         inception_date=p.inception_date,
         base_currency=p.base_currency,
-        initial_cash=float(p.initial_cash),
-        current_cash=float(p.current_cash),
+        initial_cash=p.initial_cash,
+        current_cash=p.current_cash,
         status=p.status,
         tags=p.tags,
         notes=p.notes,
@@ -339,7 +358,8 @@ async def update_portfolio(
     if body.notes is not None:
         p.notes = body.notes
 
-    await session.flush()
+    await session.commit()
+    await session.refresh(p)
 
     return PortfolioResponse(
         id=p.id,
@@ -349,8 +369,8 @@ async def update_portfolio(
         benchmark_id=p.benchmark_id,
         inception_date=p.inception_date,
         base_currency=p.base_currency,
-        initial_cash=float(p.initial_cash),
-        current_cash=float(p.current_cash),
+        initial_cash=p.initial_cash,
+        current_cash=p.current_cash,
         status=p.status,
         tags=p.tags,
         notes=p.notes,
@@ -365,7 +385,8 @@ async def delete_portfolio(
     """Soft-delete a portfolio (set status=ARCHIVED)."""
     p = await _get_portfolio(session, portfolio_id)
     p.status = "ARCHIVED"
-    await session.flush()
+    await session.commit()
+    await session.refresh(p)
 
     return PortfolioResponse(
         id=p.id,
@@ -375,8 +396,8 @@ async def delete_portfolio(
         benchmark_id=p.benchmark_id,
         inception_date=p.inception_date,
         base_currency=p.base_currency,
-        initial_cash=float(p.initial_cash),
-        current_cash=float(p.current_cash),
+        initial_cash=p.initial_cash,
+        current_cash=p.current_cash,
         status=p.status,
         tags=p.tags,
         notes=p.notes,
@@ -427,7 +448,8 @@ async def clone_portfolio(
             first_acquisition_date=pos.first_acquisition_date,
         )
         session.add(new_pos)
-    await session.flush()
+    await session.commit()
+    await session.refresh(clone)
 
     return PortfolioResponse(
         id=clone.id,
@@ -437,8 +459,8 @@ async def clone_portfolio(
         benchmark_id=clone.benchmark_id,
         inception_date=clone.inception_date,
         base_currency=clone.base_currency,
-        initial_cash=float(clone.initial_cash),
-        current_cash=float(clone.current_cash),
+        initial_cash=clone.initial_cash,
+        current_cash=clone.current_cash,
         status=clone.status,
         tags=clone.tags,
         notes=clone.notes,
@@ -518,12 +540,18 @@ async def add_position(
         old_total = (existing.shares or Decimal("0")) * (existing.cost_basis_per_share or Decimal("0"))
         new_total = body.shares * body.cost_basis_per_share
         total_shares = (existing.shares or Decimal("0")) + body.shares
-        avg_cost = (old_total + new_total) / total_shares if total_shares else Decimal("0")
+        # Guard against rounding-artifact share counts that pass a truthy check
+        # but produce nonsensical cost basis on division.
+        if total_shares > Decimal("0.000001"):
+            avg_cost = (old_total + new_total) / total_shares
+        else:
+            avg_cost = Decimal("0")
 
         existing.shares = total_shares
         existing.cost_basis_per_share = avg_cost
         existing.cost_basis_total = total_shares * avg_cost
-        await session.flush()
+        await session.commit()
+        await session.refresh(existing)
         pos = existing
     else:
         cost_total = body.shares * body.cost_basis_per_share
@@ -539,7 +567,8 @@ async def add_position(
             notes=body.notes,
         )
         session.add(pos)
-        await session.flush()
+        await session.commit()
+        await session.refresh(pos)
 
     return PositionResponse(
         id=pos.id,
@@ -547,9 +576,9 @@ async def add_position(
         security_id=pos.security_id,
         ticker=pos.ticker,
         status=pos.status,
-        shares=float(pos.shares) if pos.shares is not None else None,
-        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
-        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        shares=pos.shares,
+        cost_basis_total=pos.cost_basis_total,
+        cost_basis_per_share=pos.cost_basis_per_share,
         first_acquisition_date=pos.first_acquisition_date,
         notes=pos.notes,
     )
@@ -580,7 +609,8 @@ async def update_position(
     if pos.shares is not None and pos.cost_basis_per_share is not None:
         pos.cost_basis_total = pos.shares * pos.cost_basis_per_share
 
-    await session.flush()
+    await session.commit()
+    await session.refresh(pos)
 
     return PositionResponse(
         id=pos.id,
@@ -588,9 +618,9 @@ async def update_position(
         security_id=pos.security_id,
         ticker=pos.ticker,
         status=pos.status,
-        shares=float(pos.shares) if pos.shares is not None else None,
-        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
-        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        shares=pos.shares,
+        cost_basis_total=pos.cost_basis_total,
+        cost_basis_per_share=pos.cost_basis_per_share,
         first_acquisition_date=pos.first_acquisition_date,
         notes=pos.notes,
     )
@@ -605,11 +635,18 @@ async def delete_position(
     position_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Close a position (set status=CLOSED)."""
+    """Close a position (set status=CLOSED) and zero out stale market metrics."""
     await _get_portfolio(session, portfolio_id)
     pos = await _get_position(session, position_id)
     pos.status = "CLOSED"
-    await session.flush()
+    pos.shares = Decimal("0")
+    # Clear stale aggregates so portfolio NAV stops summing closed-position state.
+    pos.market_value = Decimal("0")
+    pos.unrealized_pnl = Decimal("0")
+    pos.unrealized_pnl_pct = Decimal("0")
+    pos.weight = Decimal("0")
+    await session.commit()
+    await session.refresh(pos)
 
     return PositionResponse(
         id=pos.id,
@@ -617,9 +654,9 @@ async def delete_position(
         security_id=pos.security_id,
         ticker=pos.ticker,
         status=pos.status,
-        shares=float(pos.shares) if pos.shares is not None else None,
-        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
-        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
+        shares=pos.shares,
+        cost_basis_total=pos.cost_basis_total,
+        cost_basis_per_share=pos.cost_basis_per_share,
         first_acquisition_date=pos.first_acquisition_date,
         notes=pos.notes,
     )
@@ -738,8 +775,15 @@ async def create_transaction(
             if pos.shares <= 0:
                 pos.status = "CLOSED"
                 pos.shares = Decimal("0")
+                # Zero stale aggregates so portfolio NAV doesn't keep summing
+                # the closed position's last market value.
+                pos.market_value = Decimal("0")
+                pos.unrealized_pnl = Decimal("0")
+                pos.unrealized_pnl_pct = Decimal("0")
+                pos.weight = Decimal("0")
 
-    await session.flush()
+    await session.commit()
+    await session.refresh(txn)
 
     return TransactionResponse(
         id=txn.id,
@@ -749,12 +793,12 @@ async def create_transaction(
         transaction_type=txn.transaction_type,
         transaction_date=txn.transaction_date,
         settlement_date=txn.settlement_date,
-        shares=float(txn.shares) if txn.shares is not None else None,
-        price_per_share=float(txn.price_per_share) if txn.price_per_share is not None else None,
-        gross_amount=float(txn.gross_amount) if txn.gross_amount is not None else None,
-        commission=float(txn.commission) if txn.commission is not None else None,
-        net_amount=float(txn.net_amount) if txn.net_amount is not None else None,
-        cash_impact=float(txn.cash_impact) if txn.cash_impact is not None else None,
+        shares=txn.shares,
+        price_per_share=txn.price_per_share,
+        gross_amount=txn.gross_amount,
+        commission=txn.commission,
+        net_amount=txn.net_amount,
+        cash_impact=txn.cash_impact,
         source=txn.source,
         source_reference=txn.source_reference,
         notes=txn.notes,
@@ -842,15 +886,16 @@ async def get_nav(
     )
     unrealized_pnl = pnl_result.scalar() or Decimal("0")
 
-    cash = portfolio.current_cash
-    nav = float(market_value) + float(cash)
-    cash_weight = (float(cash) / nav * 100) if nav > 0 else 100.0
+    cash = portfolio.current_cash or Decimal("0")
+    market_value = market_value or Decimal("0")
+    nav = market_value + cash
+    cash_weight = float(cash / nav * 100) if nav > 0 else 100.0
 
     return NAVResponse(
         nav=nav,
-        market_value=float(market_value),
-        cash_balance=float(cash),
-        unrealized_pnl=float(unrealized_pnl),
+        market_value=market_value,
+        cash_balance=cash,
+        unrealized_pnl=unrealized_pnl,
         cash_weight=round(cash_weight, 2),
         position_count=position_count,
     )
@@ -990,7 +1035,8 @@ async def apply_corporate_action(
 
     ca.status = "APPLIED"
     ca.applied_at = datetime.now(timezone.utc)
-    await session.flush()
+    await session.commit()
+    await session.refresh(ca)
 
     return CorporateActionResponse(
         id=ca.id,
@@ -1027,7 +1073,8 @@ async def dismiss_corporate_action(
         raise HTTPException(status_code=404, detail="Corporate action not found")
 
     ca.status = "DISMISSED"
-    await session.flush()
+    await session.commit()
+    await session.refresh(ca)
 
     return CorporateActionResponse(
         id=ca.id,

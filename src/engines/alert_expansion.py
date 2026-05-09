@@ -107,21 +107,29 @@ def check_rating_change(current_rating: str, prior_rating: str) -> dict | None:
         }
 
 
+# Lowest-rung investment grade rating notations across the major agencies —
+# we treat any of these as "the BBB- equivalent" for fallen-angel screening.
+_FALLEN_ANGEL_TRIGGER_RATINGS = {"BBB-", "Baa3"}
+
+
 def check_fallen_angel(current_rating: str, momentum: str) -> dict | None:
-    """Check for fallen angel risk (BBB- with deteriorating momentum).
+    """Check for fallen angel risk (BBB-/Baa3 with deteriorating momentum).
 
     Returns
     -------
     dict | None
         Alert dict or None.
     """
-    if current_rating != "BBB-" or momentum != "DETERIORATING":
+    if current_rating not in _FALLEN_ANGEL_TRIGGER_RATINGS or momentum != "DETERIORATING":
         return None
 
     return {
         "alert_type": "FALLEN_ANGEL",
         "severity": "CRITICAL",
-        "detail": "BBB- rated with DETERIORATING momentum — fallen angel risk elevated",
+        "detail": (
+            f"{current_rating} rated with DETERIORATING momentum — "
+            "fallen angel risk elevated"
+        ),
     }
 
 
@@ -467,24 +475,48 @@ def evaluate_flow_alerts(flow_data: dict) -> list[dict]:
 
     # Short interest spike
     short_change = flow_data.get("short_interest_change_pct")
+    short_base = flow_data.get("short_interest_base_pct")
     if short_change is not None and short_change > 25.0:
-        alerts.append({
-            "alert_type": "SHORT_SPIKE",
-            "severity": "HIGH",
-            "detail": f"Short interest increased {short_change:.1f}%",
-        })
+        # Scale-adjust the trigger so a +25% jump from 5% (small) doesn't
+        # fire the same severity as a +25% jump from 50% (big absolute
+        # move). Require an absolute change of at least 1.5pp when the
+        # base is known.
+        absolute_change = (short_change / 100.0) * short_base if short_base else None
+        if absolute_change is None or absolute_change >= 1.5:
+            severity = "HIGH" if absolute_change is None or absolute_change >= 3.0 else "MEDIUM"
+            alerts.append({
+                "alert_type": "SHORT_SPIKE",
+                "severity": severity,
+                "detail": (
+                    f"Short interest increased {short_change:.1f}%"
+                    + (f" (+{absolute_change:.1f}pp)" if absolute_change is not None else "")
+                ),
+            })
 
-    # Insider cluster
+    # Insider cluster. When transactions carry an insider_id/insider_name we
+    # count *unique* insiders so five trades by one CEO don't masquerade as
+    # a cluster. When they don't (legacy / anonymized feeds), fall back to a
+    # transaction count so the alert still fires.
     insider_txns = flow_data.get("insider_transactions", [])
     if len(insider_txns) >= 3:
-        buy_count = sum(1 for t in insider_txns if t.get("direction") == "BUY")
-        sell_count = sum(1 for t in insider_txns if t.get("direction") == "SELL")
+        def _attributed(txns: list[dict], direction: str) -> tuple[int, bool]:
+            same_dir = [t for t in txns if t.get("direction") == direction]
+            ids = {t.get("insider_id") or t.get("insider_name") for t in same_dir}
+            ids.discard(None)
+            if ids:
+                return len(ids), True
+            return len(same_dir), False
+
+        buy_count, buy_attr = _attributed(insider_txns, "BUY")
+        sell_count, sell_attr = _attributed(insider_txns, "SELL")
         if buy_count >= 3 or sell_count >= 3:
             direction = "buying" if buy_count >= sell_count else "selling"
+            count = max(buy_count, sell_count)
+            label = "distinct insiders" if (buy_attr or sell_attr) else "transactions"
             alerts.append({
                 "alert_type": "INSIDER_CLUSTER",
                 "severity": "MEDIUM",
-                "detail": f"Cluster of insider {direction}: {max(buy_count, sell_count)} transactions",
+                "detail": f"Cluster of insider {direction}: {count} {label}",
             })
 
     return alerts

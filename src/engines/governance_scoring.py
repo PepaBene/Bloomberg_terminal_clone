@@ -200,8 +200,9 @@ def detect_red_flags(governance_data: dict) -> list[dict]:
             "weight": RED_FLAG_CHECKS["low_ltip_pct"]["weight"],
         })
 
-    # no_majority_voting
-    if not governance_data.get("has_majority_voting", True):
+    # no_majority_voting — default False so an undisclosed governance datum
+    # raises the red flag rather than silently passing.
+    if not governance_data.get("has_majority_voting", False):
         flags.append({
             "flag": "no_majority_voting",
             "severity": RED_FLAG_CHECKS["no_majority_voting"]["severity"],

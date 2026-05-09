@@ -53,9 +53,15 @@ async def get_yield_curve_briefing(
     session: AsyncSession = Depends(get_session),
 ):
     """Get the latest daily yield curve briefing."""
+    # ``in_([..., None])`` produces ``IN (..., NULL)`` which is invalid SQL —
+    # NULL must be compared with IS NULL. Use an OR clause to include both
+    # explicit YIELD_CURVE briefings and legacy rows where the type is null.
     result = await session.execute(
         select(FIMarketBriefing)
-        .where(FIMarketBriefing.briefing_type.in_(["YIELD_CURVE", None]))
+        .where(
+            (FIMarketBriefing.briefing_type == "YIELD_CURVE")
+            | FIMarketBriefing.briefing_type.is_(None)
+        )
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(5)
     )
@@ -115,6 +121,10 @@ async def get_yield_curve_auctions(
     """Get recent auction-related yield curve data."""
     result = await session.execute(
         select(FIMarketBriefing)
+        .where(
+            (FIMarketBriefing.briefing_type == "AUCTION")
+            | (FIMarketBriefing.briefing_type == "TREASURY_AUCTION")
+        )
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(10)
     )
@@ -179,7 +189,10 @@ async def get_credit_briefing(
     """Get the latest daily credit market briefing."""
     result = await session.execute(
         select(FIMarketBriefing)
-        .where(FIMarketBriefing.briefing_type.in_(["CREDIT", None]))
+        .where(
+            (FIMarketBriefing.briefing_type == "CREDIT")
+            | FIMarketBriefing.briefing_type.is_(None)
+        )
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(5)
     )
