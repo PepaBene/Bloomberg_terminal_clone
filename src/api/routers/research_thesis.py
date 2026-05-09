@@ -209,7 +209,7 @@ async def generate_thesis(
         ai_enabled=False,
     )
     session.add(thesis)
-    await session.flush()
+    await session.commit()
 
     return _thesis_response(thesis)
 
@@ -324,7 +324,7 @@ async def update_thesis(
         thesis.catalysts = body.catalysts
 
     thesis.version = thesis.version + 1
-    await session.flush()
+    await session.commit()
     await session.refresh(thesis)
 
     return _thesis_response(thesis)

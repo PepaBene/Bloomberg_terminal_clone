@@ -39,7 +39,9 @@ const upside = ((thesis.targetPrice - thesis.currentPrice) / thesis.currentPrice
 
 export default function ThesisBuilder() {
   const { entityId } = useParams<{ entityId: string }>();
-  const resolvedId = entityId ?? 'NVDA';
+  // Don't fall back to NVDA — that silently shows NVIDIA's thesis as if it
+  // were the user's. Disable queries until a real entity ID is provided.
+  const resolvedId = entityId ?? '';
   const { data: apiThesis } = useResearchThesis(resolvedId) as { data: any };
   const [generating, setGenerating] = useState(false);
   const [validating, setValidating] = useState(false);

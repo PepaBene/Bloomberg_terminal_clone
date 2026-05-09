@@ -253,19 +253,17 @@ async def get_country_events(
     session: AsyncSession = Depends(get_session),
 ):
     """Get active geopolitical events for a country."""
-    # GeopoliticalEvent stores countries_involved as JSONB; we load all and filter
-    result = await session.execute(
-        select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nulls_last())
-    )
-    rows = result.scalars().all()
     cc = country_code.upper()
-    filtered = []
-    for r in rows:
-        involved = r.countries_involved or []
-        if isinstance(involved, list) and cc in involved:
-            filtered.append(r)
-        elif isinstance(involved, dict) and cc in involved:
-            filtered.append(r)
+    # ``countries_involved`` is JSONB; push the membership filter into SQL
+    # via the PostgreSQL ``?`` operator so we don't load the entire table
+    # into memory on every request.
+    result = await session.execute(
+        select(GeopoliticalEvent)
+        .where(GeopoliticalEvent.countries_involved.op("?")(cc))
+        .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+        .limit(200)
+    )
+    filtered = list(result.scalars().all())
     return [
         GeopoliticalEventResponse(
             id=r.id,

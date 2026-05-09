@@ -8,6 +8,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import governance_scoring
 from src.models.entity import Entity
 from src.models.governance_intelligence import (
     BoardMember,
@@ -36,6 +37,95 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
     return entity
+
+
+def _parse_red_flags(raw) -> list[GovernanceRedFlagResponse]:
+    """Convert the JSONB-stored red flags into typed responses.
+
+    Tolerates schema drift: a raw value that is not a list, or items that
+    are not dicts, simply yield empty / safe defaults rather than raising.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: list[GovernanceRedFlagResponse] = []
+    for rf in raw:
+        if not isinstance(rf, dict):
+            continue
+        result.append(
+            GovernanceRedFlagResponse(
+                flag=rf.get("flag", ""),
+                severity=rf.get("severity", "LOW"),
+                detail=rf.get("detail", ""),
+                weight=rf.get("weight", 0),
+            )
+        )
+    return result
+
+
+async def _compute_governance_assessment_live(
+    session: AsyncSession, entity_id: uuid.UUID
+) -> dict | None:
+    """Compute a governance assessment on-the-fly from current proxy data.
+
+    Returns ``None`` if no proxy filing has been ingested for the entity.
+    Used as a fallback when no batch-computed ``GovernanceAssessment`` row
+    exists yet, so the router's outputs aren't permanently empty just
+    because a worker hasn't run.
+    """
+    proxy_result = await session.execute(
+        select(ProxyFiling)
+        .where(ProxyFiling.entity_id == entity_id)
+        .order_by(ProxyFiling.fiscal_year.desc())
+        .limit(1)
+    )
+    proxy = proxy_result.scalar_one_or_none()
+    if not proxy:
+        return None
+
+    board_rows = (
+        await session.execute(
+            select(BoardMember).where(BoardMember.proxy_id == proxy.id)
+        )
+    ).scalars().all()
+    board_members = [
+        {
+            "person_name": m.person_name,
+            "is_independent": m.is_independent,
+            "is_chair": m.is_chair,
+            "tenure_years": m.tenure_years,
+            "age": m.age,
+            "gender": m.gender,
+            "committees": m.committees,
+            "expertise_areas": m.expertise_areas,
+        }
+        for m in board_rows
+    ]
+
+    independent_count = sum(1 for m in board_members if m.get("is_independent"))
+    board_total = len(board_members) or 0
+    ceo_is_chair = any(
+        m.get("is_chair") and (m.get("expertise_areas") or m.get("role") == "CEO")
+        for m in board_members
+    )
+
+    governance_data = {
+        "ceo_is_chair": ceo_is_chair,
+        "board_independence_pct": (
+            (independent_count / board_total * 100.0) if board_total else None
+        ),
+        "board_members": board_members,
+    }
+
+    score = governance_scoring.compute_governance_score(governance_data)
+    diversity = governance_scoring.compute_board_diversity(board_members)
+    return {
+        "score": score["score"],
+        "classification": score["classification"],
+        "red_flags": score["red_flags"],
+        "board_independence_pct": governance_data["board_independence_pct"],
+        "board_diversity_pct": diversity.get("women_pct"),
+        "ceo_is_chair": ceo_is_chair,
+    }
 
 
 @router.get(
@@ -134,30 +224,36 @@ async def get_governance_assessment(
         .limit(1)
     )
     row = result.scalar_one_or_none()
-    if not row:
+
+    if row:
+        red_flag_items = _parse_red_flags(row.red_flags)
+        return GovernanceAssessmentResponse(
+            entity_id=row.entity_id,
+            assessment_date=row.assessment_date,
+            governance_score=row.governance_score,
+            classification=row.classification,
+            red_flags=red_flag_items,
+            board_independence_pct=float(row.board_independence_pct) if row.board_independence_pct is not None else None,
+            board_diversity_pct=float(row.board_diversity_pct) if row.board_diversity_pct is not None else None,
+            ceo_is_chair=row.ceo_is_chair,
+        )
+
+    # No batch-computed assessment yet — compute one on the fly so the
+    # endpoint returns real data instead of a 404 the moment proxy data
+    # exists but the scoring batch has not run.
+    live = await _compute_governance_assessment_live(session, entity_id)
+    if not live:
         raise HTTPException(status_code=404, detail="No governance assessment found for this entity")
 
-    red_flags = []
-    if row.red_flags:
-        for rf in row.red_flags:
-            red_flags.append(
-                GovernanceRedFlagResponse(
-                    flag=rf.get("flag", ""),
-                    severity=rf.get("severity", "LOW"),
-                    detail=rf.get("detail", ""),
-                    weight=rf.get("weight", 0),
-                )
-            )
-
     return GovernanceAssessmentResponse(
-        entity_id=row.entity_id,
-        assessment_date=row.assessment_date,
-        governance_score=row.governance_score,
-        classification=row.classification,
-        red_flags=red_flags,
-        board_independence_pct=float(row.board_independence_pct) if row.board_independence_pct is not None else None,
-        board_diversity_pct=float(row.board_diversity_pct) if row.board_diversity_pct is not None else None,
-        ceo_is_chair=row.ceo_is_chair,
+        entity_id=entity_id,
+        assessment_date=date.today(),
+        governance_score=live["score"],
+        classification=live["classification"],
+        red_flags=_parse_red_flags(live["red_flags"]),
+        board_independence_pct=live["board_independence_pct"],
+        board_diversity_pct=live["board_diversity_pct"],
+        ceo_is_chair=live["ceo_is_chair"],
     )
 
 
@@ -179,22 +275,13 @@ async def get_governance_red_flags(
         .limit(1)
     )
     row = result.scalar_one_or_none()
-    if not row:
+    if row:
+        return _parse_red_flags(row.red_flags)
+
+    live = await _compute_governance_assessment_live(session, entity_id)
+    if not live:
         raise HTTPException(status_code=404, detail="No governance assessment found for this entity")
-
-    red_flags = []
-    if row.red_flags:
-        for rf in row.red_flags:
-            red_flags.append(
-                GovernanceRedFlagResponse(
-                    flag=rf.get("flag", ""),
-                    severity=rf.get("severity", "LOW"),
-                    detail=rf.get("detail", ""),
-                    weight=rf.get("weight", 0),
-                )
-            )
-
-    return red_flags
+    return _parse_red_flags(live["red_flags"])
 
 
 @router.get(

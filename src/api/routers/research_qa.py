@@ -69,7 +69,7 @@ async def ask_question(
         execution_time_ms=0,
     )
     session.add(qa)
-    await session.flush()
+    await session.commit()
 
     return _qa_response(qa)
 
@@ -256,7 +256,7 @@ async def submit_feedback(
     if body.rating is not None:
         qa_row.user_rating = body.rating
 
-    await session.flush()
+    await session.commit()
 
     return QAFeedbackResponse(
         id=feedback.id,

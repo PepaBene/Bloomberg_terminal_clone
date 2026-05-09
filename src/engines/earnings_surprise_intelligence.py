@@ -452,18 +452,28 @@ def generate_key_takeaways(
     """
     takeaways = []
 
-    # EPS
+    # EPS — surprise_pct is None when consensus is missing or zero; format
+    # accordingly instead of crashing with TypeError on abs(None).
     verb = "beat" if eps_analysis.beat else "missed"
-    takeaways.append(
-        f"EPS {verb} consensus by {abs(eps_analysis.surprise_pct):.1f}% "
-        f"(${eps_analysis.actual:.2f} vs ${eps_analysis.consensus:.2f})"
-    )
+    if eps_analysis.surprise_pct is None:
+        takeaways.append(
+            f"EPS {verb} consensus "
+            f"(${eps_analysis.actual:.2f} vs ${eps_analysis.consensus:.2f})"
+        )
+    else:
+        takeaways.append(
+            f"EPS {verb} consensus by {abs(eps_analysis.surprise_pct):.1f}% "
+            f"(${eps_analysis.actual:.2f} vs ${eps_analysis.consensus:.2f})"
+        )
 
     # Revenue
     verb = "exceeded" if revenue_analysis.beat else "fell short of"
-    takeaways.append(
-        f"Revenue {verb} expectations by {abs(revenue_analysis.surprise_pct):.1f}%"
-    )
+    if revenue_analysis.surprise_pct is None:
+        takeaways.append(f"Revenue {verb} expectations")
+    else:
+        takeaways.append(
+            f"Revenue {verb} expectations by {abs(revenue_analysis.surprise_pct):.1f}%"
+        )
 
     # Margins
     if margin_analysis.margin_trend != "stable":
@@ -510,12 +520,22 @@ def generate_narrative_template(
     eps_verb = "beat" if eps_analysis.beat else "missed"
     rev_verb = "exceeded" if revenue_analysis.beat else "fell short of"
 
+    eps_pct_phrase = (
+        f"by {abs(eps_analysis.surprise_pct):.1f}%"
+        if eps_analysis.surprise_pct is not None
+        else ""
+    )
+    rev_pct_phrase = (
+        f"by {abs(revenue_analysis.surprise_pct):.1f}%"
+        if revenue_analysis.surprise_pct is not None
+        else ""
+    )
     narrative = (
         f"The company reported EPS of ${eps_analysis.actual:.2f}, "
         f"which {eps_verb} the consensus estimate of ${eps_analysis.consensus:.2f} "
-        f"by {abs(eps_analysis.surprise_pct):.1f}% (a {eps_analysis.magnitude} "
+        f"{eps_pct_phrase} (a {eps_analysis.magnitude} "
         f"{'beat' if eps_analysis.beat else 'miss'}). "
-        f"Revenue {rev_verb} expectations by {abs(revenue_analysis.surprise_pct):.1f}%. "
+        f"Revenue {rev_verb} expectations {rev_pct_phrase}. "
         f"Overall assessment: {recommendation}."
     )
 

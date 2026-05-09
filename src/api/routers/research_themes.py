@@ -128,7 +128,7 @@ async def create_custom_scenario(
         created_by=body.created_by,
     )
     session.add(scenario)
-    await session.flush()
+    await session.commit()
     return _scenario_response(scenario)
 
 

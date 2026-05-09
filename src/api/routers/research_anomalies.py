@@ -200,7 +200,7 @@ async def create_anomaly_rule(
         is_enabled=body.is_enabled,
     )
     session.add(rule)
-    await session.flush()
+    await session.commit()
 
     return _rule_response(rule)
 
@@ -288,7 +288,7 @@ async def acknowledge_anomaly(
 
     row.is_acknowledged = True
     row.acknowledged_by = acknowledged_by
-    await session.flush()
+    await session.commit()
 
     return _anomaly_response(row)
 
@@ -316,7 +316,7 @@ async def update_anomaly_rule(
     rule.description = body.description
     rule.threshold_config = body.threshold_config
     rule.is_enabled = body.is_enabled
-    await session.flush()
+    await session.commit()
 
     return _rule_response(rule)
 

@@ -148,7 +148,7 @@ async def update_briefing_preferences(
         )
         session.add(pref)
 
-    await session.flush()
+    await session.commit()
 
     return BriefingPreferenceResponse(
         id=pref.id,
@@ -238,7 +238,7 @@ async def generate_briefing(
         ai_enabled=False,
     )
     session.add(briefing)
-    await session.flush()
+    await session.commit()
 
     return _briefing_response(briefing)
 

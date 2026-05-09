@@ -31,7 +31,9 @@ const dataQuality = [
 
 export default function PrimerView() {
   const { entityId } = useParams<{ entityId: string }>();
-  const resolvedId = entityId ?? 'AAPL';
+  // Don't fall back to AAPL — that silently shows Apple's primer for any
+  // missing entity ID. Just disable the queries until a real ID is present.
+  const resolvedId = entityId ?? '';
   const { data: apiPrimer } = useCompanyPrimer(resolvedId) as { data: any };
   const { data: apiRecent } = useRecentPrimers() as { data: any };
   const [refreshing, setRefreshing] = useState(false);

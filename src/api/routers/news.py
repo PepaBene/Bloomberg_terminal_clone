@@ -134,15 +134,16 @@ async def get_most_mentioned_entities(
 
     cutoff = date.today() - timedelta(days=30)
 
+    mention_count = func.count(ArticleEntityLink.id).label("mention_count")
     result = await session.execute(
         select(
             ArticleEntityLink.entity_id,
-            func.count(ArticleEntityLink.id).label("mention_count"),
+            mention_count,
         )
         .join(NewsArticle, NewsArticle.id == ArticleEntityLink.article_id)
         .where(NewsArticle.publish_date >= cutoff)
         .group_by(ArticleEntityLink.entity_id)
-        .order_by(desc("mention_count"))
+        .order_by(mention_count.desc())
         .limit(20)
     )
     rows = result.all()

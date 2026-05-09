@@ -476,6 +476,7 @@ def build_issuer_credit_profile(
     bonds: list[dict],
     ratings: list[dict] | None = None,
     financials: dict | None = None,
+    entity_id: str = "",
 ) -> IssuerCreditProfile:
     """Build an issuer-level credit profile from bond and financial data.
 
@@ -487,6 +488,9 @@ def build_issuer_credit_profile(
         [{agency, rating, outlook, momentum}].
     financials : dict | None
         {interest_expense, total_debt, accounting_cost_of_debt}.
+    entity_id : str
+        Optional issuer entity identifier; the caller should supply this so
+        downstream persistence does not key records to an empty string.
 
     Returns
     -------
@@ -538,7 +542,7 @@ def build_issuer_credit_profile(
     )
 
     return IssuerCreditProfile(
-        entity_id="",
+        entity_id=entity_id,
         total_debt_outstanding_mm=round(total_debt, 2) if total_debt > 0 else None,
         weighted_avg_ytm=weighted_avg_ytm,
         weighted_avg_spread_bps=weighted_avg_spread,

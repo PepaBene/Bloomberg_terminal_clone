@@ -7,10 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.entity import Entity
 from src.models.sentiment import SentimentAggregate
 from src.models.news_article import NewsArticle, ArticleEntityLink
+from src.models.portfolio_watchlist import (
+    PortfolioWatchlist,
+    PortfolioWatchlistEntry,
+)
 from src.schemas.finbert_sentiment_p2 import (
     PeerComparisonResponse,
     SentimentAnomalyResponse,
@@ -33,6 +37,44 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
 
 
 # ── Static routes (MUST be before parametric) ────────────────────────
+
+
+async def _build_sentiment_summary(
+    session: AsyncSession, entity_id: uuid.UUID, base_row: SentimentAggregate
+) -> SentimentSummaryResponse:
+    """Build a SentimentSummaryResponse including 7D and 90D fields.
+
+    The base row is typically the 30D aggregate; we look up the latest 7D
+    and 90D rows for the same entity so the API returns all three windows
+    instead of permanent ``None`` for 7D / 90D.
+    """
+    other_rows = (
+        await session.execute(
+            select(SentimentAggregate)
+            .where(
+                SentimentAggregate.entity_id == entity_id,
+                SentimentAggregate.timeframe.in_(["7D", "90D"]),
+            )
+            .order_by(SentimentAggregate.as_of_date.desc())
+        )
+    ).scalars().all()
+    sent_7d: float | None = None
+    sent_90d: float | None = None
+    for r in other_rows:
+        if r.timeframe == "7D" and sent_7d is None and r.avg_sentiment is not None:
+            sent_7d = float(r.avg_sentiment)
+        elif r.timeframe == "90D" and sent_90d is None and r.avg_sentiment is not None:
+            sent_90d = float(r.avg_sentiment)
+
+    return SentimentSummaryResponse(
+        entity_id=entity_id,
+        sentiment_7d=sent_7d,
+        sentiment_30d=float(base_row.avg_sentiment) if base_row.avg_sentiment is not None else None,
+        sentiment_90d=sent_90d,
+        momentum=float(base_row.sentiment_momentum) if base_row.sentiment_momentum is not None else None,
+        momentum_class=base_row.sentiment_momentum_class,
+        article_count=base_row.article_count,
+    )
 
 
 @router.post(
@@ -59,20 +101,13 @@ async def screen_by_sentiment(
 
     stmt = stmt.order_by(SentimentAggregate.avg_sentiment.desc()).limit(body.limit)
     result = await session.execute(stmt)
-    rows = result.scalars().all()
+    rows = list(result.scalars().all())
 
-    results = [
-        SentimentSummaryResponse(
-            entity_id=r.entity_id,
-            sentiment_7d=None,
-            sentiment_30d=float(r.avg_sentiment) if r.avg_sentiment is not None else None,
-            sentiment_90d=None,
-            momentum=float(r.sentiment_momentum) if r.sentiment_momentum is not None else None,
-            momentum_class=r.sentiment_momentum_class,
-            article_count=r.article_count,
-        )
-        for r in rows
-    ]
+    # Backfill 7D / 90D so screen results include all three windows rather
+    # than the previous always-None for 7D and 90D.
+    results: list[SentimentSummaryResponse] = []
+    for r in rows:
+        results.append(await _build_sentiment_summary(session, r.entity_id, r))
     return SentimentScreenResponse(results=results, total_count=len(results))
 
 
@@ -117,19 +152,39 @@ async def get_daily_digest(
 async def get_watchlist_digest(
     session: AsyncSession = Depends(get_session),
     target_date: date | None = Query(None, alias="date", description="Date for digest (defaults to today)"),
+    user: str | None = Depends(get_optional_user),
 ):
     """Get watchlist-filtered daily news digest.
 
-    In a full implementation this would filter by user's watchlist entities.
-    Currently returns the same as the general digest.
+    Pulls the entity IDs from every watchlist owned by the requesting user
+    (or the anonymous fallback) and returns only news articles linked to
+    those entities. Falls back to the general digest if the user has no
+    watchlists yet.
     """
     d = target_date or date.today()
-    stmt = (
-        select(NewsArticle)
-        .where(NewsArticle.publish_date == d)
-        .order_by(NewsArticle.sentiment_score.desc().nulls_last())
-        .limit(50)
-    )
+    user_id = user or "anonymous"
+
+    entity_rows = (
+        await session.execute(
+            select(PortfolioWatchlistEntry.entity_id)
+            .join(
+                PortfolioWatchlist,
+                PortfolioWatchlist.id == PortfolioWatchlistEntry.watchlist_id,
+            )
+            .where(PortfolioWatchlist.user_id == user_id)
+        )
+    ).all()
+    entity_ids = [row[0] for row in entity_rows if row[0] is not None]
+
+    stmt = select(NewsArticle).where(NewsArticle.publish_date == d)
+    if entity_ids:
+        article_ids_stmt = (
+            select(ArticleEntityLink.article_id)
+            .where(ArticleEntityLink.entity_id.in_(entity_ids))
+        )
+        stmt = stmt.where(NewsArticle.id.in_(article_ids_stmt))
+
+    stmt = stmt.order_by(NewsArticle.sentiment_score.desc().nulls_last()).limit(50)
     result = await session.execute(stmt)
     rows = result.scalars().all()
 
@@ -350,10 +405,29 @@ async def get_sentiment_vs_peers(
     if not r:
         return PeerComparisonResponse(entity_id=entity_id)
 
+    # Compute the actual peer median sentiment over the same as_of_date.
+    median_row = await session.execute(
+        select(func.percentile_cont(0.5).within_group(SentimentAggregate.avg_sentiment))
+        .where(
+            and_(
+                SentimentAggregate.timeframe == "30D",
+                SentimentAggregate.as_of_date == r.as_of_date,
+                SentimentAggregate.entity_id != entity_id,
+            )
+        )
+    )
+    try:
+        peer_median_val = median_row.scalar_one_or_none()
+    except Exception:
+        # Some dialects (e.g., SQLite) lack percentile_cont; skip gracefully.
+        peer_median_val = None
+    peer_median = float(peer_median_val) if peer_median_val is not None else None
+
     return PeerComparisonResponse(
         entity_id=entity_id,
         sentiment_30d=float(r.avg_sentiment) if r.avg_sentiment is not None else None,
-        peer_median=float(r.peer_rank_pct) if r.peer_rank_pct is not None else None,
+        peer_median=peer_median,
+        peer_rank_pct=float(r.peer_rank_pct) if r.peer_rank_pct is not None else None,
         z_score=float(r.peer_z_score) if r.peer_z_score is not None else None,
         is_significant=abs(float(r.peer_z_score)) > 1.96 if r.peer_z_score is not None else False,
     )

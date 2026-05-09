@@ -161,18 +161,30 @@ def compute_global_rate_environment(
         action = bd.get("last_action", "HOLD")
         ytd_bps = int(bd.get("rate_change_ytd_bps", 0))
 
-        # Determine stance from YTD changes
-        if ytd_bps > 0:
+        # Stance reflects the *current* policy, which is best inferred from
+        # the last action (HIKE / CUT / HOLD) rather than the cumulative
+        # YTD bps. A bank that hiked +300bps then paused for six months is
+        # not "HAWKISH" today — it is on hold. We fall back to YTD only
+        # when no last_action is available.
+        action_upper = (action or "").upper()
+        if action_upper == "HIKE":
             stance = "HAWKISH"
-        elif ytd_bps < 0:
+        elif action_upper == "CUT":
             stance = "DOVISH"
+        elif action_upper in ("HOLD", "PAUSE", ""):
+            if ytd_bps > 50:
+                stance = "HAWKISH"
+            elif ytd_bps < -50:
+                stance = "DOVISH"
+            else:
+                stance = "NEUTRAL"
         else:
             stance = "NEUTRAL"
 
         # Count by last action
-        if action == "HIKE":
+        if action_upper == "HIKE":
             hiking += 1
-        elif action == "CUT":
+        elif action_upper == "CUT":
             cutting += 1
         else:
             holding += 1

@@ -463,36 +463,33 @@ def map_company_exposure(
     """
     exposures: list[CompanyExposure] = []
 
-    # Revenue segments
+    def _append(seg: dict, exposure_type: str, default_source: str) -> None:
+        # Skip rows missing the required keys rather than raising KeyError.
+        cc = seg.get("country_code")
+        pct = seg.get("pct")
+        if not cc or pct is None:
+            return
+        try:
+            pct_f = float(pct)
+        except (TypeError, ValueError):
+            return
+        exposures.append(CompanyExposure(
+            entity_id=entity_id,
+            country_code=cc,
+            exposure_type=exposure_type,
+            exposure_pct=pct_f,
+            source=seg.get("source", default_source),
+        ))
+
     for seg in segment_data.get("revenue_segments", []):
-        exposures.append(CompanyExposure(
-            entity_id=entity_id,
-            country_code=seg["country_code"],
-            exposure_type="REVENUE",
-            exposure_pct=float(seg["pct"]),
-            source=seg.get("source", "filing"),
-        ))
+        _append(seg, "REVENUE", "filing")
 
-    # Operations segments
     for seg in segment_data.get("operations", []):
-        exposures.append(CompanyExposure(
-            entity_id=entity_id,
-            country_code=seg["country_code"],
-            exposure_type="OPERATIONS",
-            exposure_pct=float(seg["pct"]),
-            source=seg.get("source", "filing"),
-        ))
+        _append(seg, "OPERATIONS", "filing")
 
-    # Supply chain from relationship data
     if relationship_data is not None:
         for seg in relationship_data.get("supply_chain", []):
-            exposures.append(CompanyExposure(
-                entity_id=entity_id,
-                country_code=seg["country_code"],
-                exposure_type="SUPPLY_CHAIN",
-                exposure_pct=float(seg["pct"]),
-                source=seg.get("source", "relationship"),
-            ))
+            _append(seg, "SUPPLY_CHAIN", "relationship")
 
     return exposures
 
