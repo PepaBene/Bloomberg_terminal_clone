@@ -378,6 +378,87 @@ class DataService(QObject):
         return results
 
     # ------------------------------------------------------------------
+    # Security/entity resolution (ticker -> ids) for the command bar
+    # ------------------------------------------------------------------
+
+    def resolve_security(self, query: str, timeout: float = 5.0) -> dict | None:
+        """Resolve a ticker/name to ids **synchronously** for command routing.
+
+        Blocks briefly on the worker loop (same pattern as ``initialize``) so
+        the caller can navigate with a fully-populated context in one step.
+        Returns ``{security_id, security_name, entity_id, entity_name, ticker}``
+        or ``None`` when nothing matches / the engine is not ready.
+        """
+        if self._session_factory is None or not query or not query.strip():
+            return None
+        try:
+            future = self._worker.submit(self._resolve_security(query))
+            return future.result(timeout=timeout)
+        except Exception as exc:  # pragma: no cover - defensive (worker/DB issues)
+            logger.warning("resolve_security(%r) failed: %s", query, exc)
+            return None
+
+    async def _resolve_security(self, query: str) -> dict | None:
+        q = query.strip()
+        async with self._session_factory() as session:
+            security = None
+
+            # 1. Exact ticker match via SecurityIdentifier (most precise).
+            sec_id = (
+                await session.execute(
+                    select(SecurityIdentifier.security_id).where(
+                        SecurityIdentifier.identifier_type == "TICKER",
+                        SecurityIdentifier.identifier_value.ilike(q),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if sec_id is not None:
+                security = (
+                    await session.execute(select(Security).where(Security.security_id == sec_id))
+                ).scalar_one_or_none()
+
+            # 2. Fall back to security short_name (often the ticker) / name.
+            if security is None:
+                security = (
+                    await session.execute(
+                        select(Security)
+                        .where(or_(Security.short_name.ilike(q), Security.name.ilike(f"%{q}%")))
+                        .order_by(Security.name)
+                        .limit(1)
+                    )
+                ).scalars().first()
+
+            entity = None
+            if security is not None and security.issuer_entity_id is not None:
+                entity = (
+                    await session.execute(
+                        select(Entity).where(Entity.entity_id == security.issuer_entity_id)
+                    )
+                ).scalar_one_or_none()
+
+            # 3. No security — try to resolve an entity directly (name/short_name).
+            if security is None:
+                entity = (
+                    await session.execute(
+                        select(Entity)
+                        .where(or_(Entity.short_name.ilike(q), Entity.legal_name.ilike(f"%{q}%")))
+                        .order_by(Entity.legal_name)
+                        .limit(1)
+                    )
+                ).scalars().first()
+
+            if security is None and entity is None:
+                return None
+
+            return {
+                "ticker": q.upper(),
+                "security_id": str(security.security_id) if security is not None else None,
+                "security_name": (security.short_name or security.name) if security is not None else None,
+                "entity_id": str(entity.entity_id) if entity is not None else None,
+                "entity_name": entity.legal_name if entity is not None else None,
+            }
+
+    # ------------------------------------------------------------------
     # Entity
     # ------------------------------------------------------------------
 

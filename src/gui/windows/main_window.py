@@ -515,10 +515,36 @@ class MainWindow(QMainWindow):
                 security_token = " ".join(tokens)
                 panel_name = "search"
 
-        # Update security context if a ticker was provided
+        # Update security context if a ticker was provided. Resolve the typed
+        # ticker/name to concrete ids so panels can actually load data (panels
+        # read entity_id / security_id / query from the context).
         context: dict[str, Any] = {}
         if security_token:
             context["security"] = security_token
+            context["query"] = security_token  # search panel reads this
+
+            resolved = None
+            if self.data_service is not None and hasattr(self.data_service, "resolve_security"):
+                try:
+                    resolved = self.data_service.resolve_security(security_token)
+                except Exception:
+                    logger.exception("Failed to resolve security %s", security_token)
+
+            if resolved:
+                context["security_id"] = resolved.get("security_id")
+                context["entity_id"] = resolved.get("entity_id")
+                context["security_name"] = resolved.get("security_name")
+                context["entity_name"] = resolved.get("entity_name")
+                context["ticker"] = resolved.get("ticker") or security_token
+                display = resolved.get("security_name") or resolved.get("entity_name") or security_token
+                self._status_bar.set_message(f"{security_token} → {display}", timeout_ms=2500)
+            else:
+                context["ticker"] = security_token
+                if security_token and panel_name not in ("search",):
+                    self._status_bar.set_message(
+                        f"No match for '{security_token}' — opening panel anyway", timeout_ms=3000
+                    )
+
             self._status_bar.set_security_context(ticker=security_token)
             if self.app_state is not None:
                 try:

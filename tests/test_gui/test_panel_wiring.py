@@ -89,6 +89,107 @@ def test_activate_does_not_crash_with_context(window):
         assert window.panel_stack.currentWidget() is not None
 
 
+def test_command_resolves_ticker_into_context(window):
+    """`AAPL FA` must resolve the ticker and pass ids into the panel context."""
+    window.data_service.resolve_security.return_value = {
+        "ticker": "AAPL",
+        "security_id": "sid-1",
+        "security_name": "AAPL",
+        "entity_id": "eid-1",
+        "entity_name": "Apple Inc.",
+    }
+    captured = {}
+    window.navigate_to = lambda name, ctx=None: captured.update({"name": name, "ctx": ctx or {}})
+
+    window.on_command("AAPL FA")
+
+    window.data_service.resolve_security.assert_called_once_with("AAPL")
+    assert captured["name"] == "financials"
+    assert captured["ctx"]["entity_id"] == "eid-1"
+    assert captured["ctx"]["security_id"] == "sid-1"
+    assert captured["ctx"]["ticker"] == "AAPL"
+
+
+def test_command_single_ticker_defaults_to_description_with_ids(window):
+    window.data_service.resolve_security.return_value = {
+        "ticker": "MSFT", "security_id": "s2", "security_name": "MSFT",
+        "entity_id": "e2", "entity_name": "Microsoft",
+    }
+    captured = {}
+    window.navigate_to = lambda name, ctx=None: captured.update({"name": name, "ctx": ctx or {}})
+
+    window.on_command("MSFT")
+
+    assert captured["name"] == "description"
+    assert captured["ctx"]["security_id"] == "s2"
+    assert captured["ctx"]["entity_id"] == "e2"
+
+
+def test_command_unresolved_ticker_still_opens_panel(window):
+    """An unknown ticker must still open the panel (graceful), just without ids."""
+    window.data_service.resolve_security.return_value = None
+    captured = {}
+    window.navigate_to = lambda name, ctx=None: captured.update({"name": name, "ctx": ctx or {}})
+
+    window.on_command("NOPE VAL")
+
+    assert captured["name"] == "valuation"
+    assert captured["ctx"].get("security_id") is None
+    assert captured["ctx"]["ticker"] == "NOPE"
+
+
+@pytest.mark.asyncio
+async def test_resolve_security_against_db(engine):
+    """The DataService resolver maps a real ticker to security + entity ids."""
+    import uuid as _uuid
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from src.gui.core.data_service import DataService
+    from src.models.entity import Entity
+    from src.models.security import Security, SecurityIdentifier
+
+    sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    ent_id = _uuid.uuid4()
+    sec_id = _uuid.uuid4()
+    async with sf() as s:
+        s.add(Entity(entity_id=ent_id, entity_type="PUBLIC_COMPANY",
+                     legal_name="Zeta Test Corp", status="ACTIVE", source="TEST"))
+        s.add(Security(security_id=sec_id, security_type="COMMON_STOCK",
+                       name="Zeta Test Corp Common", short_name="ZZTESTQ",
+                       status="ACTIVE", asset_class="EQUITY", issuer_entity_id=ent_id))
+        s.add(SecurityIdentifier(security_id=sec_id, identifier_type="TICKER",
+                                 identifier_value="ZZTESTQ"))
+        await s.commit()
+
+    ds = DataService.__new__(DataService)  # bypass QObject init; no worker needed
+    ds._session_factory = sf
+
+    # Exact ticker match resolves both ids.
+    res = await ds._resolve_security("ZZTESTQ")
+    assert res is not None
+    assert res["security_id"] == str(sec_id)
+    assert res["entity_id"] == str(ent_id)
+    assert res["entity_name"] == "Zeta Test Corp"
+
+    # Case-insensitive ticker also resolves.
+    assert (await ds._resolve_security("zztestq"))["security_id"] == str(sec_id)
+
+    # Unknown ticker resolves to None (graceful).
+    assert await ds._resolve_security("NO_SUCH_TICKER_XYZ") is None
+
+    # cleanup so the shared session-scoped DB isn't polluted
+    async with sf() as s:
+        for model, pk_col, pk in (
+            (SecurityIdentifier, SecurityIdentifier.security_id, sec_id),
+            (Security, Security.security_id, sec_id),
+            (Entity, Entity.entity_id, ent_id),
+        ):
+            for obj in (await s.execute(__import__("sqlalchemy").select(model).where(pk_col == pk))).scalars().all():
+                await s.delete(obj)
+        await s.commit()
+
+
 def test_every_panel_class_instantiates(qapp):
     """Every distinct panel class in the registry must construct without error.
 
