@@ -29,6 +29,11 @@ from src.gui.panels.flow_panel import FlowPanel
 from src.gui.panels.qant_panel import QantPanel
 from src.gui.panels.scen_panel import ScenPanel
 
+# Financial Analysis Suite panels
+from src.gui.panels.smrt_panel import SmartMoneyPanel
+from src.gui.panels.modl_panel import AutoModelPanel
+from src.gui.panels.strc_panel import ComplexStructurePanel
+
 __all__ = [
     "BasePanel",
     "CacsPanel",
@@ -53,4 +58,8 @@ __all__ = [
     "FlowPanel",
     "QantPanel",
     "ScenPanel",
+    # Financial Analysis Suite
+    "SmartMoneyPanel",
+    "AutoModelPanel",
+    "ComplexStructurePanel",
 ]

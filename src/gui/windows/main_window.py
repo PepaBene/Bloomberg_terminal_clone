@@ -156,6 +156,13 @@ _COMMAND_PANEL_MAP: dict[str, str] = {
     "SECF": "security_finder",
     "PORT": "portfolio",
     "HELP": "help",
+    # Built panels previously unreachable from the command bar
+    "OWN": "ownership",
+    "ESG": "esg",
+    "RV": "relative_value",
+    "QUAL": "quality",
+    "SI": "short_interest",
+    "RESO": "resolution",
     # Pillar 2: Analytics Engines
     "ANLY": "analytics",
     "VAL": "valuation",
@@ -169,6 +176,85 @@ _COMMAND_PANEL_MAP: dict[str, str] = {
     "MODL": "auto_model",
     "STRC": "complex_structure",
 }
+
+
+def _build_panel_registry() -> dict[str, type]:
+    """Map panel keys (the values in ``_COMMAND_PANEL_MAP``) to panel classes.
+
+    Built lazily so a missing GUI dependency degrades to placeholders rather
+    than crashing the whole window. Several mnemonics share a panel (e.g.
+    HDS/OWN → OwnPanel, the various econ views → ECFCPanel).
+    """
+    try:
+        from src.gui.panels import (
+            AnlyPanel,
+            CacsPanel,
+            DashboardPanel,
+            DESPanel,
+            ECFCPanel,
+            EqsPanel,
+            EsgPanel,
+            FAPanel,
+            FlowPanel,
+            GPPanel,
+            OwnPanel,
+            QantPanel,
+            QualityPanel,
+            ResolutionPanel,
+            RiskPanel,
+            RvPanel,
+            ScenPanel,
+            ScorPanel,
+            SearchPanel,
+            SplcPanel,
+            ValPanel,
+        )
+        from src.gui.panels.modl_panel import AutoModelPanel
+        from src.gui.panels.smrt_panel import SmartMoneyPanel
+        from src.gui.panels.strc_panel import ComplexStructurePanel
+    except Exception:  # pragma: no cover - missing optional GUI deps
+        logger.exception("Panel registry unavailable; falling back to placeholders")
+        return {}
+
+    return {
+        "dashboard": DashboardPanel,
+        "home": DashboardPanel,
+        "description": DESPanel,
+        "financials": FAPanel,
+        "graph": GPPanel,
+        "price_chart": GPPanel,
+        "intraday": GPPanel,
+        "ownership": OwnPanel,
+        "holders": OwnPanel,
+        "short_interest": OwnPanel,
+        "esg": EsgPanel,
+        "corporate_actions": CacsPanel,
+        "dividends": CacsPanel,
+        "relationships": SplcPanel,
+        "supply_chain": SplcPanel,
+        "macro": ECFCPanel,
+        "economic_forecast": ECFCPanel,
+        "economic_stats": ECFCPanel,
+        "economics": ECFCPanel,
+        "world_economy": ECFCPanel,
+        "relative_value": RvPanel,
+        "quality": QualityPanel,
+        "search": SearchPanel,
+        "security_finder": SearchPanel,
+        "resolution": ResolutionPanel,
+        "analytics": AnlyPanel,
+        "valuation": ValPanel,
+        "scores": ScorPanel,
+        "equity_screen": EqsPanel,
+        "risk": RiskPanel,
+        "flows": FlowPanel,
+        "quant": QantPanel,
+        "scenario": ScenPanel,
+        # Financial Analysis Suite
+        "smart_money": SmartMoneyPanel,
+        "auto_model": AutoModelPanel,
+        "complex_structure": ComplexStructurePanel,
+    }
 
 
 class MainWindow(QMainWindow):
@@ -187,6 +273,7 @@ class MainWindow(QMainWindow):
         self.data_service = data_service
         self.app_state = app_state
         self._panels: dict[str, QWidget] = {}
+        self._panel_registry = _build_panel_registry()
 
         self._setup_ui()
         self._setup_menu()
@@ -440,21 +527,35 @@ class MainWindow(QMainWindow):
         logger.debug("navigate_to(%s, context=%s)", panel_name, context)
 
         if panel_name not in self._panels:
-            # Show a "not implemented" placeholder
-            placeholder = self._create_placeholder(panel_name)
-            self.register_panel(panel_name, placeholder)
+            widget = self._instantiate_panel(panel_name)
+            self.register_panel(panel_name, widget)
 
         widget = self._panels[panel_name]
         self._stack.setCurrentWidget(widget)
 
-        # Inform the panel about the navigation context
-        if context and hasattr(widget, "load_data"):
-            try:
-                widget.load_data(context)
-            except Exception:
-                logger.exception("Error calling load_data on panel %s", panel_name)
+        # Inform the panel about the navigation context. Panels implement
+        # ``activate(context)`` (BasePanel); older callers used ``load_data``.
+        for method_name in ("activate", "load_data"):
+            method = getattr(widget, method_name, None)
+            if callable(method):
+                try:
+                    method(context or {})
+                except Exception:
+                    logger.exception("Error calling %s on panel %s", method_name, panel_name)
+                break
 
         self._status_bar.set_message(f"Panel: {panel_name.upper()}", timeout_ms=2000)
+
+    def _instantiate_panel(self, panel_name: str) -> QWidget:
+        """Build the real panel for *panel_name*, or a placeholder if none/error."""
+        panel_class = self._panel_registry.get(panel_name)
+        if panel_class is None:
+            return self._create_placeholder(panel_name)
+        try:
+            return panel_class(self.data_service, self.app_state)
+        except Exception:
+            logger.exception("Failed to construct panel %s; using placeholder", panel_name)
+            return self._create_placeholder(panel_name)
 
     def register_panel(self, name: str, widget: QWidget) -> None:
         """Register a panel widget so it can be navigated to by *name*.

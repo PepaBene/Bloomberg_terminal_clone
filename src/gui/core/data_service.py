@@ -197,6 +197,12 @@ class DataService(QObject):
     quant_loaded = Signal(dict)
     scenario_loaded = Signal(dict)
 
+    #: Financial Analysis Suite signals
+    notable_investors_loaded = Signal(list)
+    congress_trades_loaded = Signal(list)
+    auto_model_loaded = Signal(dict)
+    complex_structure_loaded = Signal(dict)
+
     #: Emitted on any query error with a human-readable message.
     error = Signal(str)
 
@@ -958,3 +964,160 @@ class DataService(QObject):
         if not _ENGINES_AVAILABLE:
             return []
         return list_prebuilt_scenarios()
+
+    # ==================================================================
+    # Financial Analysis Suite: Smart Money / Auto Model / Structure
+    # (These engines are pure-Python and always available.)
+    # ==================================================================
+
+    def load_notable_investors(self) -> None:
+        """Load the curated notable-investor registry. Emits ``notable_investors_loaded``."""
+        self._dispatch(self._load_notable_investors(), self.notable_investors_loaded)
+
+    async def _load_notable_investors(self) -> list[dict]:
+        from src.engines.smart_money import load_notable_investors
+        return load_notable_investors()
+
+    def load_congress_trades(self, politician: str | None = None, limit: int = 200) -> None:
+        """Load congressional STOCK Act trades. Emits ``congress_trades_loaded``."""
+        self._dispatch(self._load_congress_trades(politician, limit), self.congress_trades_loaded)
+
+    async def _load_congress_trades(self, politician: str | None, limit: int) -> list[dict]:
+        from src.engines.smart_money import classify_political_trade
+        from src.models.congressional_trades import CongressionalTrade
+
+        async with self._session_factory() as session:
+            query = select(CongressionalTrade)
+            if politician:
+                query = query.where(CongressionalTrade.politician_name.ilike(f"%{politician}%"))
+            query = query.order_by(desc(CongressionalTrade.transaction_date)).limit(limit)
+            rows = (await session.execute(query)).scalars().all()
+
+        out: list[dict] = []
+        for t in rows:
+            low = float(t.amount_range_low) if t.amount_range_low is not None else None
+            high = float(t.amount_range_high) if t.amount_range_high is not None else None
+            flags = classify_political_trade(
+                {
+                    "transaction_type": t.transaction_type,
+                    "transaction_date": t.transaction_date,
+                    "disclosure_date": t.disclosure_date,
+                    "amount_range_low": low,
+                    "amount_range_high": high,
+                },
+                committees=t.committees or [],
+            )
+            out.append(
+                {
+                    "politician_name": t.politician_name,
+                    "ticker": t.ticker,
+                    "transaction_type": t.transaction_type,
+                    "transaction_date": t.transaction_date.isoformat() if t.transaction_date else None,
+                    "amount_range_low": low,
+                    "amount_range_high": high,
+                    "size_bucket": flags["size_bucket"],
+                    "is_late_disclosure": flags["is_late_disclosure"],
+                }
+            )
+        return out
+
+    def run_auto_model(self, entity_id: str) -> None:
+        """Auto-build a COMPANY model from fundamentals. Emits ``auto_model_loaded``."""
+        self._dispatch(self._run_auto_model(entity_id), self.auto_model_loaded)
+
+    async def _run_auto_model(self, entity_id: str) -> dict:
+        from src.engines.auto_model_builder import build_model
+
+        uid = uuid.UUID(entity_id)
+        data: dict = {}
+        subject = str(entity_id)
+        async with self._session_factory() as session:
+            entity = (
+                await session.execute(select(Entity).where(Entity.entity_id == uid))
+            ).scalar_one_or_none()
+            if entity is not None:
+                subject = getattr(entity, "legal_name", None) or subject
+
+            periods = (
+                await session.execute(
+                    select(FinancialPeriod)
+                    .where(FinancialPeriod.entity_id == uid)
+                    .order_by(desc(FinancialPeriod.period_end_date))
+                    .limit(2)
+                )
+            ).scalars().all()
+            statements = []
+            for period in periods:
+                stmt = (
+                    await session.execute(
+                        select(IncomeStatement).where(IncomeStatement.period_id == period.period_id)
+                    )
+                ).scalar_one_or_none()
+                if stmt:
+                    statements.append(stmt)
+
+        if statements:
+            latest = statements[0]
+            rev = float(latest.total_revenue) if latest.total_revenue is not None else None
+            op = float(latest.operating_income) if latest.operating_income is not None else None
+            if rev and op is not None:
+                data["ebitda_margin"] = round(op / rev * 100, 2)
+            if len(statements) > 1 and statements[1].total_revenue and rev:
+                prev_rev = float(statements[1].total_revenue)
+                if prev_rev:
+                    data["revenue_growth"] = round((rev - prev_rev) / prev_rev * 100, 2)
+
+        return build_model("COMPANY", data, subject).to_dict()
+
+    def run_complex_structure(self, entity_id: str) -> None:
+        """Analyze complex structure from stored capital structure. Emits ``complex_structure_loaded``."""
+        self._dispatch(self._run_complex_structure(entity_id), self.complex_structure_loaded)
+
+    async def _run_complex_structure(self, entity_id: str) -> dict:
+        from dataclasses import asdict
+
+        from src.engines.complex_structure import analyze_complex_structure
+        from src.models.capital_structure import CapitalStructure, DebtTranche
+
+        uid = uuid.UUID(entity_id)
+        subject = str(entity_id)
+        debt_tranches: list[dict] = []
+        async with self._session_factory() as session:
+            entity = (
+                await session.execute(select(Entity).where(Entity.entity_id == uid))
+            ).scalar_one_or_none()
+            if entity is not None:
+                subject = getattr(entity, "legal_name", None) or subject
+
+            cap = (
+                await session.execute(
+                    select(CapitalStructure)
+                    .where(CapitalStructure.entity_id == uid)
+                    .order_by(desc(CapitalStructure.as_of_date))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if cap is not None:
+                tranches = (
+                    await session.execute(
+                        select(DebtTranche).where(
+                            DebtTranche.capital_structure_id == cap.capital_structure_id
+                        )
+                    )
+                ).scalars().all()
+                for t in tranches:
+                    debt_tranches.append(
+                        {
+                            "instrument_name": t.instrument_name,
+                            "principal_amount": float(t.principal_amount)
+                            if t.principal_amount is not None
+                            else 0.0,
+                            "seniority_rank": t.seniority_rank,
+                            "is_secured": (t.instrument_type or "").upper().startswith("SECURED")
+                            if t.instrument_type
+                            else False,
+                        }
+                    )
+
+        report = analyze_complex_structure({"debt_tranches": debt_tranches}, subject)
+        return asdict(report)

@@ -60,10 +60,30 @@ Analyzes the structural complexity that ratio analysis misses:
 
 ---
 
-## Terminal commands
+## Terminal UI (desktop GUI)
 
-New Bloomberg-style mnemonics: `SMRT`, `MODL`, `STRC` (registered in the
-command parser and main-window command map).
+New Bloomberg-style mnemonics with full PySide6 panels:
+
+- `SMRT` → `SmartMoneyPanel` — notable-investor registry + congressional trades
+- `MODL` → `AutoModelPanel` — composite score, rating, sub-scores, drivers
+- `STRC` → `ComplexStructurePanel` — subsidiary tree / share classes /
+  off-balance-sheet / debt waterfall tabs
+
+These are wired into the window via the panel registry in
+`src/gui/windows/main_window.py` and backed by `DataService` methods
+(`load_notable_investors`, `load_congress_trades`, `run_auto_model`,
+`run_complex_structure`).
+
+### GUI wiring fix (platform-wide)
+
+Auditing UI coverage uncovered that the existing 22 panels were defined but
+**never registered** — `navigate_to()` only produced "Panel not yet
+implemented" placeholders, and it called `load_data()` while panels implement
+`activate()`. This is now fixed with a panel registry + correct `activate()`
+dispatch, so every built panel is reachable. Two latent per-panel crashes
+(`Qt.QMargins` → `QMargins` in `gp_panel` and `ecfc_panel`) and six built but
+unreachable panels (OWN/ESG/RV/QUAL/SI/RESO, missing from the command map)
+were also fixed.
 
 ## Tests
 
@@ -72,3 +92,4 @@ command parser and main-window command map).
 - `tests/test_engines/test_complex_structure.py`
 - `tests/test_ingestion/test_congress_trades.py`
 - `tests/test_api/test_smart_money_api.py`
+- `tests/test_gui/test_panel_wiring.py` (headless; skipped without the `gui` extra)
