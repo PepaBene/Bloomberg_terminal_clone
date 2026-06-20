@@ -85,6 +85,20 @@ dispatch, so every built panel is reachable. Two latent per-panel crashes
 unreachable panels (OWN/ESG/RV/QUAL/SI/RESO, missing from the command map)
 were also fixed.
 
+### Full UI coverage
+
+Five features previously had a backend API but no desktop panel; they now do:
+
+- `DDIS` → `DebtMaturityPanel` (debt maturity profile + buckets)
+- `CRPR` → `CreditRatingPanel` (current ratings + rating actions)
+- `ISSD` → `IssuancePanel` (primary-market bond issuance)
+- `PORT` → `PortfolioPanel` (managed portfolios)
+- `HELP` → `HelpPanel` (command reference)
+
+**Every command mnemonic now opens a real panel — zero placeholders remain.**
+The new panels are reachable from the command bar and from the View / Analytics
+/ Fixed Income / Finance Suite / Help menus.
+
 ## Tests
 
 - `tests/test_engines/test_smart_money.py`

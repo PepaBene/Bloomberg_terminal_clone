@@ -34,6 +34,13 @@ from src.gui.panels.smrt_panel import SmartMoneyPanel
 from src.gui.panels.modl_panel import AutoModelPanel
 from src.gui.panels.strc_panel import ComplexStructurePanel
 
+# Fixed-income / portfolio / help panels
+from src.gui.panels.ddis_panel import DebtMaturityPanel
+from src.gui.panels.crpr_panel import CreditRatingPanel
+from src.gui.panels.issd_panel import IssuancePanel
+from src.gui.panels.port_panel import PortfolioPanel
+from src.gui.panels.help_panel import HelpPanel
+
 __all__ = [
     "BasePanel",
     "CacsPanel",
@@ -62,4 +69,10 @@ __all__ = [
     "SmartMoneyPanel",
     "AutoModelPanel",
     "ComplexStructurePanel",
+    # Fixed-income / portfolio / help
+    "DebtMaturityPanel",
+    "CreditRatingPanel",
+    "IssuancePanel",
+    "PortfolioPanel",
+    "HelpPanel",
 ]

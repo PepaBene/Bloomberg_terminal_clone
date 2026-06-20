@@ -212,6 +212,11 @@ def _build_panel_registry() -> dict[str, type]:
         from src.gui.panels.modl_panel import AutoModelPanel
         from src.gui.panels.smrt_panel import SmartMoneyPanel
         from src.gui.panels.strc_panel import ComplexStructurePanel
+        from src.gui.panels.ddis_panel import DebtMaturityPanel
+        from src.gui.panels.crpr_panel import CreditRatingPanel
+        from src.gui.panels.issd_panel import IssuancePanel
+        from src.gui.panels.port_panel import PortfolioPanel
+        from src.gui.panels.help_panel import HelpPanel
     except Exception:  # pragma: no cover - missing optional GUI deps
         logger.exception("Panel registry unavailable; falling back to placeholders")
         return {}
@@ -254,6 +259,12 @@ def _build_panel_registry() -> dict[str, type]:
         "smart_money": SmartMoneyPanel,
         "auto_model": AutoModelPanel,
         "complex_structure": ComplexStructurePanel,
+        # Fixed-income / portfolio / help
+        "debt": DebtMaturityPanel,
+        "credit": CreditRatingPanel,
+        "issuance": IssuancePanel,
+        "portfolio": PortfolioPanel,
+        "help": HelpPanel,
     }
 
 
@@ -389,6 +400,11 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         self._add_nav_action(view_menu, "&SRCH - Search", "search", "Ctrl+F")
         self._add_nav_action(view_menu, "S&ECF - Security Finder", "security_finder", "")
+        view_menu.addSeparator()
+        self._add_nav_action(view_menu, "O&WN  - Ownership", "ownership", "")
+        self._add_nav_action(view_menu, "ES&G  - ESG", "esg", "")
+        self._add_nav_action(view_menu, "&RV   - Relative Value", "relative_value", "")
+        self._add_nav_action(view_menu, "&QUAL - Data Quality", "quality", "")
 
         # -- Analytics menu ---------------------------------------------------
         analytics_menu = menu_bar.addMenu("&Analytics")
@@ -401,8 +417,24 @@ class MainWindow(QMainWindow):
         self._add_nav_action(analytics_menu, "&QANT - Quant Analytics", "quant", "")
         self._add_nav_action(analytics_menu, "SC&EN - Scenario Analysis", "scenario", "")
 
+        # -- Fixed Income menu ------------------------------------------------
+        fi_menu = menu_bar.addMenu("Fi&xed Income")
+        self._add_nav_action(fi_menu, "&DDIS - Debt Maturity", "debt", "")
+        self._add_nav_action(fi_menu, "&CRPR - Credit Ratings", "credit", "")
+        self._add_nav_action(fi_menu, "&ISSD - New Issuance", "issuance", "")
+
+        # -- Finance Suite menu -----------------------------------------------
+        finance_menu = menu_bar.addMenu("&Finance Suite")
+        self._add_nav_action(finance_menu, "&SMRT - Smart Money", "smart_money", "")
+        self._add_nav_action(finance_menu, "&MODL - Auto Model Builder", "auto_model", "")
+        self._add_nav_action(finance_menu, "S&TRC - Complex Structure", "complex_structure", "")
+        self._add_nav_action(finance_menu, "&PORT - Portfolios", "portfolio", "")
+
         # -- Help menu ----------------------------------------------------
         help_menu = menu_bar.addMenu("&Help")
+
+        self._add_nav_action(help_menu, "&HELP - Command Reference", "help", "F1")
+        help_menu.addSeparator()
 
         about_action = QAction("&About", self)
         about_action.triggered.connect(self._show_about)

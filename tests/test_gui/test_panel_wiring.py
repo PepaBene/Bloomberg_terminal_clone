@@ -78,13 +78,8 @@ def test_every_mnemonic_opens_a_real_panel(window):
         assert isinstance(widget, BasePanel), f"{mnemonic} -> {panel_key} is not a real panel"
         assert type(widget) is not QWidget
 
-    # Mnemonics without a dedicated panel are allowed but tracked; the core
-    # security/analytics/finance commands must all resolve.
-    must_have = {
-        "DES", "FA", "GP", "HDS", "CACS", "ECFC", "ANLY", "VAL", "SCOR",
-        "EQS", "RISK", "FLOW", "QANT", "SCEN", "SMRT", "MODL", "STRC",
-    }
-    assert must_have.isdisjoint(set(placeholders)), f"core commands missing panels: {must_have & set(placeholders)}"
+    # Every command mnemonic must now resolve to a real panel (no placeholders).
+    assert placeholders == [], f"commands still missing panels: {placeholders}"
 
 
 def test_activate_does_not_crash_with_context(window):

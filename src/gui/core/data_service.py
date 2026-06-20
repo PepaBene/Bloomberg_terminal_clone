@@ -96,6 +96,16 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 
+def _to_float(value: Any) -> float | None:
+    """Coerce a Decimal/number to float for the GUI thread; None passes through."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _orm_to_dict(obj: Any) -> dict[str, Any]:
     """Convert a SQLAlchemy mapped instance to a plain dict.
 
@@ -202,6 +212,12 @@ class DataService(QObject):
     congress_trades_loaded = Signal(list)
     auto_model_loaded = Signal(dict)
     complex_structure_loaded = Signal(dict)
+
+    #: Fixed-income / portfolio signals
+    debt_maturity_loaded = Signal(dict)
+    credit_ratings_loaded = Signal(dict)
+    issuance_loaded = Signal(list)
+    portfolios_loaded = Signal(list)
 
     #: Emitted on any query error with a human-readable message.
     error = Signal(str)
@@ -1121,3 +1137,180 @@ class DataService(QObject):
 
         report = analyze_complex_structure({"debt_tranches": debt_tranches}, subject)
         return asdict(report)
+
+    # ------------------------------------------------------------------
+    # Debt maturity (DDIS)
+    # ------------------------------------------------------------------
+
+    def run_debt_maturity(self, entity_id: str) -> None:
+        """Load the latest debt maturity profile. Emits ``debt_maturity_loaded``."""
+        self._dispatch(self._run_debt_maturity(entity_id), self.debt_maturity_loaded)
+
+    async def _run_debt_maturity(self, entity_id: str) -> dict:
+        from src.models.debt_maturity import DebtMaturityProfile, MaturityBucket
+
+        uid = uuid.UUID(entity_id)
+        async with self._session_factory() as session:
+            subject = await self._entity_name(session, uid)
+            profile = (
+                await session.execute(
+                    select(DebtMaturityProfile)
+                    .where(DebtMaturityProfile.entity_id == uid)
+                    .order_by(desc(DebtMaturityProfile.as_of_date))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if profile is None:
+                return {"subject": subject, "profile": {}, "buckets": []}
+            buckets = (
+                await session.execute(
+                    select(MaturityBucket)
+                    .where(MaturityBucket.profile_id == profile.profile_id)
+                    .order_by(MaturityBucket.year)
+                )
+            ).scalars().all()
+
+        return {
+            "subject": subject,
+            "profile": {
+                "weighted_avg_maturity_years": _to_float(profile.weighted_avg_maturity_years),
+                "weighted_avg_coupon": _to_float(profile.weighted_avg_coupon),
+                "debt_maturing_1yr": _to_float(profile.debt_maturing_1yr),
+                "pct_debt_maturing_1yr": _to_float(profile.pct_debt_maturing_1yr),
+                "pct_debt_maturing_3yr": _to_float(profile.pct_debt_maturing_3yr),
+                "cash_to_1yr_maturities": _to_float(profile.cash_to_1yr_maturities),
+                "maturity_wall_alert": bool(profile.maturity_wall_alert),
+                "near_term_stress": bool(profile.near_term_stress),
+            },
+            "buckets": [
+                {"year": b.year, "total_amount": _to_float(b.total_amount), "breakdown": b.breakdown or {}}
+                for b in buckets
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # Credit ratings (CRPR)
+    # ------------------------------------------------------------------
+
+    def run_credit_ratings(self, entity_id: str) -> None:
+        """Load current ratings + rating actions. Emits ``credit_ratings_loaded``."""
+        self._dispatch(self._run_credit_ratings(entity_id), self.credit_ratings_loaded)
+
+    async def _run_credit_ratings(self, entity_id: str) -> dict:
+        from src.models.credit_rating import CreditRatingEvent, CurrentCreditRating
+
+        uid = uuid.UUID(entity_id)
+        async with self._session_factory() as session:
+            subject = await self._entity_name(session, uid)
+            current = (
+                await session.execute(
+                    select(CurrentCreditRating).where(CurrentCreditRating.entity_id == uid)
+                )
+            ).scalars().all()
+            events = (
+                await session.execute(
+                    select(CreditRatingEvent)
+                    .where(CreditRatingEvent.entity_id == uid)
+                    .order_by(desc(CreditRatingEvent.event_date))
+                    .limit(50)
+                )
+            ).scalars().all()
+
+        return {
+            "subject": subject,
+            "current": [
+                {
+                    "agency": c.agency,
+                    "current_rating": c.current_rating,
+                    "outlook": c.outlook,
+                    "watch_status": c.watch_status,
+                    "is_investment_grade": c.is_investment_grade,
+                    "last_action_date": c.last_action_date.isoformat() if c.last_action_date else None,
+                }
+                for c in current
+            ],
+            "events": [
+                {
+                    "event_date": e.event_date.isoformat() if e.event_date else None,
+                    "agency": e.agency,
+                    "old_rating": e.old_rating,
+                    "new_rating": e.new_rating,
+                    "direction": e.direction,
+                    "notches_changed": e.notches_changed,
+                }
+                for e in events
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # New issuance (ISSD)
+    # ------------------------------------------------------------------
+
+    def run_issuance(self, entity_id: str | None = None, limit: int = 100) -> None:
+        """Load primary-market issuance. Emits ``issuance_loaded``."""
+        self._dispatch(self._run_issuance(entity_id, limit), self.issuance_loaded)
+
+    async def _run_issuance(self, entity_id: str | None, limit: int) -> list[dict]:
+        from src.models.bond_issuance import BondIssuance
+
+        async with self._session_factory() as session:
+            query = select(BondIssuance)
+            if entity_id:
+                query = query.where(BondIssuance.issuer_entity_id == uuid.UUID(entity_id))
+            query = query.order_by(desc(BondIssuance.pricing_date)).limit(limit)
+            rows = (await session.execute(query)).scalars().all()
+
+        return [
+            {
+                "pricing_date": d.pricing_date.isoformat() if d.pricing_date else None,
+                "coupon_rate": _to_float(d.coupon_rate),
+                "maturity_date": d.maturity_date.isoformat() if d.maturity_date else None,
+                "issued_size_mm": _to_float(d.issued_size_mm),
+                "final_spread_bps": d.final_spread_bps,
+                "issue_yield": _to_float(d.issue_yield),
+                "seniority": d.seniority,
+            }
+            for d in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Portfolios (PORT)
+    # ------------------------------------------------------------------
+
+    def load_portfolios(self, limit: int = 200) -> None:
+        """Load managed portfolios. Emits ``portfolios_loaded``."""
+        self._dispatch(self._load_portfolios(limit), self.portfolios_loaded)
+
+    async def _load_portfolios(self, limit: int) -> list[dict]:
+        from src.models.portfolio import Portfolio
+
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(Portfolio)
+                    .where(Portfolio.deleted_at.is_(None))
+                    .order_by(Portfolio.portfolio_name)
+                    .limit(limit)
+                )
+            ).scalars().all()
+
+        return [
+            {
+                "portfolio_name": p.portfolio_name,
+                "portfolio_type": p.portfolio_type,
+                "inception_date": p.inception_date.isoformat() if p.inception_date else None,
+                "base_currency": p.base_currency,
+                "initial_cash": _to_float(p.initial_cash),
+                "current_cash": _to_float(p.current_cash),
+                "status": p.status,
+            }
+            for p in rows
+        ]
+
+    async def _entity_name(self, session: AsyncSession, entity_id: uuid.UUID) -> str:
+        entity = (
+            await session.execute(select(Entity).where(Entity.entity_id == entity_id))
+        ).scalar_one_or_none()
+        if entity is not None:
+            return getattr(entity, "legal_name", None) or str(entity_id)
+        return str(entity_id)
