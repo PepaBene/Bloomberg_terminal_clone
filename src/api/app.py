@@ -411,6 +411,19 @@ def create_app() -> FastAPI:
     app.include_router(research_notes_router, prefix="/v4")
 
     # ------------------------------------------------------------------
+    # Financial Analysis Suite: Smart-Money tracking, Auto Model Builder,
+    # and Complex Financial Structure analysis (free-data, EDGAR/STOCK Act).
+    # ------------------------------------------------------------------
+    from src.api.routers.smart_money import router as smart_money_router
+    app.include_router(smart_money_router, prefix="/v1")
+
+    from src.api.routers.auto_model import router as auto_model_router
+    app.include_router(auto_model_router, prefix="/v1")
+
+    from src.api.routers.complex_structure import router as complex_structure_router
+    app.include_router(complex_structure_router, prefix="/v1")
+
+    # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
     @app.get("/health", tags=["health"], response_model=None)

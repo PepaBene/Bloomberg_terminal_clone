@@ -1,4 +1,4 @@
-.PHONY: up down migrate seed ingest-edgar ingest-gleif ingest-figi test quality dev
+.PHONY: up down migrate seed ingest-edgar ingest-gleif ingest-figi ingest-congress test quality dev
 
 up:
 	docker compose up -d
@@ -20,6 +20,9 @@ ingest-gleif:
 
 ingest-figi:
 	python -m scripts.ingest_openfigi
+
+ingest-congress:
+	python -m scripts.ingest_congress
 
 test:
 	pytest -v

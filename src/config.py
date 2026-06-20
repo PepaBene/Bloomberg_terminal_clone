@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     FRED_API_KEY: str = ""
     FRED_RATE_LIMIT: int = 120  # requests per minute
 
+    # Congressional trading (STOCK Act periodic transaction reports).
+    # Free public, machine-readable aggregations of House/Senate disclosures.
+    # Override to point at any compatible JSON feed; both feeds are optional.
+    CONGRESS_HOUSE_FEED_URL: str = (
+        "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
+    )
+    CONGRESS_SENATE_FEED_URL: str = (
+        "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
+    )
+
     # Polygon.io (EOD Prices)
     POLYGON_API_KEY: str = ""
     POLYGON_RATE_LIMIT: int = 5  # requests per second (free tier)

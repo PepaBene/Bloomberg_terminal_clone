@@ -95,6 +95,7 @@ import src.models.performance  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.attribution  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.portfolio_risk  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
+import src.models.congressional_trades  # noqa: F401  (Financial Analysis Suite)
 
 
 # Patch JSONB columns to use plain JSON under SQLite

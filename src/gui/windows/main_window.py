@@ -164,6 +164,10 @@ _COMMAND_PANEL_MAP: dict[str, str] = {
     "FLOW": "flows",
     "QANT": "quant",
     "SCEN": "scenario",
+    # Financial Analysis Suite
+    "SMRT": "smart_money",
+    "MODL": "auto_model",
+    "STRC": "complex_structure",
 }
 
 

@@ -1,0 +1,67 @@
+{
+  "_comment": "Curated registry of notable investors, executives, and politicians to follow. All identifiers map to FREE public data sources: SEC EDGAR 13F-HR (institutional managers), SEC EDGAR Form 4 (corporate insiders), and US Congress STOCK Act disclosures (House Clerk / Senate eFD). category drives which data domain the smart-money engine reads.",
+  "investors": [
+    {
+      "key": "michael_burry",
+      "display_name": "Michael Burry",
+      "category": "GURU_13F",
+      "vehicle": "Scion Asset Management, LLC",
+      "cik": "0001649339",
+      "tags": ["contrarian", "deep_value", "macro", "big_short"],
+      "notes": "Founder of Scion; subject of 'The Big Short'. Known for concentrated, contrarian bets disclosed via 13F-HR."
+    },
+    {
+      "key": "warren_buffett",
+      "display_name": "Warren Buffett",
+      "category": "GURU_13F",
+      "vehicle": "Berkshire Hathaway Inc",
+      "cik": "0001067983",
+      "tags": ["value", "quality", "long_term"],
+      "notes": "Berkshire Hathaway 13F-HR equity book."
+    },
+    {
+      "key": "michael_burry_scion",
+      "display_name": "Bill Ackman",
+      "category": "GURU_13F",
+      "vehicle": "Pershing Square Capital Management",
+      "cik": "0001336528",
+      "tags": ["activist", "concentrated"],
+      "notes": "Pershing Square activist positions disclosed via 13F-HR."
+    },
+    {
+      "key": "jamie_dimon",
+      "display_name": "Jamie Dimon",
+      "category": "INSIDER_FORM4",
+      "vehicle": "JPMorgan Chase & Co",
+      "issuer_cik": "0000019617",
+      "issuer_ticker": "JPM",
+      "role": "Chairman & CEO",
+      "tags": ["bank_ceo", "insider"],
+      "notes": "Form 4 open-market activity in JPM. Insider-cluster signals are read from issuer Form 4 data."
+    },
+    {
+      "key": "nancy_pelosi",
+      "display_name": "Nancy Pelosi",
+      "category": "POLITICIAN",
+      "chamber": "HOUSE",
+      "state": "CA",
+      "party": "D",
+      "committees": ["Former Speaker"],
+      "bioguide_id": "P000197",
+      "tags": ["congress", "stock_act", "high_profile"],
+      "notes": "House periodic transaction reports (PTRs) filed under the STOCK Act; trades frequently include large tech option/equity positions held by spouse."
+    },
+    {
+      "key": "dan_crenshaw",
+      "display_name": "Dan Crenshaw",
+      "category": "POLITICIAN",
+      "chamber": "HOUSE",
+      "state": "TX",
+      "party": "R",
+      "committees": ["Energy and Commerce"],
+      "bioguide_id": "C001120",
+      "tags": ["congress", "stock_act"],
+      "notes": "House STOCK Act periodic transaction reports."
+    }
+  ]
+}
