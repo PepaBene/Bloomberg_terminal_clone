@@ -270,9 +270,11 @@ class RiskEngine(BaseEngine):
                 ],
             ))
 
-        # Expected shortfall (CVaR)
+        # Expected shortfall (CVaR). Use ceil() so the tail captures *at least*
+        # the requested percentile worth of observations — `int()` floors and
+        # under-samples (e.g. 5% of 50 → cutoff=2 covers only 4%).
         for conf_label, pct in [("95", 5.0), ("99", 1.0)]:
-            cutoff_idx = max(1, int(n * pct / 100.0))
+            cutoff_idx = max(1, math.ceil(n * pct / 100.0))
             tail = sorted_rets[:cutoff_idx]
             cvar = -_mean(tail) if tail else 0.0
             outputs.append(EngineOutput(
@@ -580,29 +582,42 @@ class RiskEngine(BaseEngine):
         skew: float,
         kurt: float,
     ) -> None:
-        """Persist VaR results to the dedicated table."""
+        """Persist VaR results to the dedicated table.
+
+        Metric names follow ``var_historical_<conf>_<holding>d``. We parse
+        defensively: an unexpected suffix should skip the row, not crash the
+        whole persistence pass.
+        """
         today = date.today()
         for out in outputs:
-            if out.metric_name.startswith("var_historical_"):
-                parts = out.metric_name.replace("var_historical_", "").split("_")
+            if not out.metric_name.startswith("var_historical_"):
+                continue
+            parts = out.metric_name.replace("var_historical_", "").split("_")
+            if len(parts) < 2:
+                logger.warning("Skipping VaR row with unparseable metric name: %s", out.metric_name)
+                continue
+            try:
                 conf = float(parts[0]) / 100.0  # "95" → 0.95
                 holding = int(parts[1].replace("d", ""))
-                var_row = VaRResult(
-                    security_id=security_id,
-                    calculation_date=today,
-                    method="HISTORICAL",
-                    confidence_level=conf,
-                    holding_period_days=holding,
-                    var_value=out.value,
-                    lookback_days=n,
-                    annualized_volatility=ann_vol,
-                    daily_mean_return=daily_mean,
-                    daily_std_return=daily_std,
-                    skewness=skew,
-                    kurtosis=kurt,
-                    data_quality="COMPLETE",
-                )
-                session.add(var_row)
+            except (ValueError, TypeError) as exc:
+                logger.warning("Skipping VaR row %s: %s", out.metric_name, exc)
+                continue
+            var_row = VaRResult(
+                security_id=security_id,
+                calculation_date=today,
+                method="HISTORICAL",
+                confidence_level=conf,
+                holding_period_days=holding,
+                var_value=out.value,
+                lookback_days=n,
+                annualized_volatility=ann_vol,
+                daily_mean_return=daily_mean,
+                daily_std_return=daily_std,
+                skewness=skew,
+                kurtosis=kurt,
+                data_quality="COMPLETE",
+            )
+            session.add(var_row)
 
         await session.flush()
 
@@ -644,8 +659,14 @@ class RiskEngine(BaseEngine):
             _, returns, _, _, _ = await _load_returns(session, security_id, lookback_days=5000)
             if not returns:
                 return None
-            # Simplified: use the overall market return as a proxy
-            pnl = sum(returns[-252:]) / max(len(returns[-252:]), 1) * 252  # annualised
+            # Compound the trailing 1y of daily log/simple returns rather than
+            # annualising an arithmetic mean — the latter overstates returns
+            # in volatile periods and ignores compounding.
+            window = returns[-252:]
+            cumulative = 1.0
+            for r in window:
+                cumulative *= (1.0 + r)
+            pnl = cumulative - 1.0
             result = StressTestResult(
                 security_id=security_id,
                 calculation_date=date.today(),

@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     FRED_API_KEY: str = ""
     FRED_RATE_LIMIT: int = 120  # requests per minute
 
+    # Congressional trading (STOCK Act periodic transaction reports).
+    # Free public, machine-readable aggregations of House/Senate disclosures.
+    # Override to point at any compatible JSON feed; both feeds are optional.
+    CONGRESS_HOUSE_FEED_URL: str = (
+        "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
+    )
+    CONGRESS_SENATE_FEED_URL: str = (
+        "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
+    )
+
     # Polygon.io (EOD Prices)
     POLYGON_API_KEY: str = ""
     POLYGON_RATE_LIMIT: int = 5  # requests per second (free tier)
@@ -73,6 +83,18 @@ class Settings(BaseSettings):
     CACHE_TTL_ANALYTICS_MULTIPLES: int = 14400    # 4h (price-sensitive)
     CACHE_TTL_ANALYTICS_WACC: int = 86400         # 24h
     CACHE_TTL_ANALYTICS_DUPONT: int = 86400       # 24h
+
+    # CORS — comma-separated origins via env var ``ALLOWED_ORIGINS``.
+    ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+    ]
+
+    # Authentication enforcement: when True, every endpoint requires a
+    # valid Bearer token; when False (default), routes accept anonymous
+    # access via ``get_optional_user``.
+    REQUIRE_AUTH: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

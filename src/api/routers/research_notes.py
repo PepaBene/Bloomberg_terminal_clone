@@ -2,12 +2,12 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 import sqlalchemy as sa
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.research_notes import ResearchNote
 from src.schemas.research_notes import (
     ResearchNoteCreateRequest,
@@ -17,6 +17,13 @@ from src.schemas.research_notes import (
 )
 
 router = APIRouter(tags=["Research Notes"])
+
+# Anonymous fallback when no Bearer token is present and REQUIRE_AUTH is off.
+ANONYMOUS_USER = "default_user"
+
+
+def _resolve_user(user: str | None) -> str:
+    return user or ANONYMOUS_USER
 
 
 def _note_to_response(note: ResearchNote) -> ResearchNoteResponse:
@@ -43,12 +50,12 @@ def _note_to_response(note: ResearchNote) -> ResearchNoteResponse:
 
 @router.post("/research/notes", response_model=ResearchNoteResponse, status_code=201)
 async def create_note(
-    request: Request,
     body: ResearchNoteCreateRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Create a new research note."""
-    user_id = request.headers.get("X-User-Id", "default_user")
+    user_id = _resolve_user(user)
     note = ResearchNote(
         id=uuid.uuid4(),
         user_id=user_id,
@@ -65,12 +72,12 @@ async def create_note(
     )
     session.add(note)
     await session.commit()
+    await session.refresh(note)
     return _note_to_response(note)
 
 
 @router.get("/research/notes", response_model=ResearchNoteListResponse)
 async def list_notes(
-    request: Request,
     entity_id: str | None = Query(default=None),
     portfolio_id: uuid.UUID | None = Query(default=None),
     ticker: str | None = Query(default=None),
@@ -83,9 +90,10 @@ async def list_notes(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """List research notes with filtering and full-text search."""
-    user_id = request.headers.get("X-User-Id", "default_user")
+    user_id = _resolve_user(user)
     stmt = select(ResearchNote).where(
         ResearchNote.user_id == user_id,
         ResearchNote.is_archived == archived,
@@ -176,6 +184,7 @@ async def update_note(
             setattr(note, field_name, value)
 
     await session.commit()
+    await session.refresh(note)
     return _note_to_response(note)
 
 
@@ -193,18 +202,19 @@ async def delete_note(
         raise HTTPException(status_code=404, detail="Note not found")
     note.is_archived = True
     await session.commit()
+    await session.refresh(note)
     return _note_to_response(note)
 
 
 @router.get("/research/notes/entity/{entity_id}", response_model=ResearchNoteListResponse)
 async def list_notes_by_entity(
-    request: Request,
     entity_id: str,
     limit: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """List all notes for a specific entity."""
-    user_id = request.headers.get("X-User-Id", "default_user")
+    user_id = _resolve_user(user)
     stmt = (
         select(ResearchNote)
         .where(
@@ -234,11 +244,11 @@ async def list_notes_by_entity(
 
 @router.get("/research/notes/tags", response_model=list[str])
 async def list_tags(
-    request: Request,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """List all unique tags used in research notes."""
-    user_id = request.headers.get("X-User-Id", "default_user")
+    user_id = _resolve_user(user)
     result = await session.execute(
         select(ResearchNote.tags)
         .where(

@@ -13,22 +13,13 @@ function heatColor(v: number): string {
   return 'var(--color-signal-negative)';
 }
 
-const themes = [
-  { name: 'AI Infrastructure Build-Out', direction: 'Bullish', conviction: 9.2, tickers: ['NVDA', 'AVGO', 'AMD', 'MSFT'], horizon: '2-3 years' },
-  { name: 'US Rate Normalization', direction: 'Neutral', conviction: 6.5, tickers: ['TLT', 'XLF', 'XLRE'], horizon: '12-18 months' },
-  { name: 'Consumer Spending Slowdown', direction: 'Bearish', conviction: 7.1, tickers: ['XLY', 'WMT', 'TGT'], horizon: '6-12 months' },
-  { name: 'Energy Transition Acceleration', direction: 'Bullish', conviction: 7.8, tickers: ['ENPH', 'FSLR', 'NEE'], horizon: '3-5 years' },
-  { name: 'China-US Decoupling', direction: 'Bearish', conviction: 6.8, tickers: ['AAPL', 'QCOM', 'INTC'], horizon: '2-5 years' },
-];
+// F-011: empty fallbacks. Default themes used to render specific tickers
+// (NVDA/AVGO/AMD, AAPL/QCOM/INTC, etc.) and a hardcoded heatmap as if
+// they were the user's research themes — they aren't.
+const themes: { name: string; direction: string; conviction: number; tickers: string[]; horizon: string }[] = [];
 
 const sectors = ['Tech', 'Health', 'Finance', 'ConDisc', 'Energy', 'Indust', 'Staples'];
-const heatmapData = [
-  { theme: 'AI Build-Out',       values: [3, 1, 0, 1, 0, 1, 0] },
-  { theme: 'Rate Normal.',       values: [-1, 0, 2, -1, 0, 0, 0] },
-  { theme: 'Consumer Slow',      values: [0, -1, -1, -3, 0, -1, -2] },
-  { theme: 'Energy Trans.',      values: [1, 0, 0, 0, 3, 1, 0] },
-  { theme: 'China Decoupling',   values: [-2, -1, 0, -1, 0, -1, 0] },
-];
+const heatmapData: { theme: string; values: number[] }[] = [];
 
 export default function ThemesDashboard() {
   const { data: apiThemes, isLoading, isError } = useResearchThemes();

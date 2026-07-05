@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import ARRAY, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,8 @@ class SearchDocument(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # Wider VARCHAR for source/anomaly type strings — earnings_call_*
+    # variants regularly exceed 25 chars (M-002).
     source_type: Mapped[str] = mapped_column(String(50), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str | None] = mapped_column(String(500))
@@ -31,18 +33,23 @@ class SearchDocument(Base):
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_token_count: Mapped[int | None] = mapped_column(Integer)
     embedding_model: Mapped[str | None] = mapped_column(String(50))
-    # TODO: Upgrade to pgvector VECTOR(1536) in production for efficient ANN search.
-    embedding_vector: Mapped[list | None] = mapped_column(ARRAY(Float))
-    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)  # Arbitrary per-doc metadata (tags, language, etc.)
+    # The audit (M-001) flagged this column as needing pgvector ``VECTOR``
+    # type for true cosine similarity. Until a migration adds the
+    # extension we keep the JSONB storage but document the limitation.
+    embedding_vector: Mapped[dict | None] = mapped_column(JSONB)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Audit M-007: re-indexing should bump the timestamp; without it we
+    # cannot answer "what was reindexed today?".
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     __table_args__ = (
-        Index("ix_search_doc_source", "source_type", "source_id"),
+        # M-010: chunk retrieval most often filters on (source_type, source_id).
+        Index("idx_search_documents_source", "source_type", "source_id"),
     )
 
 
@@ -64,6 +71,8 @@ class SearchQuery(Base):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # M-007: track recompute time so we can answer "queries refreshed
+    # today" without it always equalling created_at.
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

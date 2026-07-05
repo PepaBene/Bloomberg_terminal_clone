@@ -82,43 +82,55 @@ def detect_cluster_buy(
         Signal dict with signal_type, insiders, total_value, window_start,
         window_end — or ``None`` if no cluster detected.
     """
-    # Filter to open-market purchases only
+    # Filter to open-market purchases with parseable dates only. Form 4
+    # feeds occasionally arrive with formats other than ISO 8601 (e.g.
+    # "20240115" or "01/15/2024"); silently dropping those rows is safer
+    # than crashing the whole signal extraction.
+    def _parse_txn_date(raw) -> date | None:
+        if isinstance(raw, date):
+            return raw
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(str(raw))
+        except (ValueError, TypeError):
+            pass
+        for fmt in ("%Y%m%d", "%m/%d/%Y", "%d-%m-%Y"):
+            try:
+                from datetime import datetime as _dt
+                return _dt.strptime(str(raw), fmt).date()
+            except (ValueError, TypeError):
+                continue
+        return None
+
     buys: list[dict] = []
     for txn in transactions:
         is_open = txn.get("is_open_market")
         if is_open is None:
             is_open = txn.get("transaction_code", "") in OPEN_MARKET_CODES
         code = txn.get("transaction_code", "")
-        if is_open and code == "P":
-            buys.append(txn)
-
-    if len(buys) < min_insiders:
-        return None
-
-    # Filter out entries with malformed dates
-    valid_buys: list[dict] = []
-    for b in buys:
-        try:
-            date.fromisoformat(b["transaction_date"])
-            valid_buys.append(b)
-        except (ValueError, KeyError):
+        if not (is_open and code == "P"):
             continue
-    buys = valid_buys
+        parsed = _parse_txn_date(txn.get("transaction_date"))
+        if parsed is None:
+            continue
+        # Cache the parsed date so we don't re-parse below.
+        buys.append({**txn, "_parsed_date": parsed})
 
     if len(buys) < min_insiders:
         return None
 
-    # Sort by date
-    buys.sort(key=lambda t: t["transaction_date"])
+    # Sort by parsed date
+    buys.sort(key=lambda t: t["_parsed_date"])
 
     # Sliding window: find a window of <= window_days with >= min_insiders distinct persons
     best_cluster: dict | None = None
     for i in range(len(buys)):
-        start_date = date.fromisoformat(buys[i]["transaction_date"])
+        start_date = buys[i]["_parsed_date"]
         window_txns: list[dict] = []
         persons: set[str] = set()
         for j in range(i, len(buys)):
-            txn_date = date.fromisoformat(buys[j]["transaction_date"])
+            txn_date = buys[j]["_parsed_date"]
             if (txn_date - start_date).days <= window_days:
                 window_txns.append(buys[j])
                 persons.add(buys[j].get("person", buys[j].get("insider_name", "")))
@@ -127,7 +139,7 @@ def detect_cluster_buy(
 
         if len(persons) >= min_insiders:
             total_value = sum(abs(t.get("total_value", 0)) for t in window_txns)
-            end_date = date.fromisoformat(window_txns[-1]["transaction_date"])
+            end_date = window_txns[-1]["_parsed_date"]
             cluster = {
                 "signal_type": "CLUSTER_BUY",
                 "insiders": sorted(persons),

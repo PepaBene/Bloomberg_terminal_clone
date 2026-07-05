@@ -1,14 +1,19 @@
 """Pillar 4 Phase 1: Portfolio management model."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Date, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:  # avoid circular imports at runtime
+    from src.models.position import Position
+    from src.models.transaction import Transaction
 
 
 class Portfolio(TimestampMixin, Base):
@@ -35,3 +40,23 @@ class Portfolio(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(10), default="ACTIVE")
     tags: Mapped[dict | None] = mapped_column(JSONB)
     notes: Mapped[str | None] = mapped_column(Text)
+    # P4-M-029: soft-delete support — distinct from status="ARCHIVED" which
+    # is a user-driven state. Hard-delete still cascades; this allows
+    # restore-from-trash semantics for accidental deletes.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # P4-M-010: ORM-level navigation so callers can selectinload positions
+    # without a separate query. Children cascade-delete with the parent so
+    # ``await session.delete(portfolio)`` cleans up positions/transactions.
+    positions: Mapped[list["Position"]] = relationship(
+        "Position",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    transactions: Mapped[list["Transaction"]] = relationship(
+        "Transaction",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

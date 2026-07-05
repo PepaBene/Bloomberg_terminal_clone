@@ -37,6 +37,7 @@ def compute_performance_metrics(
     benchmark_returns: list[float] | None = None,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
+    minimum_acceptable_return: float | None = None,
 ) -> PerformanceMetrics:
     """Compute portfolio performance metrics from a return series.
 
@@ -46,6 +47,11 @@ def compute_performance_metrics(
     benchmark_returns : list of daily benchmark returns (same length)
     risk_free_rate : annualized risk-free rate (decimal)
     periods_per_year : number of trading periods per year (252 for daily)
+    minimum_acceptable_return : annualized MAR for Sortino's downside
+        deviation. Defaults to ``risk_free_rate`` if not supplied. The MAR
+        is converted to per-period before measuring shortfall, so the
+        downside deviation reflects returns that fell below the investor's
+        target rather than below zero.
 
     Returns
     -------
@@ -85,8 +91,10 @@ def compute_performance_metrics(
     excess_mean = mean_r - daily_rf
     sharpe = (excess_mean / daily_vol * math.sqrt(periods_per_year)) if daily_vol > 1e-10 else None
 
-    # Sortino ratio (downside deviation)
-    downside_returns = [min(r - daily_rf, 0) for r in returns]
+    # Sortino ratio (downside deviation against MAR, not zero excess return).
+    mar_annual = minimum_acceptable_return if minimum_acceptable_return is not None else risk_free_rate
+    mar_per_period = mar_annual / periods_per_year
+    downside_returns = [min(r - mar_per_period, 0) for r in returns]
     downside_var = sum(d ** 2 for d in downside_returns) / max(n - 1, 1)
     downside_dev = math.sqrt(downside_var)
     sortino = (excess_mean / downside_dev * math.sqrt(periods_per_year)) if downside_dev > 1e-10 else None

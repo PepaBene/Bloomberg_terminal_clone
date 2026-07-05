@@ -252,6 +252,12 @@ export {
   usePortfolioTransactions,
   useAddPosition,
   useRecordTransaction,
+  // Rebalance / Optimize / What-If / Upload (P4-F-004)
+  useRebalancePortfolio,
+  useOptimizePortfolio,
+  usePortfolioWhatIf,
+  usePortfolioUploadPreview,
+  usePortfolioUploadCommit,
   // NAV & Allocations
   usePortfolioNav,
   usePortfolioNavHistory,
@@ -319,6 +325,18 @@ export {
   useWatchlistPerformance,
   useWatchlistHeatmap,
 } from './usePortfolio';
+
+// Pillar 4: Quant analytics (P4-F-008 — previously not exported)
+export {
+  useCorrelationMatrix,
+  useFactorExposureQuant,
+  useBenchmarks,
+  useBenchmarkDetail,
+  useBenchmarkReturns,
+  useBenchmarkConstituents,
+  useBenchmarkCompare,
+  useBenchmarkFactSheet,
+} from '@/api/hooks/useQuant';
 
 // Phase 0: Missing Domain Hooks
 export {

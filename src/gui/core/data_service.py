@@ -96,6 +96,16 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 
+def _to_float(value: Any) -> float | None:
+    """Coerce a Decimal/number to float for the GUI thread; None passes through."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _orm_to_dict(obj: Any) -> dict[str, Any]:
     """Convert a SQLAlchemy mapped instance to a plain dict.
 
@@ -196,6 +206,18 @@ class DataService(QObject):
     risk_loaded = Signal(dict)
     quant_loaded = Signal(dict)
     scenario_loaded = Signal(dict)
+
+    #: Financial Analysis Suite signals
+    notable_investors_loaded = Signal(list)
+    congress_trades_loaded = Signal(list)
+    auto_model_loaded = Signal(dict)
+    complex_structure_loaded = Signal(dict)
+
+    #: Fixed-income / portfolio signals
+    debt_maturity_loaded = Signal(dict)
+    credit_ratings_loaded = Signal(dict)
+    issuance_loaded = Signal(list)
+    portfolios_loaded = Signal(list)
 
     #: Emitted on any query error with a human-readable message.
     error = Signal(str)
@@ -354,6 +376,87 @@ class DataService(QObject):
                         results.append(d)
 
         return results
+
+    # ------------------------------------------------------------------
+    # Security/entity resolution (ticker -> ids) for the command bar
+    # ------------------------------------------------------------------
+
+    def resolve_security(self, query: str, timeout: float = 5.0) -> dict | None:
+        """Resolve a ticker/name to ids **synchronously** for command routing.
+
+        Blocks briefly on the worker loop (same pattern as ``initialize``) so
+        the caller can navigate with a fully-populated context in one step.
+        Returns ``{security_id, security_name, entity_id, entity_name, ticker}``
+        or ``None`` when nothing matches / the engine is not ready.
+        """
+        if self._session_factory is None or not query or not query.strip():
+            return None
+        try:
+            future = self._worker.submit(self._resolve_security(query))
+            return future.result(timeout=timeout)
+        except Exception as exc:  # pragma: no cover - defensive (worker/DB issues)
+            logger.warning("resolve_security(%r) failed: %s", query, exc)
+            return None
+
+    async def _resolve_security(self, query: str) -> dict | None:
+        q = query.strip()
+        async with self._session_factory() as session:
+            security = None
+
+            # 1. Exact ticker match via SecurityIdentifier (most precise).
+            sec_id = (
+                await session.execute(
+                    select(SecurityIdentifier.security_id).where(
+                        SecurityIdentifier.identifier_type == "TICKER",
+                        SecurityIdentifier.identifier_value.ilike(q),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if sec_id is not None:
+                security = (
+                    await session.execute(select(Security).where(Security.security_id == sec_id))
+                ).scalar_one_or_none()
+
+            # 2. Fall back to security short_name (often the ticker) / name.
+            if security is None:
+                security = (
+                    await session.execute(
+                        select(Security)
+                        .where(or_(Security.short_name.ilike(q), Security.name.ilike(f"%{q}%")))
+                        .order_by(Security.name)
+                        .limit(1)
+                    )
+                ).scalars().first()
+
+            entity = None
+            if security is not None and security.issuer_entity_id is not None:
+                entity = (
+                    await session.execute(
+                        select(Entity).where(Entity.entity_id == security.issuer_entity_id)
+                    )
+                ).scalar_one_or_none()
+
+            # 3. No security — try to resolve an entity directly (name/short_name).
+            if security is None:
+                entity = (
+                    await session.execute(
+                        select(Entity)
+                        .where(or_(Entity.short_name.ilike(q), Entity.legal_name.ilike(f"%{q}%")))
+                        .order_by(Entity.legal_name)
+                        .limit(1)
+                    )
+                ).scalars().first()
+
+            if security is None and entity is None:
+                return None
+
+            return {
+                "ticker": q.upper(),
+                "security_id": str(security.security_id) if security is not None else None,
+                "security_name": (security.short_name or security.name) if security is not None else None,
+                "entity_id": str(entity.entity_id) if entity is not None else None,
+                "entity_name": entity.legal_name if entity is not None else None,
+            }
 
     # ------------------------------------------------------------------
     # Entity
@@ -958,3 +1061,337 @@ class DataService(QObject):
         if not _ENGINES_AVAILABLE:
             return []
         return list_prebuilt_scenarios()
+
+    # ==================================================================
+    # Financial Analysis Suite: Smart Money / Auto Model / Structure
+    # (These engines are pure-Python and always available.)
+    # ==================================================================
+
+    def load_notable_investors(self) -> None:
+        """Load the curated notable-investor registry. Emits ``notable_investors_loaded``."""
+        self._dispatch(self._load_notable_investors(), self.notable_investors_loaded)
+
+    async def _load_notable_investors(self) -> list[dict]:
+        from src.engines.smart_money import load_notable_investors
+        return load_notable_investors()
+
+    def load_congress_trades(self, politician: str | None = None, limit: int = 200) -> None:
+        """Load congressional STOCK Act trades. Emits ``congress_trades_loaded``."""
+        self._dispatch(self._load_congress_trades(politician, limit), self.congress_trades_loaded)
+
+    async def _load_congress_trades(self, politician: str | None, limit: int) -> list[dict]:
+        from src.engines.smart_money import classify_political_trade
+        from src.models.congressional_trades import CongressionalTrade
+
+        async with self._session_factory() as session:
+            query = select(CongressionalTrade)
+            if politician:
+                query = query.where(CongressionalTrade.politician_name.ilike(f"%{politician}%"))
+            query = query.order_by(desc(CongressionalTrade.transaction_date)).limit(limit)
+            rows = (await session.execute(query)).scalars().all()
+
+        out: list[dict] = []
+        for t in rows:
+            low = float(t.amount_range_low) if t.amount_range_low is not None else None
+            high = float(t.amount_range_high) if t.amount_range_high is not None else None
+            flags = classify_political_trade(
+                {
+                    "transaction_type": t.transaction_type,
+                    "transaction_date": t.transaction_date,
+                    "disclosure_date": t.disclosure_date,
+                    "amount_range_low": low,
+                    "amount_range_high": high,
+                },
+                committees=t.committees or [],
+            )
+            out.append(
+                {
+                    "politician_name": t.politician_name,
+                    "ticker": t.ticker,
+                    "transaction_type": t.transaction_type,
+                    "transaction_date": t.transaction_date.isoformat() if t.transaction_date else None,
+                    "amount_range_low": low,
+                    "amount_range_high": high,
+                    "size_bucket": flags["size_bucket"],
+                    "is_late_disclosure": flags["is_late_disclosure"],
+                }
+            )
+        return out
+
+    def run_auto_model(self, entity_id: str) -> None:
+        """Auto-build a COMPANY model from fundamentals. Emits ``auto_model_loaded``."""
+        self._dispatch(self._run_auto_model(entity_id), self.auto_model_loaded)
+
+    async def _run_auto_model(self, entity_id: str) -> dict:
+        from src.engines.auto_model_builder import build_model
+
+        uid = uuid.UUID(entity_id)
+        data: dict = {}
+        subject = str(entity_id)
+        async with self._session_factory() as session:
+            entity = (
+                await session.execute(select(Entity).where(Entity.entity_id == uid))
+            ).scalar_one_or_none()
+            if entity is not None:
+                subject = getattr(entity, "legal_name", None) or subject
+
+            periods = (
+                await session.execute(
+                    select(FinancialPeriod)
+                    .where(FinancialPeriod.entity_id == uid)
+                    .order_by(desc(FinancialPeriod.period_end_date))
+                    .limit(2)
+                )
+            ).scalars().all()
+            statements = []
+            for period in periods:
+                stmt = (
+                    await session.execute(
+                        select(IncomeStatement).where(IncomeStatement.period_id == period.period_id)
+                    )
+                ).scalar_one_or_none()
+                if stmt:
+                    statements.append(stmt)
+
+        if statements:
+            latest = statements[0]
+            rev = float(latest.total_revenue) if latest.total_revenue is not None else None
+            op = float(latest.operating_income) if latest.operating_income is not None else None
+            if rev and op is not None:
+                data["ebitda_margin"] = round(op / rev * 100, 2)
+            if len(statements) > 1 and statements[1].total_revenue and rev:
+                prev_rev = float(statements[1].total_revenue)
+                if prev_rev:
+                    data["revenue_growth"] = round((rev - prev_rev) / prev_rev * 100, 2)
+
+        return build_model("COMPANY", data, subject).to_dict()
+
+    def run_complex_structure(self, entity_id: str) -> None:
+        """Analyze complex structure from stored capital structure. Emits ``complex_structure_loaded``."""
+        self._dispatch(self._run_complex_structure(entity_id), self.complex_structure_loaded)
+
+    async def _run_complex_structure(self, entity_id: str) -> dict:
+        from dataclasses import asdict
+
+        from src.engines.complex_structure import analyze_complex_structure
+        from src.models.capital_structure import CapitalStructure, DebtTranche
+
+        uid = uuid.UUID(entity_id)
+        subject = str(entity_id)
+        debt_tranches: list[dict] = []
+        async with self._session_factory() as session:
+            entity = (
+                await session.execute(select(Entity).where(Entity.entity_id == uid))
+            ).scalar_one_or_none()
+            if entity is not None:
+                subject = getattr(entity, "legal_name", None) or subject
+
+            cap = (
+                await session.execute(
+                    select(CapitalStructure)
+                    .where(CapitalStructure.entity_id == uid)
+                    .order_by(desc(CapitalStructure.as_of_date))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if cap is not None:
+                tranches = (
+                    await session.execute(
+                        select(DebtTranche).where(
+                            DebtTranche.capital_structure_id == cap.capital_structure_id
+                        )
+                    )
+                ).scalars().all()
+                for t in tranches:
+                    debt_tranches.append(
+                        {
+                            "instrument_name": t.instrument_name,
+                            "principal_amount": float(t.principal_amount)
+                            if t.principal_amount is not None
+                            else 0.0,
+                            "seniority_rank": t.seniority_rank,
+                            "is_secured": (t.instrument_type or "").upper().startswith("SECURED")
+                            if t.instrument_type
+                            else False,
+                        }
+                    )
+
+        report = analyze_complex_structure({"debt_tranches": debt_tranches}, subject)
+        return asdict(report)
+
+    # ------------------------------------------------------------------
+    # Debt maturity (DDIS)
+    # ------------------------------------------------------------------
+
+    def run_debt_maturity(self, entity_id: str) -> None:
+        """Load the latest debt maturity profile. Emits ``debt_maturity_loaded``."""
+        self._dispatch(self._run_debt_maturity(entity_id), self.debt_maturity_loaded)
+
+    async def _run_debt_maturity(self, entity_id: str) -> dict:
+        from src.models.debt_maturity import DebtMaturityProfile, MaturityBucket
+
+        uid = uuid.UUID(entity_id)
+        async with self._session_factory() as session:
+            subject = await self._entity_name(session, uid)
+            profile = (
+                await session.execute(
+                    select(DebtMaturityProfile)
+                    .where(DebtMaturityProfile.entity_id == uid)
+                    .order_by(desc(DebtMaturityProfile.as_of_date))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if profile is None:
+                return {"subject": subject, "profile": {}, "buckets": []}
+            buckets = (
+                await session.execute(
+                    select(MaturityBucket)
+                    .where(MaturityBucket.profile_id == profile.profile_id)
+                    .order_by(MaturityBucket.year)
+                )
+            ).scalars().all()
+
+        return {
+            "subject": subject,
+            "profile": {
+                "weighted_avg_maturity_years": _to_float(profile.weighted_avg_maturity_years),
+                "weighted_avg_coupon": _to_float(profile.weighted_avg_coupon),
+                "debt_maturing_1yr": _to_float(profile.debt_maturing_1yr),
+                "pct_debt_maturing_1yr": _to_float(profile.pct_debt_maturing_1yr),
+                "pct_debt_maturing_3yr": _to_float(profile.pct_debt_maturing_3yr),
+                "cash_to_1yr_maturities": _to_float(profile.cash_to_1yr_maturities),
+                "maturity_wall_alert": bool(profile.maturity_wall_alert),
+                "near_term_stress": bool(profile.near_term_stress),
+            },
+            "buckets": [
+                {"year": b.year, "total_amount": _to_float(b.total_amount), "breakdown": b.breakdown or {}}
+                for b in buckets
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # Credit ratings (CRPR)
+    # ------------------------------------------------------------------
+
+    def run_credit_ratings(self, entity_id: str) -> None:
+        """Load current ratings + rating actions. Emits ``credit_ratings_loaded``."""
+        self._dispatch(self._run_credit_ratings(entity_id), self.credit_ratings_loaded)
+
+    async def _run_credit_ratings(self, entity_id: str) -> dict:
+        from src.models.credit_rating import CreditRatingEvent, CurrentCreditRating
+
+        uid = uuid.UUID(entity_id)
+        async with self._session_factory() as session:
+            subject = await self._entity_name(session, uid)
+            current = (
+                await session.execute(
+                    select(CurrentCreditRating).where(CurrentCreditRating.entity_id == uid)
+                )
+            ).scalars().all()
+            events = (
+                await session.execute(
+                    select(CreditRatingEvent)
+                    .where(CreditRatingEvent.entity_id == uid)
+                    .order_by(desc(CreditRatingEvent.event_date))
+                    .limit(50)
+                )
+            ).scalars().all()
+
+        return {
+            "subject": subject,
+            "current": [
+                {
+                    "agency": c.agency,
+                    "current_rating": c.current_rating,
+                    "outlook": c.outlook,
+                    "watch_status": c.watch_status,
+                    "is_investment_grade": c.is_investment_grade,
+                    "last_action_date": c.last_action_date.isoformat() if c.last_action_date else None,
+                }
+                for c in current
+            ],
+            "events": [
+                {
+                    "event_date": e.event_date.isoformat() if e.event_date else None,
+                    "agency": e.agency,
+                    "old_rating": e.old_rating,
+                    "new_rating": e.new_rating,
+                    "direction": e.direction,
+                    "notches_changed": e.notches_changed,
+                }
+                for e in events
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # New issuance (ISSD)
+    # ------------------------------------------------------------------
+
+    def run_issuance(self, entity_id: str | None = None, limit: int = 100) -> None:
+        """Load primary-market issuance. Emits ``issuance_loaded``."""
+        self._dispatch(self._run_issuance(entity_id, limit), self.issuance_loaded)
+
+    async def _run_issuance(self, entity_id: str | None, limit: int) -> list[dict]:
+        from src.models.bond_issuance import BondIssuance
+
+        async with self._session_factory() as session:
+            query = select(BondIssuance)
+            if entity_id:
+                query = query.where(BondIssuance.issuer_entity_id == uuid.UUID(entity_id))
+            query = query.order_by(desc(BondIssuance.pricing_date)).limit(limit)
+            rows = (await session.execute(query)).scalars().all()
+
+        return [
+            {
+                "pricing_date": d.pricing_date.isoformat() if d.pricing_date else None,
+                "coupon_rate": _to_float(d.coupon_rate),
+                "maturity_date": d.maturity_date.isoformat() if d.maturity_date else None,
+                "issued_size_mm": _to_float(d.issued_size_mm),
+                "final_spread_bps": d.final_spread_bps,
+                "issue_yield": _to_float(d.issue_yield),
+                "seniority": d.seniority,
+            }
+            for d in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Portfolios (PORT)
+    # ------------------------------------------------------------------
+
+    def load_portfolios(self, limit: int = 200) -> None:
+        """Load managed portfolios. Emits ``portfolios_loaded``."""
+        self._dispatch(self._load_portfolios(limit), self.portfolios_loaded)
+
+    async def _load_portfolios(self, limit: int) -> list[dict]:
+        from src.models.portfolio import Portfolio
+
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(Portfolio)
+                    .where(Portfolio.deleted_at.is_(None))
+                    .order_by(Portfolio.portfolio_name)
+                    .limit(limit)
+                )
+            ).scalars().all()
+
+        return [
+            {
+                "portfolio_name": p.portfolio_name,
+                "portfolio_type": p.portfolio_type,
+                "inception_date": p.inception_date.isoformat() if p.inception_date else None,
+                "base_currency": p.base_currency,
+                "initial_cash": _to_float(p.initial_cash),
+                "current_cash": _to_float(p.current_cash),
+                "status": p.status,
+            }
+            for p in rows
+        ]
+
+    async def _entity_name(self, session: AsyncSession, entity_id: uuid.UUID) -> str:
+        entity = (
+            await session.execute(select(Entity).where(Entity.entity_id == entity_id))
+        ).scalar_one_or_none()
+        if entity is not None:
+            return getattr(entity, "legal_name", None) or str(entity_id)
+        return str(entity_id)

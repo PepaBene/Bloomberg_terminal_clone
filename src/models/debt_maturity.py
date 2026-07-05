@@ -22,8 +22,9 @@ class DebtMaturityProfile(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # The filings table is named ``filings`` in fundamentals.py.
     filing_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sec_filings.filing_id")
+        UUID(as_uuid=True), ForeignKey("filings.filing_id")
     )
 
     # Refinancing risk indicators

@@ -254,15 +254,34 @@ async def get_country_events(
 ):
     """Get active geopolitical events for a country."""
     cc = country_code.upper()
-    # Push filter to SQL: the JSONB '?' operator returns true when
-    # the string exists as an array element *or* as an object key,
-    # matching the semantics we need for countries_involved.
-    result = await session.execute(
-        select(GeopoliticalEvent)
-        .where(GeopoliticalEvent.countries_involved.has_key(cc))
-        .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
-    )
-    rows = result.scalars().all()
+    # On PostgreSQL push the filter to SQL: the JSONB '?' operator (exposed
+    # via has_key()) returns true when the string exists as an array
+    # element *or* as an object key, matching the semantics we need for
+    # countries_involved. SQLite (used in tests) lacks that operator, so
+    # fall back to in-memory filtering on dialect mismatch — still bounded
+    # to the most recent rows.
+    dialect = session.bind.dialect.name if session.bind else ""
+    if dialect == "postgresql":
+        result = await session.execute(
+            select(GeopoliticalEvent)
+            .where(GeopoliticalEvent.countries_involved.has_key(cc))
+            .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+            .limit(200)
+        )
+        rows = list(result.scalars().all())
+    else:
+        result = await session.execute(
+            select(GeopoliticalEvent)
+            .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+            .limit(500)
+        )
+        rows = []
+        for r in result.scalars():
+            involved = r.countries_involved or []
+            if isinstance(involved, list) and cc in involved:
+                rows.append(r)
+            elif isinstance(involved, dict) and cc in involved:
+                rows.append(r)
     return [
         GeopoliticalEventResponse(
             id=r.id,

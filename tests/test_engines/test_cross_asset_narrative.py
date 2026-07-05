@@ -87,8 +87,17 @@ class TestDetectFallenAngelOverhang:
         assert result is not None
         assert result["risk_level"] == "LOW"
 
-    def test_no_risk_stable(self):
+    def test_high_forced_selling_with_stable_momentum_still_flags(self):
+        # E-026: STABLE momentum used to mask a 60% forced-seller overhang
+        # entirely. The engine now still surfaces the risk because the
+        # forced-seller share alone is material.
         result = detect_fallen_angel_overhang("BBB-", "STABLE", 60.0)
+        assert result is not None
+        assert result["forced_selling_pct"] == 60.0
+
+    def test_no_risk_low_forced_selling_stable(self):
+        # Low forced-seller share + STABLE momentum should still drop out.
+        result = detect_fallen_angel_overhang("BBB-", "STABLE", 20.0)
         assert result is None
 
     def test_no_risk_high_rating(self):

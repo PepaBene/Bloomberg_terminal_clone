@@ -121,30 +121,26 @@ def compute_all_surprises(
     revenue_surprise = compute_surprise(actual_revenue, consensus_revenue)
     ebitda_surprise = compute_surprise(actual_ebitda, consensus_ebitda)
 
-    # Determine beat/miss based on available surprises with weighted voting.
-    # EPS gets double weight because it is the most material metric.
-    metric_results: list[tuple[str, float]] = []
+    # Determine beat/miss with materiality weighting. EPS dominates
+    # analyst attention, so a clean EPS beat with a small revenue miss
+    # should still classify as a beat — equal-weight majority voting
+    # produced misleading classifications in mixed-result quarters.
+    weights = {"eps": 0.5, "revenue": 0.3, "ebitda": 0.2}
+    weighted = []
     if eps_surprise is not None:
-        metric_results.append(("eps", eps_surprise))
+        weighted.append(("eps", eps_surprise))
     if revenue_surprise is not None:
-        metric_results.append(("revenue", revenue_surprise))
+        weighted.append(("revenue", revenue_surprise))
     if ebitda_surprise is not None:
-        metric_results.append(("ebitda", ebitda_surprise))
+        weighted.append(("ebitda", ebitda_surprise))
 
     is_beat = False
     is_miss = False
-    if metric_results:
-        # EPS gets double weight in beat/miss determination
-        weighted_beat = sum(
-            2 if metric == "eps" else 1
-            for metric, surprise in metric_results if surprise > 0
-        )
-        weighted_miss = sum(
-            2 if metric == "eps" else 1
-            for metric, surprise in metric_results if surprise < 0
-        )
-        is_beat = weighted_beat > weighted_miss
-        is_miss = weighted_miss > weighted_beat
+    if weighted:
+        score = sum(weights[name] * (1.0 if val > 0 else -1.0 if val < 0 else 0.0)
+                    for name, val in weighted)
+        is_beat = score > 0.0
+        is_miss = score < 0.0
 
     return SurpriseResult(
         eps_surprise_pct=eps_surprise,

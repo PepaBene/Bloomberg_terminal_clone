@@ -488,6 +488,9 @@ def build_issuer_credit_profile(
         [{agency, rating, outlook, momentum}].
     financials : dict | None
         {interest_expense, total_debt, accounting_cost_of_debt}.
+    entity_id : str
+        Optional issuer entity identifier; the caller should supply this so
+        downstream persistence does not key records to an empty string.
 
     Returns
     -------

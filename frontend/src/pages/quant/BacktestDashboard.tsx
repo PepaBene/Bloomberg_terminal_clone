@@ -39,36 +39,15 @@ function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
 }
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Empty fallback (P4-F-017) -----------------------------------------------
+// Default strategies / backtest results / recent runs are now empty so
+// users see a true "nothing to show" state instead of fabricated CAGR /
+// Sharpe figures attributed to specific strategies. Live data populates
+// the lists when the API returns rows.
 
-const strategies = [
-  { id: 'strat-1', name: 'Momentum Long/Short', universe: 'S&P 500', rebalance: 'Monthly' },
-  { id: 'strat-2', name: 'Value Factor Tilt', universe: 'Russell 1000', rebalance: 'Quarterly' },
-  { id: 'strat-3', name: 'Min Variance', universe: 'MSCI World', rebalance: 'Monthly' },
-  { id: 'strat-4', name: 'Quality + Momentum', universe: 'S&P 500', rebalance: 'Monthly' },
-  { id: 'strat-5', name: 'Risk Parity', universe: 'Multi-Asset', rebalance: 'Weekly' },
-  { id: 'strat-6', name: 'Earnings Revision Alpha', universe: 'Russell 2000', rebalance: 'Monthly' },
-];
-
-const backtestResults = [
-  { strategy: 'Momentum Long/Short', period: '2019-2024', cagr: 14.82, sharpe: 1.24, maxDrawdown: -18.4, winRate: 62.3, alpha: 6.12 },
-  { strategy: 'Value Factor Tilt',   period: '2019-2024', cagr: 9.45,  sharpe: 0.78, maxDrawdown: -24.8, winRate: 55.8, alpha: 2.34 },
-  { strategy: 'Min Variance',        period: '2019-2024', cagr: 7.62,  sharpe: 0.92, maxDrawdown: -12.6, winRate: 58.4, alpha: 1.18 },
-  { strategy: 'Quality + Momentum',  period: '2019-2024', cagr: 16.24, sharpe: 1.38, maxDrawdown: -16.2, winRate: 64.1, alpha: 7.86 },
-  { strategy: 'Risk Parity',         period: '2019-2024', cagr: 8.18,  sharpe: 1.04, maxDrawdown: -10.8, winRate: 60.2, alpha: 1.92 },
-  { strategy: 'Earnings Revision Alpha', period: '2019-2024', cagr: 12.56, sharpe: 1.12, maxDrawdown: -20.4, winRate: 59.6, alpha: 4.84 },
-  { strategy: 'Momentum Long/Short', period: '2015-2024', cagr: 12.38, sharpe: 1.08, maxDrawdown: -28.6, winRate: 60.1, alpha: 4.92 },
-  { strategy: 'Quality + Momentum',  period: '2015-2024', cagr: 14.86, sharpe: 1.22, maxDrawdown: -22.4, winRate: 62.8, alpha: 6.48 },
-];
-
-const recentBacktests = [
-  { id: 'bt-1', strategy: 'Quality + Momentum', ranAt: '2026-04-02 09:14:22', status: 'Completed', cagr: 16.24, sharpe: 1.38 },
-  { id: 'bt-2', strategy: 'Momentum Long/Short', ranAt: '2026-04-01 16:42:08', status: 'Completed', cagr: 14.82, sharpe: 1.24 },
-  { id: 'bt-3', strategy: 'Risk Parity', ranAt: '2026-04-01 11:28:54', status: 'Completed', cagr: 8.18, sharpe: 1.04 },
-  { id: 'bt-4', strategy: 'Value Factor Tilt', ranAt: '2026-03-31 14:56:12', status: 'Completed', cagr: 9.45, sharpe: 0.78 },
-  { id: 'bt-5', strategy: 'Min Variance', ranAt: '2026-03-31 10:22:38', status: 'Failed', cagr: null, sharpe: null },
-  { id: 'bt-6', strategy: 'Earnings Revision Alpha', ranAt: '2026-03-30 15:08:44', status: 'Completed', cagr: 12.56, sharpe: 1.12 },
-];
+const strategies: { id: string; name: string; universe: string; rebalance: string }[] = [];
+const backtestResults: { strategy: string; period: string; cagr: number; sharpe: number; maxDrawdown: number; winRate: number; alpha: number }[] = [];
+const recentBacktests: { id: string; strategy: string; ranAt: string; status: string; cagr: number | null; sharpe: number | null }[] = [];
 
 const kpiData = [
   { label: 'Strategies', value: '6' },

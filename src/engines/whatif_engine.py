@@ -444,6 +444,7 @@ def estimate_factor_impact(
     positions: list[dict],
     trades: list[dict],
     factor_data: dict,
+    portfolio_nav: float | None = None,
 ) -> list[FactorImpact]:
     """Estimate change in factor exposures from proposed trades.
 
@@ -452,10 +453,13 @@ def estimate_factor_impact(
     positions : list[dict]
         Current positions: {ticker, weight, ...}. Weight in percentage.
     trades : list[dict]
-        Proposed trades: {ticker, action, shares, price_per_share, ...}.
+        Proposed trades: {ticker, action, shares, price_per_share, weight_pct?}.
     factor_data : dict
         Per-ticker factor loadings:
         {ticker: {factor_name: loading, ...}, ...}.
+    portfolio_nav : float | None
+        Optional portfolio NAV used to translate trade notional into a weight
+        delta when ``weight_pct`` is not supplied on the trade.
 
     Returns
     -------
@@ -488,28 +492,30 @@ def estimate_factor_impact(
         current_weights, factor_data, total_current_weight,
     )
 
-    # Proposed weights: apply trade deltas
+    # Proposed weights: apply trade deltas. Prefer an explicit weight_pct on
+    # the trade. When absent, derive the weight delta from notional / NAV;
+    # the engine accepts a portfolio_nav argument when available, otherwise
+    # we approximate using the implied NAV (sum of current weights ≈ 1.0).
     proposed_weights = dict(current_weights)
     total_trade_weight = 0.0
+    implied_nav = portfolio_nav if portfolio_nav and portfolio_nav > 0 else None
     for t in trades:
         ticker = t.get("ticker", "")
         action = t.get("action", "BUY").upper()
-        shares = t.get("shares", 0.0)
-        price = t.get("price_per_share", 0.0)
+        shares = float(t.get("shares", 0.0) or 0.0)
+        price = float(t.get("price_per_share", 0.0) or 0.0)
         notional = shares * price
-        # Estimate weight delta as pct of total current weight value
-        if total_current_weight > 0:
-            # Use the trade's notional relative to the implied total market value
-            # Approximate: weight_delta = notional / (total_mv) * 100
-            # Since we don't have total_mv directly, use the trade's own
-            # weight_pct field if provided, or approximate from notional
-            weight_delta = t.get("weight_pct", 0.0)
-            if weight_delta == 0.0 and notional > 0 and total_current_weight > 0:
-                # Rough approximation: assume total_mv proportional
-                weight_delta = notional / (notional / (1.0)) * 1.0  # fallback
-                weight_delta = t.get("weight_pct", 1.0)  # use provided or default 1%
+        explicit_weight = t.get("weight_pct")
+        if explicit_weight is not None:
+            weight_delta = float(explicit_weight)
+        elif implied_nav and notional > 0:
+            weight_delta = notional / implied_nav
+        elif total_current_weight > 0 and notional > 0:
+            # Without a NAV we can only approximate: treat each unit of
+            # current weight as proportional to its notional contribution.
+            weight_delta = notional / max(total_current_weight, 1.0)
         else:
-            weight_delta = t.get("weight_pct", 1.0)
+            weight_delta = 0.0
 
         if ticker not in proposed_weights:
             proposed_weights[ticker] = 0.0

@@ -29,12 +29,18 @@ async def submit_backtest(
     body: BacktestRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Submit a new backtest. Creates the run record with COMPLETED status."""
+    """Submit a new backtest.
+
+    The run is queued with status PENDING. Marking it COMPLETED on insert
+    would lie to the client because the underlying backtest engine has not
+    yet executed. A batch worker reads PENDING rows, runs the backtester,
+    and writes a BacktestResult before flipping status to COMPLETED.
+    """
     run = BacktestRun(
         backtest_id=uuid.uuid4(),
         name=body.name,
         description=body.description,
-        status="COMPLETED",
+        status="PENDING",
         strategy_definition=body.strategy_definition,
         start_date=body.start_date,
         end_date=body.end_date,
@@ -46,6 +52,7 @@ async def submit_backtest(
     )
     session.add(run)
     await session.commit()
+    await session.refresh(run)
     return BacktestRunResponse.model_validate(run)
 
 

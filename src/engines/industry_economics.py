@@ -232,10 +232,13 @@ def compute_industry_economics(
         bottom_q = sorted_roics[q1_idx]
         top_q = sorted_roics[q3_idx]
 
-    # Capital cycle indicator
-    # Cannot determine trend from a single point-in-time spread;
-    # a level (spread) is not a trend (delta). Without historical spread
-    # data to compute a delta, we pass None to indicate unknown trend.
+    # Capital cycle indicator. The static ROIC-WACC spread is a *level*,
+    # not a trend (direction of change). Without per-period history we
+    # cannot compute a true trend, so we pass None (not 0.0) — the
+    # classify_capital_cycle() signature and docstring explicitly treat
+    # None as "trend unavailable" and skip the EXPANDING branch, whereas
+    # 0.0 would be a fabricated (and misleadingly precise) data point.
+    # Callers that have ROIC history should pass a precomputed roic_trend.
     roic_trend = None
 
     cycle = classify_capital_cycle(all_capex_growth, roic_trend)

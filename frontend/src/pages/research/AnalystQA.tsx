@@ -8,12 +8,14 @@ const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
-const suggestedQuestions = [
-  'What is Apple\'s revenue growth trajectory for the next 3 years?',
-  'Compare NVDA and AMD gross margins over the last 8 quarters',
-  'Which S&P 500 companies have the highest buyback yield?',
-  'Summarize JPMorgan\'s latest credit risk factors from their 10-K',
-  'What are the key differences between Q1 and Q4 earnings calls for MSFT?',
+// F-003: removed the prepopulated multi-turn Apple/MSFT/GOOGL chat
+// transcript. A user opening the page fresh now sees an empty chat
+// instead of a fabricated conversation about a specific company.
+const suggestedQuestions: string[] = [
+  'Summarise the latest 10-K risk factors',
+  'Compare gross margins for two tickers over the last 8 quarters',
+  'Which companies have the highest buyback yield?',
+  'What changed between Q1 and Q4 earnings calls for a given ticker?',
 ];
 
 interface ChatMessage {

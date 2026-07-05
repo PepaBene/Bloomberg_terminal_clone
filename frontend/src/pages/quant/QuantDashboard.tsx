@@ -39,29 +39,16 @@ function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
 }
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Empty / placeholder data (P4-F-019) -------------------------------------
+// We avoid hardcoded factor / momentum / vol-surface defaults: the
+// previous values surfaced specific tickers (NVDA, TSLA, etc.) and
+// fabricated implied vols via ``Math.abs(strikeIdx - 3) * 2.5`` that
+// users couldn't distinguish from real data. Empty arrays render an
+// empty table; live API data fills the panels.
 
-const factorPerformance = [
-  { factor: 'Value (HML)',         mtd: 1.82,  qtd: 3.45,  ytd: 5.12,  oneYear: 8.24,  sharpe: 0.62, ic: 0.045 },
-  { factor: 'Size (SMB)',          mtd: -0.54, qtd: -1.22, ytd: -2.18, oneYear: -3.84, sharpe: -0.28, ic: 0.012 },
-  { factor: 'Momentum (MOM)',      mtd: 2.14,  qtd: 5.68,  ytd: 9.42,  oneYear: 14.28, sharpe: 0.84, ic: 0.068 },
-  { factor: 'Quality (RMW)',       mtd: 0.92,  qtd: 2.18,  ytd: 4.56,  oneYear: 7.82,  sharpe: 0.72, ic: 0.052 },
-  { factor: 'Low Volatility',     mtd: 0.38,  qtd: 1.24,  ytd: 3.28,  oneYear: 6.14,  sharpe: 0.58, ic: 0.038 },
-  { factor: 'Investment (CMA)',    mtd: -0.18, qtd: 0.42,  ytd: 1.86,  oneYear: 3.52,  sharpe: 0.34, ic: 0.028 },
-  { factor: 'Profitability',      mtd: 1.42,  qtd: 3.86,  ytd: 6.24,  oneYear: 10.18, sharpe: 0.76, ic: 0.058 },
-  { factor: 'Earnings Revision',  mtd: 1.68,  qtd: 4.12,  ytd: 7.86,  oneYear: 12.42, sharpe: 0.82, ic: 0.064 },
-];
+const factorPerformance: { factor: string; mtd: number; qtd: number; ytd: number; oneYear: number; sharpe: number; ic: number }[] = [];
 
-const momentumSignals = [
-  { ticker: 'NVDA',  name: 'NVIDIA Corp.',       score: 94, signal: 'Strong Buy',  priceReturn: 42.8,  rsi: 72, macd: 'Bullish' },
-  { ticker: 'AVGO',  name: 'Broadcom Inc.',      score: 88, signal: 'Buy',         priceReturn: 28.4,  rsi: 68, macd: 'Bullish' },
-  { ticker: 'META',  name: 'Meta Platforms',       score: 85, signal: 'Buy',         priceReturn: 22.6,  rsi: 64, macd: 'Bullish' },
-  { ticker: 'LLY',   name: 'Eli Lilly',           score: 82, signal: 'Buy',         priceReturn: 18.2,  rsi: 62, macd: 'Bullish' },
-  { ticker: 'AMZN',  name: 'Amazon.com',          score: 78, signal: 'Buy',         priceReturn: 15.8,  rsi: 58, macd: 'Neutral' },
-  { ticker: 'TSLA',  name: 'Tesla Inc.',           score: 22, signal: 'Sell',        priceReturn: -24.6, rsi: 32, macd: 'Bearish' },
-  { ticker: 'PFE',   name: 'Pfizer Inc.',          score: 18, signal: 'Strong Sell', priceReturn: -18.2, rsi: 28, macd: 'Bearish' },
-  { ticker: 'BA',    name: 'Boeing Co.',           score: 15, signal: 'Strong Sell', priceReturn: -32.4, rsi: 24, macd: 'Bearish' },
-];
+const momentumSignals: { ticker: string; name: string; score: number; signal: string; priceReturn: number; rsi: number; macd: string }[] = [];
 
 interface VolSurfacePoint {
   tenor: string;
@@ -70,17 +57,6 @@ interface VolSurfacePoint {
 }
 
 const volSurface: VolSurfacePoint[] = [];
-const tenors = ['1W', '1M', '2M', '3M', '6M', '1Y'];
-const strikes = ['80%', '90%', '95%', '100%', '105%', '110%', '120%'];
-for (const tenor of tenors) {
-  for (const strike of strikes) {
-    const tenorIdx = tenors.indexOf(tenor);
-    const strikeIdx = strikes.indexOf(strike);
-    const baseVol = 22 + tenorIdx * 1.5;
-    const skew = Math.abs(strikeIdx - 3) * 2.5 + (strikeIdx < 3 ? (3 - strikeIdx) * 1.2 : 0);
-    volSurface.push({ tenor, moneyness: strike, iv: Math.round((baseVol + skew) * 10) / 10 });
-  }
-}
 
 function scoreColor(score: number): string {
   if (score >= 80) return 'var(--color-signal-positive)';

@@ -309,3 +309,28 @@ def compute_transaction_cash_impact(
         return round(-(shares * price), 2)
     else:
         return 0.0
+
+
+def match_corporate_actions_to_holdings(
+    actions: list[dict],
+    holdings: list[dict],
+) -> list[dict]:
+    """Match corporate actions to current holdings by ticker.
+
+    Returns one ``{action, holding}`` dict per (action, holding) pair where
+    the tickers match. Used by the portfolio corporate-actions queue to
+    flag actions that affect the user's positions.
+    """
+    by_ticker: dict[str, list[dict]] = {}
+    for h in holdings:
+        ticker = (h.get("ticker") or "").upper()
+        if not ticker:
+            continue
+        by_ticker.setdefault(ticker, []).append(h)
+
+    matches: list[dict] = []
+    for action in actions:
+        ticker = (action.get("ticker") or "").upper()
+        for holding in by_ticker.get(ticker, []):
+            matches.append({"action": action, "holding": holding})
+    return matches

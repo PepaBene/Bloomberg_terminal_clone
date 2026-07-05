@@ -28,6 +28,8 @@ function SkeletonBlock({ width = '100%', height = '1em' }: { width?: string; hei
 
 export default function ThesisBuilder() {
   const { entityId } = useParams<{ entityId: string }>();
+  // Don't fall back to NVDA — that silently shows NVIDIA's thesis as if it
+  // were the user's. Disable queries until a real entity ID is provided.
   const resolvedId = entityId;
   const { data: apiThesis, isLoading, isError } = useResearchThesis(resolvedId);
   const [generating, setGenerating] = useState(false);

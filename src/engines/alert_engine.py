@@ -85,6 +85,13 @@ def evaluate_filing_alerts(
         event_entity = event.get("entity_id", "")
         event_priority = event.get("priority", "MEDIUM")
 
+        # Track which (alert_type, priority) pairs we've already emitted for
+        # this event so we don't double-fire identical alerts when several
+        # rules match, while still emitting separate alerts at distinct
+        # priorities (e.g. a CRITICAL escalation in addition to a HIGH
+        # baseline rule).
+        emitted: set[tuple[str, str]] = set()
+
         for rule in rules:
             if not rule.get("is_active", True):
                 continue
@@ -112,10 +119,17 @@ def evaluate_filing_alerts(
             if PRIORITY_ORDER.get(event_priority, 0) < PRIORITY_ORDER.get(threshold, 0):
                 continue
 
-            # Create alert
+            # Allow rule-level priority override so CRITICAL rules still
+            # surface alongside HIGH baselines for the same event.
+            rule_priority = rule.get("priority") or event_priority
+            key = (event_type, rule_priority)
+            if key in emitted:
+                continue
+            emitted.add(key)
+
             alerts.append(AlertResult(
                 alert_type=event_type,
-                priority=event_priority,
+                priority=rule_priority,
                 entity_id=event_entity,
                 entity_name=event.get("entity_name", ""),
                 title=event.get("title", format_alert_title(event_type, event.get("entity_name", ""), event.get("detail", {}))),

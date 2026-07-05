@@ -211,7 +211,10 @@ async def get_latest_filing_diff(
     )
     year_old = year_pair.scalar_one_or_none()
     if year_old is None:
-        raise HTTPException(status_code=404, detail="No matching filing found")
+        # No paired prior-year row for this max year; return an empty diff
+        # (via the shared helper, which itself 404s on an empty row list)
+        # rather than passing None into the WHERE clause below.
+        return _build_diff_response(entity_id, [])
 
     result = await session.execute(
         select(FilingDiff)
@@ -284,7 +287,7 @@ async def get_filing_diff_summary(
     )
     year_old = year_pair.scalar_one_or_none()
     if year_old is None:
-        raise HTTPException(status_code=404, detail="No matching filing found")
+        raise HTTPException(status_code=404, detail="No filing diffs found")
 
     result = await session.execute(
         select(FilingDiff)

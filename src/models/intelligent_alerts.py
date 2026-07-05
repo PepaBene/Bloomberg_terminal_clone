@@ -4,7 +4,18 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,12 +48,17 @@ class ConsolidatedAlert(Base):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # M-006: track acknowledgement / state changes so audit queries like
+    # "alerts acknowledged in the last hour" can be answered.
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     __table_args__ = (
-        UniqueConstraint("entity_id", "primary_type", "created_at", name="uq_consolidated_alert_entity_type_ts"),
+        # M-012: index supports burst-deduplication checks on
+        # (entity_id, primary_type, created_at) without enforcing a hard
+        # unique constraint that would block legitimate retries.
+        Index("idx_consolidated_alert_dedup", "entity_id", "primary_type", "created_at"),
     )
 
 

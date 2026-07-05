@@ -110,6 +110,11 @@ def detect_fallen_angel_overhang(
 
     forced_selling = ig_holders_pct if ig_holders_pct is not None else 0.0
 
+    # A high forced-seller share is itself an overhang signal even when
+    # momentum is currently STABLE/IMPROVING — the original code returned
+    # None in that case and silently dropped real risk. We flag it, but at
+    # a capped MEDIUM severity since the DETERIORATING-momentum tiers below
+    # represent the more urgent (actively worsening) scenario.
     if momentum == "DETERIORATING":
         if rating == "BBB-" and forced_selling >= 50:
             risk_level = "HIGH"

@@ -172,23 +172,40 @@ class TranscriptAnalysis:
 # ---------------------------------------------------------------------------
 
 
-_ABBREV_LOOKBEHIND = (
-    r'(?<!\bDr)(?<!\bMr)(?<!\bMs)(?<!\bMrs)(?<!\bSr)(?<!\bJr)'
-    r'(?<!\bSt)(?<!\bInc)(?<!\bCo)(?<!\bLtd)(?<!\bCorp)(?<!\bvs)'
-    r'(?<!\bU\.S)'
-)
-_SENTENCE_SPLIT_RE = re.compile(_ABBREV_LOOKBEHIND + r'\.\s+')
+_ABBREVIATIONS = {
+    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "St",
+    "Inc", "Corp", "Co", "Ltd", "LLC",
+    "U.S", "U.K", "E.U", "U.A.E", "etc", "vs",
+    "e.g", "i.e", "Q1", "Q2", "Q3", "Q4",
+}
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences by period followed by space or end.
+    """Split text into sentences by sentence-terminating punctuation.
 
-    Uses lookbehind assertions to avoid splitting on common abbreviations
-    (Dr., Mr., Ms., Mrs., Sr., Jr., St., Inc., Co., Ltd., Corp., vs., U.S.).
+    Handles common abbreviations (e.g. "Dr. Smith said...") so we don't
+    inflate sentence counts on every honorific or corporate suffix.
     """
     if not text or not text.strip():
         return []
-    sentences = _SENTENCE_SPLIT_RE.split(text.strip())
+
+    # Sentence boundary candidates
+    raw_parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    sentences: list[str] = []
+    buffer = ""
+    for part in raw_parts:
+        if not part:
+            continue
+        candidate = (buffer + " " + part).strip() if buffer else part
+        # If this part ends with an abbreviation, attach the next chunk too.
+        last_word = re.split(r"\s+", candidate.rstrip(".!?"))[-1]
+        if last_word in _ABBREVIATIONS:
+            buffer = candidate
+            continue
+        sentences.append(candidate)
+        buffer = ""
+    if buffer:
+        sentences.append(buffer)
     return [s.strip() for s in sentences if s.strip()]
 
 
@@ -499,14 +516,18 @@ def extract_topics(text: str, top_n: int = 5) -> list[str]:
     if not text or not text.strip():
         return []
 
-    # Short words that are meaningful domain terms
-    KEEP_SHORT_WORDS = {"AI", "5G", "EV", "IP", "ML", "UI", "UX"}
-
-    # Tokenize: extract words (2+ characters), then filter short ones
+    # Tokenize: extract words (3+ characters to skip noise) PLUS a small
+    # whitelist of meaningful 2-char tokens that the length filter would
+    # otherwise drop (AI is the prototypical example in tech earnings).
+    # Use [a-zA-Z0-9] (not just [a-z]) so alphanumeric terms like "5G"
+    # survive tokenization instead of being split on the digit.
+    short_whitelist = {
+        "ai", "5g", "ar", "vr", "ev", "ex", "ip", "ml", "ui", "ux", "rd",
+    }
     words_raw = re.findall(r"\b[a-zA-Z0-9]{2,}\b", text)
     words = [
         w.lower() for w in words_raw
-        if len(w) >= 3 or w.upper() in KEEP_SHORT_WORDS
+        if len(w) >= 3 or w.lower() in short_whitelist
     ]
 
     # Remove stopwords

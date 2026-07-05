@@ -17,6 +17,9 @@ class TransactionCreateRequest(BaseModel):
 
 
 class TransactionResponse(BaseModel):
+    """Transaction response. Monetary / share fields stay as ``float``
+    on the wire (Pydantic v2 serializes Decimal as quoted string)."""
+
     id: UUID
     portfolio_id: UUID
     security_id: UUID | None = None

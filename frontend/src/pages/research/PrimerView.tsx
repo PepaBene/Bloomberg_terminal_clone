@@ -28,6 +28,8 @@ function SkeletonBlock({ width = '100%', height = '1em' }: { width?: string; hei
 
 export default function PrimerView() {
   const { entityId } = useParams<{ entityId: string }>();
+  // Don't fall back to AAPL — that silently shows Apple's primer for any
+  // missing entity ID. Just disable the queries until a real ID is present.
   const resolvedId = entityId;
   const { data: apiPrimer, isLoading, isError } = useCompanyPrimer(resolvedId);
   const { data: apiRecent, isLoading: recentLoading } = useRecentPrimers();

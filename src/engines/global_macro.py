@@ -79,6 +79,8 @@ class InflationComparison:
     """Cross-country inflation comparison."""
 
     country_data: list[dict]  # [{country, headline, core, trend}]
+    # ``None`` distinguishes "no inflation data available" from a true
+    # zero-inflation reading. Callers must handle both.
     global_median_headline: float | None
     countries_accelerating: int
     countries_decelerating: int
@@ -172,30 +174,31 @@ def compute_global_rate_environment(
         code = bd["bank_code"]
         action = bd.get("last_action", "HOLD")
         ytd_bps = int(bd.get("rate_change_ytd_bps", 0))
-        last_action_info = bd.get("last_action_info")
 
-        # Determine stance from most recent action (not YTD cumulative changes,
-        # which can be misleading — e.g. a bank that hiked 100bps then cut 50bps
-        # shows +50 YTD but current stance is dovish).
-        if last_action_info and last_action_info.get("direction") == "HIKE":
+        # Stance reflects the *current* policy, which is best inferred from
+        # the last action (HIKE / CUT / HOLD) rather than the cumulative
+        # YTD bps. A bank that hiked +300bps then paused for six months is
+        # not "HAWKISH" today — it is on hold. We fall back to YTD only
+        # when no last_action is available.
+        action_upper = (action or "").upper()
+        if action_upper == "HIKE":
             stance = "HAWKISH"
-        elif last_action_info and last_action_info.get("direction") == "CUT":
+        elif action_upper == "CUT":
             stance = "DOVISH"
-        elif last_action_info and last_action_info.get("direction") == "HOLD":
-            stance = "NEUTRAL"
-        else:
-            # Fallback to YTD bps if last_action_info unavailable
-            if ytd_bps > 0:
+        elif action_upper in ("HOLD", "PAUSE", ""):
+            if ytd_bps > 50:
                 stance = "HAWKISH"
-            elif ytd_bps < 0:
+            elif ytd_bps < -50:
                 stance = "DOVISH"
             else:
                 stance = "NEUTRAL"
+        else:
+            stance = "NEUTRAL"
 
         # Count by last action
-        if action == "HIKE":
+        if action_upper == "HIKE":
             hiking += 1
-        elif action == "CUT":
+        elif action_upper == "CUT":
             cutting += 1
         else:
             holding += 1
@@ -302,8 +305,8 @@ def compute_inflation_comparison(
             "trend": trend,
         })
 
-    # Return None (not 0.0) when no inflation data — 0.0 would be
-    # misleading, implying zero inflation rather than missing data.
+    # Distinguish "no data" (None) from a genuine zero-inflation median
+    # (0.0) so downstream comparisons aren't corrupted by the missing case.
     global_median = round(median(headlines), 2) if headlines else None
 
     return InflationComparison(

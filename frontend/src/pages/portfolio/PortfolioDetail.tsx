@@ -136,11 +136,13 @@ function generateNavHistory(): { date: string; value: number }[] {
   return data;
 }
 
-function NavHistoryChart() {
-  const data = useMemo(() => generateNavHistory(), []);
+function NavHistoryChart({ data }: { data?: { date: string; value: number }[] }) {
+  // P4-F-013: render an empty chart when the API hasn't returned NAV
+  // history. The previous Math.random() walk made stale or missing data
+  // look like real performance.
   return (
     <TimeSeriesChart
-      data={data}
+      data={data ?? []}
       height={200}
       showGrid
       series={[{ key: 'value', color: '#3B82F6', name: 'NAV', type: 'area' }]}
@@ -315,7 +317,7 @@ export default function PortfolioDetail() {
           {/* NAV History (30 days) */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>NAV History (30D)</h2>
-            <NavHistoryChart />
+            <NavHistoryChart data={(apiNavHistory as any)?.history} />
           </div>
 
           {/* Portfolio Summary */}

@@ -7,6 +7,9 @@ import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
+// F-008: page no longer pre-fills a semiconductor-focused query and 5
+// hardcoded INTC/QCOM/AMD/TXN/MU "results" — those rendered as if they
+// were a real semantic-search hit on whatever the user just typed.
 const filters = ['All Sources', '10-K/10-Q', 'Earnings Calls', 'News', 'Research', 'Credit Reports'];
 
 interface SearchResult {

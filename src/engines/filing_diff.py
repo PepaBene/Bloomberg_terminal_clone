@@ -17,7 +17,11 @@ from html.parser import HTMLParser
 class ChangeClassification(StrEnum):
     SUBSTANTIVE = "SUBSTANTIVE"
     BOILERPLATE = "BOILERPLATE"
-    NUMERICAL_ONLY = "NUMERICAL_ONLY"
+    # The downstream count branches in ``classify_filing_diff`` check for
+    # ``"NUMERICAL"`` (no _ONLY suffix). Keep the enum value consistent so
+    # the per-paragraph classification gets counted correctly instead of
+    # silently dropping into the else branch.
+    NUMERICAL = "NUMERICAL"
     FORMATTING = "FORMATTING"
 
 
@@ -475,7 +479,7 @@ def classify_change(
 
     # Check for numerical-only changes
     if _is_numerical_only_change(old_text, new_text):
-        return ChangeClassification.NUMERICAL_ONLY
+        return ChangeClassification.NUMERICAL
 
     # Everything else is substantive
     return ChangeClassification.SUBSTANTIVE

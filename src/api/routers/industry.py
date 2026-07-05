@@ -92,32 +92,45 @@ async def rank_industries(
     if metric not in allowed_metrics:
         raise HTTPException(status_code=400, detail=f"Invalid metric. Allowed: {sorted(allowed_metrics)}")
 
-    # Use DISTINCT ON to keep only the latest row per gics_code in SQL
-    from sqlalchemy import literal_column
-    from sqlalchemy.orm import aliased
+    # PostgreSQL DISTINCT ON keeps only the latest snapshot per GICS code in
+    # SQL — the previous implementation loaded every historical row into
+    # memory and deduplicated in Python, which scaled poorly.
+    try:
+        stmt = (
+            select(IndustryProfile)
+            .distinct(IndustryProfile.gics_code)
+            .order_by(IndustryProfile.gics_code, IndustryProfile.as_of_date.desc())
+        )
+        result = await session.execute(stmt)
+        deduped = list(result.scalars().all())
+    except Exception:
+        # Some dialects (e.g. SQLite in tests) lack DISTINCT ON; fall back
+        # to the safe Python-side dedup path.
+        result = await session.execute(
+            select(IndustryProfile).order_by(IndustryProfile.as_of_date.desc())
+        )
+        seen: dict[str, IndustryProfile] = {}
+        for row in result.scalars().all():
+            if row.gics_code not in seen:
+                seen[row.gics_code] = row
+        deduped = list(seen.values())
 
-    subq = (
-        select(IndustryProfile)
-        .distinct(IndustryProfile.gics_code)
-        .order_by(IndustryProfile.gics_code, IndustryProfile.as_of_date.desc())
-        .subquery()
-    )
-    latest = aliased(IndustryProfile, subq)
+    # Sort by metric descending
+    entries = []
+    for row in deduped:
+        val = getattr(row, metric, None)
+        entries.append((row, float(val) if val is not None else None))
 
-    metric_col = getattr(subq.c, metric)
-    result = await session.execute(
-        select(subq).order_by(metric_col.desc().nulls_last())
-    )
-    rows = result.all()
+    entries.sort(key=lambda x: x[1] if x[1] is not None else float("-inf"), reverse=True)
 
     rankings = [
         IndustryRankingEntry(
             gics_code=row.gics_code,
             gics_name=row.gics_name,
-            metric_value=float(getattr(row, metric)) if getattr(row, metric) is not None else None,
+            metric_value=val,
             rank=i + 1,
         )
-        for i, row in enumerate(rows)
+        for i, (row, val) in enumerate(entries)
     ]
 
     return IndustryRankingResponse(metric=metric, rankings=rankings)
@@ -178,50 +191,58 @@ async def get_industry_companies(
     session: AsyncSession = Depends(get_session),
 ):
     """Companies in a given industry."""
-    result = await session.execute(
+    profile_row = await session.execute(
         select(IndustryProfile)
         .where(IndustryProfile.gics_code == gics_code)
         .order_by(IndustryProfile.as_of_date.desc())
         .limit(1)
     )
-    row = result.scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail="Industry profile not found")
+    profile = profile_row.scalar_one_or_none()
 
-    # Match entities by the appropriate GICS level based on code length
+    # Match against the GICS column whose width matches the requested code
+    # (sector=2, industry_group=4, industry=6, sub_industry=8 chars).
     code_len = len(gics_code)
     if code_len == 2:
-        gics_filter = Entity.gics_sector == gics_code
+        ent_filter = Entity.gics_sector == gics_code
     elif code_len == 4:
-        gics_filter = Entity.gics_industry_group == gics_code
+        ent_filter = Entity.gics_industry_group == gics_code
     elif code_len == 6:
-        gics_filter = Entity.gics_industry == gics_code
+        ent_filter = Entity.gics_industry == gics_code
+    elif code_len == 8:
+        ent_filter = Entity.gics_sub_industry == gics_code
     else:
-        gics_filter = Entity.gics_sub_industry == gics_code
-
-    entity_result = await session.execute(
-        select(
-            Entity.entity_id,
-            Entity.short_name,
-            Entity.legal_name,
+        ent_filter = (
+            (Entity.gics_industry == gics_code)
+            | (Entity.gics_sub_industry == gics_code)
         )
-        .where(gics_filter)
-        .order_by(Entity.legal_name)
-    )
-    entities = entity_result.all()
 
+    ent_rows = await session.execute(
+        select(Entity)
+        .where(ent_filter, Entity.status != "INACTIVE")
+        .order_by(Entity.legal_name)
+        .limit(500)
+    )
     companies = [
         {
             "entity_id": str(e.entity_id),
-            "name": e.short_name or e.legal_name,
+            "legal_name": e.legal_name,
+            "ticker": getattr(e, "primary_ticker", None),
+            "gics_industry": e.gics_industry,
+            "gics_sub_industry": e.gics_sub_industry,
         }
-        for e in entities
+        for e in ent_rows.scalars().all()
     ]
 
+    if profile is None and not companies:
+        # Preserve the 404 behaviour for unknown industries — the
+        # endpoint should signal "no such industry" rather than return
+        # an empty payload.
+        raise HTTPException(status_code=404, detail="Industry profile not found")
+
     return {
-        "gics_code": row.gics_code,
-        "gics_name": row.gics_name,
-        "company_count": row.company_count,
+        "gics_code": gics_code,
+        "gics_name": profile.gics_name if profile else None,
+        "company_count": profile.company_count if profile else len(companies),
         "companies": companies,
     }
 

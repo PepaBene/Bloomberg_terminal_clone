@@ -39,21 +39,18 @@ function signalColor(value: number): string {
   return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
 }
 
-// --- Mock Data ---------------------------------------------------------------
+// --- Empty fallback (P4-F-018) -----------------------------------------------
+// No more hardcoded sample indices ("US Tech Leaders", "Russell Quality
+// Screen", etc.). Live data from the API populates the table; KPIs
+// display dashes until backed by real numbers.
 
-const customIndices = [
-  { id: 'idx-1', name: 'US Tech Leaders',       constituents: 42,  weighting: 'Market Cap', universe: 'S&P 500',      ytdReturn: 18.42, createdDate: '2026-01-15' },
-  { id: 'idx-2', name: 'Global Value Tilt',      constituents: 128, weighting: 'Factor',     universe: 'Global',        ytdReturn: 7.86,  createdDate: '2025-11-02' },
-  { id: 'idx-3', name: 'Equal Weight Mega Cap',  constituents: 50,  weighting: 'Equal',      universe: 'S&P 500',      ytdReturn: 12.14, createdDate: '2026-02-20' },
-  { id: 'idx-4', name: 'Russell Quality Screen', constituents: 215, weighting: 'Factor',     universe: 'Russell 1000',  ytdReturn: 9.58,  createdDate: '2025-09-18' },
-  { id: 'idx-5', name: 'Momentum Global 100',    constituents: 100, weighting: 'Market Cap', universe: 'Global',        ytdReturn: -2.34, createdDate: '2026-03-05' },
-];
+const customIndices: { id: string; name: string; constituents: number; weighting: string; universe: string; ytdReturn: number; createdDate: string }[] = [];
 
 const kpiData = [
-  { label: 'Custom Indices', value: '5' },
-  { label: 'Total Constituents', value: '535' },
-  { label: 'Avg Return YTD', value: '+9.13%', color: 'var(--color-signal-positive)' },
-  { label: 'Best Performing', value: '+18.42%', color: 'var(--color-signal-positive)' },
+  { label: 'Custom Indices', value: '—' },
+  { label: 'Total Constituents', value: '—' },
+  { label: 'Avg Return YTD', value: '—' },
+  { label: 'Best Performing', value: '—' },
 ];
 
 const weightingOptions = ['Equal', 'Market Cap', 'Factor'];
