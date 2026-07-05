@@ -201,7 +201,7 @@ def detect_red_flags(governance_data: dict) -> list[dict]:
         })
 
     # no_majority_voting
-    if not governance_data.get("has_majority_voting", True):
+    if not governance_data.get("has_majority_voting", False):
         flags.append({
             "flag": "no_majority_voting",
             "severity": RED_FLAG_CHECKS["no_majority_voting"]["severity"],

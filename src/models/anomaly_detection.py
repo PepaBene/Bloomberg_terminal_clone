@@ -22,7 +22,7 @@ class DetectedAnomaly(TimestampMixin, Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
-    anomaly_type: Mapped[str] = mapped_column(String(25), nullable=False)
+    anomaly_type: Mapped[str] = mapped_column(String(60), nullable=False)
     severity_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     detected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -34,10 +34,10 @@ class DetectedAnomaly(TimestampMixin, Base):
     expected_value: Mapped[Decimal | None] = mapped_column(Numeric(15, 4))
     z_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     percentile_rank: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
-    contextual_analysis: Mapped[dict | None] = mapped_column(JSONB)
-    related_data: Mapped[dict | None] = mapped_column(JSONB)
+    contextual_analysis: Mapped[dict | None] = mapped_column(JSONB)  # {market_context, sector_comparison, historical_precedent}
+    related_data: Mapped[dict | None] = mapped_column(JSONB)  # Supporting data points (prices, volumes, fundamentals)
     ai_narrative: Mapped[str | None] = mapped_column(Text)
-    recommended_actions: Mapped[dict | None] = mapped_column(JSONB)
+    recommended_actions: Mapped[dict | None] = mapped_column(JSONB)  # [{action: str, urgency: str, rationale: str}]
     confidence_level: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     is_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     acknowledged_by: Mapped[str | None] = mapped_column(String(100))
@@ -51,8 +51,8 @@ class AnomalyRule(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    anomaly_type: Mapped[str] = mapped_column(String(25), nullable=False)
+    anomaly_type: Mapped[str] = mapped_column(String(60), nullable=False)
     rule_name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    threshold_config: Mapped[dict | None] = mapped_column(JSONB)
+    threshold_config: Mapped[dict | None] = mapped_column(JSONB)  # {z_score_threshold, lookback_days, min_confidence, ...}
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

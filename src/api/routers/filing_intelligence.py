@@ -210,6 +210,8 @@ async def get_latest_filing_diff(
         .limit(1)
     )
     year_old = year_pair.scalar_one_or_none()
+    if year_old is None:
+        raise HTTPException(status_code=404, detail="No matching filing found")
 
     result = await session.execute(
         select(FilingDiff)
@@ -281,6 +283,8 @@ async def get_filing_diff_summary(
         .limit(1)
     )
     year_old = year_pair.scalar_one_or_none()
+    if year_old is None:
+        raise HTTPException(status_code=404, detail="No matching filing found")
 
     result = await session.execute(
         select(FilingDiff)

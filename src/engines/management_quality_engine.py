@@ -81,8 +81,11 @@ def compute_guidance_accuracy_score(
     for g in guidance_history:
         mid = g.get("guidance_midpoint")
         actual = g.get("actual")
-        if mid is not None and actual is not None and actual != 0:
-            error = abs(mid - actual) / abs(actual)
+        if mid is not None and actual is not None:
+            if abs(actual) < 1e-9:
+                error = 0.0 if abs(actual - mid) < 1e-9 else 1.0
+            else:
+                error = abs(mid - actual) / abs(actual)
             errors.append(error)
 
     if not errors:
@@ -141,6 +144,11 @@ def compute_wc_management_score(
     """Score working capital management from CCC trend.
 
     Improving (declining CCC) = high score. Deteriorating = low score.
+
+    ``ccc_history`` must be ordered **oldest-first** so that ``first``
+    (earlier half average) and ``second`` (later half average) correctly
+    reflect the direction of change.  A positive ``improvement`` means
+    CCC decreased over time, which is desirable.
     """
     if len(ccc_history) < 2:
         return None
@@ -148,10 +156,10 @@ def compute_wc_management_score(
     first = statistics.mean(ccc_history[: len(ccc_history) // 2])
     second = statistics.mean(ccc_history[len(ccc_history) // 2 :])
 
-    if first == 0:
-        return 50.0
-
-    improvement = (first - second) / abs(first)  # Positive = CCC decreased = good
+    if abs(first) < 1e-9:
+        improvement = 0.0
+    else:
+        improvement = (first - second) / abs(first)  # Positive = CCC decreased = good
 
     # Map improvement to score: -20% improvement → 0, 0% → 50, +20% → 100
     score = 50.0 + improvement * 250.0
@@ -346,24 +354,27 @@ def compute_management_quality_score(
     """
     score = 50.0  # Baseline
 
-    # Execution (max +35)
+    # Execution (35 pts)
     if execution.composite_execution_score is not None:
-        score += (execution.composite_execution_score - 50) * 0.70
+        score += (execution.composite_execution_score - 50) * 0.35
 
-    # Accounting deductions
+    # Accounting quality (25 pts deduction capacity)
+    accounting_score = 100.0
     for flag in accounting_flags:
         if flag.severity == "CRITICAL":
-            score -= 15.0
+            accounting_score -= 60.0
         elif flag.severity == "HIGH":
-            score -= 8.0
+            accounting_score -= 32.0
         elif flag.severity == "MEDIUM":
-            score -= 4.0
+            accounting_score -= 16.0
+    accounting_score = max(0.0, min(100.0, accounting_score))
+    score += (accounting_score - 50) * 0.25
 
-    # Governance (max +10)
+    # Governance (20 pts)
     if governance_score is not None:
         score += (governance_score - 50) * 0.20
 
-    # Compensation (max +10)
+    # Compensation (20 pts)
     score += (compensation.alignment_score - 50) * 0.20
 
     return max(0.0, min(100.0, round(score, 2)))

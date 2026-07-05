@@ -123,7 +123,7 @@ def evaluate_filing_alerts(
                 source_type=event.get("source_type", ""),
                 source_id=event.get("source_id", ""),
             ))
-            break  # One alert per event (don't duplicate for multiple matching rules)
+            # Don't break — allow all matching rules to fire per event
 
     return alerts
 
@@ -394,10 +394,14 @@ def prioritize_alerts(
             seen.add(key)
             deduped.append(alert)
 
-    # Rate limit per entity
+    # Rate limit per entity — exempt CRITICAL severity alerts
     entity_counts: dict[str, int] = {}
     limited: list[AlertResult] = []
     for alert in deduped:
+        if alert.priority == "CRITICAL":
+            # CRITICAL alerts are never rate-limited
+            limited.append(alert)
+            continue
         count = entity_counts.get(alert.entity_id, 0)
         if count < max_per_entity:
             limited.append(alert)

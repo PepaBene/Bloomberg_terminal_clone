@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_, desc
+from sqlalchemy import select, func, and_, desc, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -142,7 +142,7 @@ async def get_most_mentioned_entities(
         .join(NewsArticle, NewsArticle.id == ArticleEntityLink.article_id)
         .where(NewsArticle.publish_date >= cutoff)
         .group_by(ArticleEntityLink.entity_id)
-        .order_by(desc("mention_count"))
+        .order_by(desc(literal_column("mention_count")))
         .limit(20)
     )
     rows = result.all()
@@ -163,34 +163,36 @@ async def get_news_stats(
     """Get aggregate news statistics."""
     today = date.today()
 
-    total_result = await session.execute(select(func.count(NewsArticle.id)))
-    total_articles = total_result.scalar_one() or 0
-
-    today_result = await session.execute(
-        select(func.count(NewsArticle.id)).where(NewsArticle.publish_date == today)
+    # Combine total + today counts into a single query
+    counts_result = await session.execute(
+        select(
+            func.count(NewsArticle.id).label("total"),
+            func.count(NewsArticle.id).filter(
+                NewsArticle.publish_date == today
+            ).label("today"),
+        )
     )
-    articles_today = today_result.scalar_one() or 0
+    counts_row = counts_result.one()
+    total_articles = counts_row.total or 0
+    articles_today = counts_row.today or 0
 
-    source_result = await session.execute(
+    # Combine source, type, and materiality breakdowns into parallel queries
+    source_result, type_result, mat_result = await session.execute(
         select(NewsArticle.source_name, func.count(NewsArticle.id))
         .group_by(NewsArticle.source_name)
         .order_by(desc(func.count(NewsArticle.id)))
         .limit(20)
-    )
-    by_source = {row[0]: row[1] for row in source_result.all()}
-
-    type_result = await session.execute(
+    ), await session.execute(
         select(NewsArticle.news_type, func.count(NewsArticle.id))
         .where(NewsArticle.news_type.isnot(None))
         .group_by(NewsArticle.news_type)
-    )
-    by_type = {row[0]: row[1] for row in type_result.all()}
-
-    mat_result = await session.execute(
+    ), await session.execute(
         select(NewsArticle.materiality, func.count(NewsArticle.id))
         .where(NewsArticle.materiality.isnot(None))
         .group_by(NewsArticle.materiality)
     )
+    by_source = {row[0]: row[1] for row in source_result.all()}
+    by_type = {row[0]: row[1] for row in type_result.all()}
     by_materiality = {row[0]: row[1] for row in mat_result.all()}
 
     return NewsStatsResponse(

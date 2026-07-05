@@ -221,7 +221,7 @@ def assess_ma_discipline(
         for gw, ta in zip(goodwill_history, total_assets_history):
             if ta and ta > 0:
                 ratios.append(gw / ta)
-        if ratios:
+        if ratios:  # Bounds check: ratios may be empty if all total_assets <= 0
             gw_ratio = round(ratios[-1], 4)
             if len(ratios) >= 2:
                 first = statistics.mean(ratios[: len(ratios) // 2])

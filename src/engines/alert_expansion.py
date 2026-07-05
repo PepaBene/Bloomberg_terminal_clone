@@ -115,13 +115,14 @@ def check_fallen_angel(current_rating: str, momentum: str) -> dict | None:
     dict | None
         Alert dict or None.
     """
-    if current_rating != "BBB-" or momentum != "DETERIORATING":
+    LOWEST_IG_RATINGS = {"BBB-", "Baa3"}
+    if current_rating not in LOWEST_IG_RATINGS or momentum != "DETERIORATING":
         return None
 
     return {
         "alert_type": "FALLEN_ANGEL",
         "severity": "CRITICAL",
-        "detail": "BBB- rated with DETERIORATING momentum — fallen angel risk elevated",
+        "detail": f"{current_rating} rated with DETERIORATING momentum — fallen angel risk elevated",
     }
 
 
@@ -465,26 +466,45 @@ def evaluate_flow_alerts(flow_data: dict) -> list[dict]:
             "detail": f"{cluster_sells} institutional sellers in cluster period",
         })
 
-    # Short interest spike
+    # Short interest spike — scale threshold based on base short interest level
     short_change = flow_data.get("short_interest_change_pct")
-    if short_change is not None and short_change > 25.0:
-        alerts.append({
-            "alert_type": "SHORT_SPIKE",
-            "severity": "HIGH",
-            "detail": f"Short interest increased {short_change:.1f}%",
-        })
+    if short_change is not None:
+        base_short = flow_data.get("short_interest_pct", 0.0)
+        # Higher base short interest → lower threshold for spike detection
+        if base_short >= 20.0:
+            spike_threshold = 10.0  # Already heavily shorted; small increases matter
+        elif base_short >= 10.0:
+            spike_threshold = 15.0
+        else:
+            spike_threshold = 25.0  # Default threshold for low base
+        if short_change > spike_threshold:
+            alerts.append({
+                "alert_type": "SHORT_SPIKE",
+                "severity": "HIGH",
+                "detail": f"Short interest increased {short_change:.1f}% (base: {base_short:.1f}%, threshold: {spike_threshold:.0f}%)",
+            })
 
-    # Insider cluster
+    # Insider cluster — count unique insiders, not transactions
     insider_txns = flow_data.get("insider_transactions", [])
     if len(insider_txns) >= 3:
-        buy_count = sum(1 for t in insider_txns if t.get("direction") == "BUY")
-        sell_count = sum(1 for t in insider_txns if t.get("direction") == "SELL")
-        if buy_count >= 3 or sell_count >= 3:
-            direction = "buying" if buy_count >= sell_count else "selling"
+        buy_insiders = set(
+            t.get("insider_name") or t.get("insider_id") for t in insider_txns if t.get("direction") == "BUY"
+        )
+        sell_insiders = set(
+            t.get("insider_name") or t.get("insider_id") for t in insider_txns if t.get("direction") == "SELL"
+        )
+        # Discard None entries from missing identifiers
+        buy_insiders.discard(None)
+        sell_insiders.discard(None)
+        unique_buyers = len(buy_insiders)
+        unique_sellers = len(sell_insiders)
+        if unique_buyers >= 3 or unique_sellers >= 3:
+            direction = "buying" if unique_buyers >= unique_sellers else "selling"
+            unique_count = max(unique_buyers, unique_sellers)
             alerts.append({
                 "alert_type": "INSIDER_CLUSTER",
                 "severity": "MEDIUM",
-                "detail": f"Cluster of insider {direction}: {max(buy_count, sell_count)} transactions",
+                "detail": f"Cluster of insider {direction}: {unique_count} unique insiders",
             })
 
     return alerts

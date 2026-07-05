@@ -165,12 +165,14 @@ async def get_regime_alerts(
         .limit(10)
     )
     rows = result.scalars().all()
+    # R-016: Map credit_regime to severity instead of using raw regime value
+    _REGIME_TO_SEVERITY = {"TIGHT": "HIGH", "NORMAL": "MEDIUM", "LOOSE": "LOW"}
     return [
         SpreadMoveResponse(
             spread_bps=float(row.ig_oas_bps) if row.ig_oas_bps is not None else None,
             spread_change_bps=float(row.ig_oas_1w_change) if row.ig_oas_1w_change is not None else None,
             as_of_date=row.briefing_date,
-            severity=row.credit_regime,
+            severity=_REGIME_TO_SEVERITY.get(row.credit_regime, "MEDIUM"),
         )
         for row in rows
     ]
@@ -217,9 +219,10 @@ async def get_quality_score_alerts(
         .limit(20)
     )
     rows = result.scalars().all()
+    # R-017: Use None instead of random uuid4() when entity_id is missing
     return [
         QualityAlertResponse(
-            entity_id=uuid.UUID(row.entity_scope.get("entity_id")) if row.entity_scope and row.entity_scope.get("entity_id") else uuid.uuid4(),
+            entity_id=uuid.UUID(row.entity_scope.get("entity_id")) if row.entity_scope and row.entity_scope.get("entity_id") else None,
             alert_type=row.alert_type,
             severity="MEDIUM",
             current_score=float(row.threshold_value) if row.threshold_value is not None else None,
@@ -242,12 +245,25 @@ async def get_institutional_flow_alerts(
         .limit(20)
     )
     rows = result.scalars().all()
-    return [
-        FlowAlertResponse(
-            entity_id=uuid.UUID(row.entity_scope.get("entity_id")) if row.entity_scope and row.entity_scope.get("entity_id") else uuid.uuid4(),
+    # R-017: Use None instead of random uuid4() when entity_id is missing
+    # R-018: Derive flow direction from actual flow data in entity_scope,
+    # not from the threshold value (which is the alert trigger limit).
+    alerts: list[FlowAlertResponse] = []
+    for row in rows:
+        entity_id_str = row.entity_scope.get("entity_id") if row.entity_scope else None
+        scope = row.entity_scope or {}
+        # Prefer actual flow_direction stored in entity_scope; fall back
+        # to net_flow sign; only use threshold sign as last resort.
+        if scope.get("flow_direction"):
+            direction = scope["flow_direction"]
+        elif scope.get("net_flow") is not None:
+            direction = "INFLOW" if float(scope["net_flow"]) > 0 else "OUTFLOW"
+        else:
+            direction = "UNKNOWN"
+        alerts.append(FlowAlertResponse(
+            entity_id=uuid.UUID(entity_id_str) if entity_id_str else None,
             alert_type=row.alert_type,
-            direction="INFLOW" if row.threshold_value and float(row.threshold_value) > 0 else "OUTFLOW",
+            direction=direction,
             volume_mm=float(row.threshold_value) if row.threshold_value is not None else None,
-        )
-        for row in rows
-    ]
+        ))
+    return alerts

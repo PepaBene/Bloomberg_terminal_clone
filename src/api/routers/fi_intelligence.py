@@ -4,7 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import or_, select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -55,7 +55,7 @@ async def get_yield_curve_briefing(
     """Get the latest daily yield curve briefing."""
     result = await session.execute(
         select(FIMarketBriefing)
-        .where(FIMarketBriefing.briefing_type.in_(["YIELD_CURVE", None]))
+        .where(or_(FIMarketBriefing.briefing_type.in_(["YIELD_CURVE"]), FIMarketBriefing.briefing_type.is_(None)))
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(5)
     )
@@ -113,8 +113,11 @@ async def get_yield_curve_auctions(
     session: AsyncSession = Depends(get_session),
 ):
     """Get recent auction-related yield curve data."""
+    # R-014: Filter for AUCTION briefing_type (previously had no filter,
+    # returning the latest 10 records regardless of type).
     result = await session.execute(
         select(FIMarketBriefing)
+        .where(FIMarketBriefing.briefing_type == "AUCTION")
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(10)
     )
@@ -179,7 +182,7 @@ async def get_credit_briefing(
     """Get the latest daily credit market briefing."""
     result = await session.execute(
         select(FIMarketBriefing)
-        .where(FIMarketBriefing.briefing_type.in_(["CREDIT", None]))
+        .where(or_(FIMarketBriefing.briefing_type.in_(["CREDIT"]), FIMarketBriefing.briefing_type.is_(None)))
         .order_by(FIMarketBriefing.briefing_date.desc())
         .limit(5)
     )
@@ -645,6 +648,9 @@ async def get_issuer_rating_narrative(
         entity_id=entity.entity_id,
         legal_name=entity.legal_name,
         current_rating=latest_issuance.rating if latest_issuance else None,
+        # R-015: Rating narrative is a hardcoded f-string template. A proper
+        # implementation would pull from a real rating agency feed or an
+        # AI-generated narrative engine with historical rating transitions.
         rating_narrative=f"Latest issuance rated {latest_issuance.rating}" if latest_issuance and latest_issuance.rating else "No rating history available",
     )
 

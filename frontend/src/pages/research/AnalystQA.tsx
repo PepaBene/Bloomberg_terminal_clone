@@ -16,59 +16,49 @@ const suggestedQuestions = [
   'What are the key differences between Q1 and Q4 earnings calls for MSFT?',
 ];
 
-const chatHistory = [
-  {
-    role: 'user' as const,
-    text: 'What is Apple\'s current capital return program and how does it compare to peers?',
-    time: '09:15',
-  },
-  {
-    role: 'assistant' as const,
-    text: 'Apple returned $105.3B to shareholders in FY2025 through buybacks ($90.1B) and dividends ($15.2B). This represents 98% of free cash flow. Compared to mega-cap tech peers:\n\n- MSFT: $45.2B returned (55% of FCF)\n- GOOGL: $62.8B returned (72% of FCF)\n- META: $38.5B returned (68% of FCF)\n\nApple leads on absolute return and payout ratio. The buyback has reduced shares outstanding by 38% over the past decade.',
-    time: '09:15',
-    sources: ['AAPL 10-K FY2025', 'MSFT 10-K FY2025', 'GOOGL 10-K FY2025', 'META 10-K FY2025'],
-    confidence: 96,
-  },
-  {
-    role: 'user' as const,
-    text: 'Is the buyback pace sustainable given current cash generation?',
-    time: '09:18',
-  },
-  {
-    role: 'assistant' as const,
-    text: 'Yes, the current pace appears sustainable. Apple generated $107.3B in FCF in FY2025 vs $105.3B in total capital returns, implying a 98% payout ratio. Key factors:\n\n1. Cash position: $29.9B cash + $136.6B in marketable securities = $166.5B total liquidity\n2. FCF trend: Growing at ~5% CAGR over 3 years\n3. Net cash target: Management has reiterated intent to reach net cash neutral over time\n4. Debt capacity: Leverage at 0.4x EBITDA provides significant headroom\n\nThe main risk is a material FCF decline from iPhone revenue contraction, which would require either reduced buybacks or increased leverage.',
-    time: '09:18',
-    sources: ['AAPL 10-K FY2025', 'Q1 2026 Earnings Call Transcript'],
-    confidence: 92,
-  },
-];
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  time: string;
+  sources?: string[];
+  confidence?: number;
+}
 
 export default function AnalystQA() {
-  const [messages, setMessages] = useState(chatHistory);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [asking, setAsking] = useState(false);
 
   const handleAsk = async () => {
     if (!input.trim() || asking) return;
-    const userMsg = { role: 'user' as const, text: input, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    const userMsg: ChatMessage = { role: 'user', text: input, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => [...prev, userMsg]);
     const question = input;
     setInput('');
     setAsking(true);
     try {
-      const isFollowUp = messages.length > chatHistory.length;
+      const isFollowUp = messages.length > 0;
       const endpoint = isFollowUp ? RESEARCH.qa.followUp : RESEARCH.qa.ask;
       const res = await api.post(endpoint, { question });
-      const answer = {
-        role: 'assistant' as const,
-        text: (res as any)?.answer ?? (res as any)?.text ?? 'No response available.',
+      const data = res as Record<string, any>;
+      const answer: ChatMessage = {
+        role: 'assistant',
+        text: data?.answer ?? data?.text ?? 'No response available.',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        sources: (res as any)?.sources ?? [],
-        confidence: (res as any)?.confidence ?? 0,
+        sources: data?.sources ?? [],
+        confidence: data?.confidence ?? 0,
       };
       setMessages(prev => [...prev, answer]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant' as const, text: 'Error: Unable to get response.', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), sources: [], confidence: 0 }]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Q&A request failed:', err);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: `Error: Unable to get response. ${errorMsg}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sources: [],
+        confidence: 0,
+      }]);
     }
     setAsking(false);
   };
@@ -82,6 +72,16 @@ export default function AnalystQA() {
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', flex: 1, alignItems: 'start' }}>
         {/* Chat Area */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {messages.length === 0 && (
+            <div style={{ ...panelStyle, textAlign: 'center', padding: '32px' }}>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', color: 'var(--color-text-tertiary)', marginBottom: '8px' }}>
+                Ask a question to get started
+              </div>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>
+                Try one of the suggested questions, or type your own below.
+              </div>
+            </div>
+          )}
           {messages.map((msg, i) => (
             <div key={i} style={{ ...panelStyle, background: msg.role === 'user' ? 'var(--color-surface-overlay)' : 'var(--color-surface-base)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -102,6 +102,21 @@ export default function AnalystQA() {
               )}
             </div>
           ))}
+          {/* Loading spinner while waiting for response */}
+          {asking && (
+            <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '16px',
+                height: '16px',
+                border: '2px solid var(--color-surface-border)',
+                borderTopColor: 'var(--color-accent-primary)',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)' }}>AI Analyst is thinking...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
           {/* Input Box */}
           <div style={{ ...panelStyle, display: 'flex', gap: '8px', alignItems: 'center' }}>
             <input
@@ -112,8 +127,8 @@ export default function AnalystQA() {
               placeholder="Ask a question about any company, sector, or market..."
               style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', background: 'var(--color-surface-overlay)', border: '1px solid var(--color-surface-border)', borderRadius: '3px', padding: '8px 12px' }}
             />
-            <button onClick={handleAsk} disabled={asking} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: 'pointer', border: 'none' }}>
-              {asking ? 'Asking…' : 'Ask'}
+            <button onClick={handleAsk} disabled={asking} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-inverse)', background: asking ? 'var(--color-surface-border)' : 'var(--color-accent-primary)', padding: '6px 16px', borderRadius: '3px', cursor: asking ? 'not-allowed' : 'pointer', border: 'none' }}>
+              {asking ? 'Asking...' : 'Ask'}
             </button>
           </div>
         </div>

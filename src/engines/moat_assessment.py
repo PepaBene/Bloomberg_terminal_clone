@@ -590,31 +590,31 @@ def assess_moat(
 
     # 9. Evidence
     evidence: list[dict] = []
-    if ca_score > 50:
+    if ca_score >= 40:  # Include borderline evidence
         evidence.append({
             "source": "cost_advantage",
             "detail": f"Operating margin {operating_margin:.1%} vs peer {peer_median_margin:.1%}",
             "strength": "STRONG" if ca_score > 70 else "MODERATE",
         })
-    if ne_score > 50:
+    if ne_score >= 40:  # Include borderline evidence
         evidence.append({
             "source": "network_effects",
             "detail": "Platform with strong user growth dynamics",
             "strength": "STRONG" if ne_score > 70 else "MODERATE",
         })
-    if sc_score > 50:
+    if sc_score >= 40:  # Include borderline evidence
         evidence.append({
             "source": "switching_costs",
             "detail": f"Recurring revenue {recurring_pct:.0%}",
             "strength": "STRONG" if sc_score > 70 else "MODERATE",
         })
-    if ia_score > 50:
+    if ia_score >= 40:  # Include borderline evidence
         evidence.append({
             "source": "intangible_assets",
             "detail": f"R&D intensity {qi.get('rd_intensity', 0):.1%}",
             "strength": "STRONG" if ia_score > 70 else "MODERATE",
         })
-    if es_score > 50:
+    if es_score >= 40:  # Include borderline evidence
         evidence.append({
             "source": "efficient_scale",
             "detail": f"Market share {market_share:.1%} in concentrated market (HHI {hhi:.0f})",

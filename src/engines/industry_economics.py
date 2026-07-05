@@ -106,7 +106,7 @@ def compute_percentile(value: float, values: list[float]) -> float:
 
 def classify_capital_cycle(
     capex_growth_history: list[float],
-    roic_trend: float,
+    roic_trend: float | None,
 ) -> str:
     """Classify industry capital cycle position.
 
@@ -114,8 +114,9 @@ def classify_capital_cycle(
     ----------
     capex_growth_history : list[float]
         Year-over-year capex growth rates (e.g. [0.08, 0.10, 0.06]).
-    roic_trend : float
+    roic_trend : float | None
         Recent change in ROIC (positive = rising, negative = falling).
+        None if trend data is unavailable.
 
     Returns
     -------
@@ -129,6 +130,7 @@ def classify_capital_cycle(
 
     if (
         avg_capex_growth > CAPITAL_CYCLE_THRESHOLDS["EXPANDING"]
+        and roic_trend is not None
         and roic_trend > 0
     ):
         return "EXPANDING"
@@ -231,11 +233,10 @@ def compute_industry_economics(
         top_q = sorted_roics[q3_idx]
 
     # Capital cycle indicator
-    roic_trend = 0.0
-    if len(roics) >= 2:
-        # Approximate trend from cross-sectional data is not ideal;
-        # use median ROIC vs WACC spread sign as proxy
-        roic_trend = spread if spread is not None else 0.0
+    # Cannot determine trend from a single point-in-time spread;
+    # a level (spread) is not a trend (delta). Without historical spread
+    # data to compute a delta, we pass None to indicate unknown trend.
+    roic_trend = None
 
     cycle = classify_capital_cycle(all_capex_growth, roic_trend)
 

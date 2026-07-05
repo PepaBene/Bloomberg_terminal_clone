@@ -302,7 +302,7 @@ async def get_latest_transcript_sentiment(
     return TranscriptSentimentResponse(
         entity_id=r.entity_id,
         call_date=r.call_date,
-        overall_tone=float(r.overall_tone) if r.overall_tone is not None else 0.0,
+        overall_tone=float(r.overall_tone) if r.overall_tone is not None else None,
         prepared_tone=float(r.prepared_tone) if r.prepared_tone is not None else None,
         qa_tone=float(r.qa_tone) if r.qa_tone is not None else None,
         ceo_tone=float(r.ceo_tone) if r.ceo_tone is not None else None,
@@ -372,7 +372,7 @@ async def get_sentiment_history(
             call_date=r.call_date,
             fiscal_year=r.fiscal_year,
             fiscal_quarter=r.fiscal_quarter,
-            overall_tone=float(r.overall_tone) if r.overall_tone is not None else 0.0,
+            overall_tone=float(r.overall_tone) if r.overall_tone is not None else None,
             prepared_tone=float(r.prepared_tone) if r.prepared_tone is not None else None,
             qa_tone=float(r.qa_tone) if r.qa_tone is not None else None,
         )

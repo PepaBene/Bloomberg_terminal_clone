@@ -464,23 +464,14 @@ def propagate_event(
 
     # Macro propagation for macro events
     if propagation_type == "MACRO":
-        # Determine sensitive sectors from release type config
-        from src.engines.economic_calendar_engine import RELEASE_TYPES
-
+        # Determine sensitive sectors from event category
         sensitive_sectors: list[str] = []
-        for rtype, rconfig in RELEASE_TYPES.items():
-            if event_category in rtype.lower() or rtype.lower() in event_category:
-                sensitive_sectors = rconfig.get("sensitive_sectors", [])
-                break
-
-        # Fallback: use sectors from PROPAGATION_CONFIG
-        if not sensitive_sectors:
-            if event_category == "rate_decision":
-                sensitive_sectors = ["Financials", "Real Estate", "Utilities"]
-            elif event_category == "employment":
-                sensitive_sectors = ["Consumer Discretionary", "Financials"]
-            elif event_category == "inflation":
-                sensitive_sectors = ["Real Estate", "Utilities", "Consumer Discretionary"]
+        if event_category == "rate_decision":
+            sensitive_sectors = ["Financials", "Real Estate", "Utilities"]
+        elif event_category == "employment":
+            sensitive_sectors = ["Consumer Discretionary", "Financials"]
+        elif event_category == "inflation":
+            sensitive_sectors = ["Real Estate", "Utilities", "Consumer Discretionary"]
 
         if sensitive_sectors:
             macro_targets = apply_macro_propagation(

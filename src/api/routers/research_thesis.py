@@ -209,7 +209,7 @@ async def generate_thesis(
         ai_enabled=False,
     )
     session.add(thesis)
-    await session.flush()
+    await session.commit()
 
     return _thesis_response(thesis)
 
@@ -299,6 +299,15 @@ async def update_thesis(
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
 
+    # Compute conviction_change as numeric difference between old and new levels
+    conviction_change = None
+    if body.conviction_level is not None and thesis.conviction_level is not None:
+        _conviction_scores = {"VERY_LOW": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "VERY_HIGH": 5}
+        old_score = _conviction_scores.get(thesis.conviction_level)
+        new_score = _conviction_scores.get(body.conviction_level)
+        if old_score is not None and new_score is not None:
+            conviction_change = Decimal(new_score - old_score)
+
     # Snapshot for diff
     version_snapshot = ThesisVersion(
         id=uuid.uuid4(),
@@ -306,6 +315,7 @@ async def update_thesis(
         version=thesis.version,
         updated_drivers=body.key_drivers,
         analyst_note=body.analyst_note,
+        conviction_change=conviction_change,
     )
     session.add(version_snapshot)
 
@@ -324,7 +334,7 @@ async def update_thesis(
         thesis.catalysts = body.catalysts
 
     thesis.version = thesis.version + 1
-    await session.flush()
+    await session.commit()
     await session.refresh(thesis)
 
     return _thesis_response(thesis)

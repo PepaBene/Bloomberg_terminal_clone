@@ -95,6 +95,19 @@ def detect_cluster_buy(
     if len(buys) < min_insiders:
         return None
 
+    # Filter out entries with malformed dates
+    valid_buys: list[dict] = []
+    for b in buys:
+        try:
+            date.fromisoformat(b["transaction_date"])
+            valid_buys.append(b)
+        except (ValueError, KeyError):
+            continue
+    buys = valid_buys
+
+    if len(buys) < min_insiders:
+        return None
+
     # Sort by date
     buys.sort(key=lambda t: t["transaction_date"])
 
@@ -247,7 +260,10 @@ def compute_rolling_aggregates(
     sellers_30d: set[str] = set()
 
     for txn in transactions:
-        txn_date = date.fromisoformat(txn["transaction_date"])
+        try:
+            txn_date = date.fromisoformat(txn["transaction_date"])
+        except (ValueError, KeyError):
+            continue  # Skip entries with malformed or missing dates
         shares = txn.get("shares", 0)
         value = txn.get("total_value", 0)
         is_open = txn.get("is_open_market", False)

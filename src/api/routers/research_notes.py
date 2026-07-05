@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import sqlalchemy as sa
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +17,6 @@ from src.schemas.research_notes import (
 )
 
 router = APIRouter(tags=["Research Notes"])
-
-DEFAULT_USER = "default_user"
 
 
 def _note_to_response(note: ResearchNote) -> ResearchNoteResponse:
@@ -45,13 +43,15 @@ def _note_to_response(note: ResearchNote) -> ResearchNoteResponse:
 
 @router.post("/research/notes", response_model=ResearchNoteResponse, status_code=201)
 async def create_note(
+    request: Request,
     body: ResearchNoteCreateRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new research note."""
+    user_id = request.headers.get("X-User-Id", "default_user")
     note = ResearchNote(
         id=uuid.uuid4(),
-        user_id=DEFAULT_USER,
+        user_id=user_id,
         title=body.title,
         content=body.content,
         note_type=body.note_type,
@@ -64,12 +64,13 @@ async def create_note(
         priority=body.priority,
     )
     session.add(note)
-    await session.flush()
+    await session.commit()
     return _note_to_response(note)
 
 
 @router.get("/research/notes", response_model=ResearchNoteListResponse)
 async def list_notes(
+    request: Request,
     entity_id: str | None = Query(default=None),
     portfolio_id: uuid.UUID | None = Query(default=None),
     ticker: str | None = Query(default=None),
@@ -84,8 +85,9 @@ async def list_notes(
     session: AsyncSession = Depends(get_session),
 ):
     """List research notes with filtering and full-text search."""
+    user_id = request.headers.get("X-User-Id", "default_user")
     stmt = select(ResearchNote).where(
-        ResearchNote.user_id == DEFAULT_USER,
+        ResearchNote.user_id == user_id,
         ResearchNote.is_archived == archived,
     )
 
@@ -173,7 +175,7 @@ async def update_note(
         if value is not None:
             setattr(note, field_name, value)
 
-    await session.flush()
+    await session.commit()
     return _note_to_response(note)
 
 
@@ -190,21 +192,23 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     note.is_archived = True
-    await session.flush()
+    await session.commit()
     return _note_to_response(note)
 
 
 @router.get("/research/notes/entity/{entity_id}", response_model=ResearchNoteListResponse)
 async def list_notes_by_entity(
+    request: Request,
     entity_id: str,
     limit: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ):
     """List all notes for a specific entity."""
+    user_id = request.headers.get("X-User-Id", "default_user")
     stmt = (
         select(ResearchNote)
         .where(
-            ResearchNote.user_id == DEFAULT_USER,
+            ResearchNote.user_id == user_id,
             ResearchNote.entity_id == entity_id,
             ResearchNote.is_archived == False,
         )
@@ -213,7 +217,7 @@ async def list_notes_by_entity(
     )
     count_result = await session.execute(
         select(func.count(ResearchNote.id)).where(
-            ResearchNote.user_id == DEFAULT_USER,
+            ResearchNote.user_id == user_id,
             ResearchNote.entity_id == entity_id,
             ResearchNote.is_archived == False,
         )
@@ -230,13 +234,15 @@ async def list_notes_by_entity(
 
 @router.get("/research/notes/tags", response_model=list[str])
 async def list_tags(
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
     """List all unique tags used in research notes."""
+    user_id = request.headers.get("X-User-Id", "default_user")
     result = await session.execute(
         select(ResearchNote.tags)
         .where(
-            ResearchNote.user_id == DEFAULT_USER,
+            ResearchNote.user_id == user_id,
             ResearchNote.is_archived == False,
             ResearchNote.tags.is_not(None),
         )

@@ -21,7 +21,7 @@ class FilingSection(TimestampMixin, Base):
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("entities.entity_id"),
+        ForeignKey("entities.entity_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -29,7 +29,7 @@ class FilingSection(TimestampMixin, Base):
     filing_date: Mapped[date] = mapped_column(Date, nullable=False)
     fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
     fiscal_quarter: Mapped[int | None] = mapped_column(Integer)
-    section_key: Mapped[str] = mapped_column(String(20), nullable=False)
+    section_key: Mapped[str] = mapped_column(String(50), nullable=False)
     section_text: Mapped[str] = mapped_column(Text, nullable=False)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     filing_accession_number: Mapped[str | None] = mapped_column(String(25))
@@ -55,11 +55,11 @@ class FilingDiff(TimestampMixin, Base):
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("entities.entity_id"),
+        ForeignKey("entities.entity_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    section_key: Mapped[str] = mapped_column(String(20), nullable=False)
+    section_key: Mapped[str] = mapped_column(String(50), nullable=False)
     year_old: Mapped[int] = mapped_column(Integer, nullable=False)
     year_new: Mapped[int] = mapped_column(Integer, nullable=False)
     change_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))

@@ -253,19 +253,16 @@ async def get_country_events(
     session: AsyncSession = Depends(get_session),
 ):
     """Get active geopolitical events for a country."""
-    # GeopoliticalEvent stores countries_involved as JSONB; we load all and filter
+    cc = country_code.upper()
+    # Push filter to SQL: the JSONB '?' operator returns true when
+    # the string exists as an array element *or* as an object key,
+    # matching the semantics we need for countries_involved.
     result = await session.execute(
-        select(GeopoliticalEvent).order_by(GeopoliticalEvent.start_date.desc().nulls_last())
+        select(GeopoliticalEvent)
+        .where(GeopoliticalEvent.countries_involved.has_key(cc))
+        .order_by(GeopoliticalEvent.start_date.desc().nulls_last())
     )
     rows = result.scalars().all()
-    cc = country_code.upper()
-    filtered = []
-    for r in rows:
-        involved = r.countries_involved or []
-        if isinstance(involved, list) and cc in involved:
-            filtered.append(r)
-        elif isinstance(involved, dict) and cc in involved:
-            filtered.append(r)
     return [
         GeopoliticalEventResponse(
             id=r.id,
@@ -280,7 +277,7 @@ async def get_country_events(
             sector_impact=r.sector_impact,
             affected_entity_ids=r.affected_entity_ids,
         )
-        for r in filtered
+        for r in rows
     ]
 
 
@@ -865,6 +862,10 @@ async def get_commodity_supply_demand(
     latest_price = prices[0] if prices else None
     trend = "NEUTRAL"
     if latest_price and avg_price:
+        # PLACEHOLDER: Supply/demand signal is a naive heuristic based on
+        # price deviation from the 30-day average.  A real implementation
+        # should incorporate actual supply/demand data (e.g. EIA inventory
+        # reports, USDA crop estimates, exchange warehouse stocks).
         if latest_price > avg_price * 1.05:
             trend = "DEFICIT"
         elif latest_price < avg_price * 0.95:

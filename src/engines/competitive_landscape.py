@@ -358,7 +358,7 @@ def identify_competitive_advantages(
 
 def identify_competitive_threats(
     entity_data: dict,
-    industry_trends: dict | None,
+    industry_stats: dict | None,
 ) -> list[str]:
     """Identify competitive threats.
 
@@ -366,7 +366,7 @@ def identify_competitive_threats(
     ----------
     entity_data : dict
         Entity metrics including share_trend, margin_trend, etc.
-    industry_trends : dict | None
+    industry_stats : dict | None
         Industry-level trends.
 
     Returns
@@ -388,23 +388,23 @@ def identify_competitive_threats(
 
     # Revenue growth lagging
     entity_growth = entity_data.get("revenue_growth")
-    industry_growth = (industry_trends or {}).get("revenue_growth")
+    industry_growth = (industry_stats or {}).get("revenue_growth")
     if entity_growth is not None and industry_growth is not None:
         if industry_growth - entity_growth > 3.0:
             threats.append("Revenue growth lagging industry average")
 
     # Competitive intensity
-    new_entrants = (industry_trends or {}).get("new_entrants")
+    new_entrants = (industry_stats or {}).get("new_entrants")
     if new_entrants is not None and new_entrants > 5:
         threats.append(f"High competitive intensity: {new_entrants} new entrants in market")
 
     # Technology disruption
-    disruption_risk = (industry_trends or {}).get("disruption_risk")
+    disruption_risk = (industry_stats or {}).get("disruption_risk")
     if disruption_risk is not None and disruption_risk > 0.6:
         threats.append("Technology disruption risk: industry faces significant disruption")
 
     # Regulatory risk
-    regulatory_risk = (industry_trends or {}).get("regulatory_risk")
+    regulatory_risk = (industry_stats or {}).get("regulatory_risk")
     if regulatory_risk is not None and regulatory_risk > 0.6:
         threats.append("Regulatory headwinds: increased regulatory burden expected")
 
@@ -490,7 +490,22 @@ def analyze_competitive_landscape(
     if peer_pes:
         peer_medians["pe_ratio"] = statistics.median(peer_pes)
 
-    # 8. Competitive advantages and threats
+    # 8. Compute share_trend and margin_trend if not already populated.
+    # Callers rarely set these fields so we derive them from available data.
+    if "share_trend" not in entity_data:
+        if share_gainer:
+            entity_data["share_trend"] = "GAINING"
+        elif entity_growth < industry_growth - 2.0:
+            entity_data["share_trend"] = "LOSING"
+        else:
+            entity_data["share_trend"] = "STABLE"
+
+    if "margin_trend" not in entity_data:
+        margin_vs = relative.get("margin_vs_peers")
+        # Use margin_vs_peers as a proxy: negative means entity trails peers
+        entity_data["margin_trend"] = margin_vs  # None if unavailable
+
+    # 9. Competitive advantages and threats
     advantages = identify_competitive_advantages(entity_data, peer_medians)
     threats = identify_competitive_threats(entity_data, industry_stats)
 

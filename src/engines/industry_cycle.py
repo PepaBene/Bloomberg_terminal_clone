@@ -80,13 +80,12 @@ def compute_revenue_acceleration(revenue_history: list[float]) -> float:
         else:
             growth_rates.append(0.0)
 
-    if len(growth_rates) < 2:
+    if len(growth_rates) < 3:
         return 0.0
 
-    # 2nd derivative: recent growth - prior growth
-    recent = statistics.mean(growth_rates[len(growth_rates) // 2 :])
-    prior = statistics.mean(growth_rates[: len(growth_rates) // 2])
-    return recent - prior
+    # 2nd derivative: consecutive-period growth rate differences
+    deltas = [growth_rates[i] - growth_rates[i - 1] for i in range(1, len(growth_rates))]
+    return statistics.mean(deltas)
 
 
 def compute_capacity_utilization_proxy(
@@ -275,8 +274,8 @@ def compute_hhi(market_shares: list[float]) -> float:
     """Compute Herfindahl-Hirschman Index.
 
     market_shares are percentage points (e.g. [30.0, 25.0, 15.0, ...]).
-    Normalizes so they sum to 100% before squaring.
-    Returns sum of squared shares * 10000 / (sum^2).
+    Only normalizes to 100% if total exceeds 100 (data error).
+    Otherwise uses raw shares to avoid inflating HHI for partial coverage.
     """
     if not market_shares:
         return 0.0
@@ -285,8 +284,12 @@ def compute_hhi(market_shares: list[float]) -> float:
     if total <= 0:
         return 0.0
 
-    # Normalize to sum to 100
-    normalized = [(s / total) * 100.0 for s in market_shares]
+    # Only normalize if total > 100 (data error); otherwise use raw shares
+    # to avoid inflating HHI when partial market shares don't sum to 100
+    if total > 100.0:
+        normalized = [(s / total) * 100.0 for s in market_shares]
+    else:
+        normalized = market_shares
     return sum(s * s for s in normalized)
 
 

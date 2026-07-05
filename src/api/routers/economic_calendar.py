@@ -4,7 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, nullslast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -93,7 +93,7 @@ async def get_economic_surprises(
                 EconomicRelease.surprise_value.isnot(None),
             )
         )
-        .order_by(EconomicRelease.surprise_magnitude.desc().nulls_last())
+        .order_by(nullslast(EconomicRelease.surprise_magnitude.desc()))
     )
     result = await session.execute(stmt)
     rows = result.scalars().all()

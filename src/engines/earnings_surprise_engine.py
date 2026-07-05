@@ -121,17 +121,30 @@ def compute_all_surprises(
     revenue_surprise = compute_surprise(actual_revenue, consensus_revenue)
     ebitda_surprise = compute_surprise(actual_ebitda, consensus_ebitda)
 
-    # Determine beat/miss based on available surprises
-    surprises = [s for s in [eps_surprise, revenue_surprise, ebitda_surprise] if s is not None]
+    # Determine beat/miss based on available surprises with weighted voting.
+    # EPS gets double weight because it is the most material metric.
+    metric_results: list[tuple[str, float]] = []
+    if eps_surprise is not None:
+        metric_results.append(("eps", eps_surprise))
+    if revenue_surprise is not None:
+        metric_results.append(("revenue", revenue_surprise))
+    if ebitda_surprise is not None:
+        metric_results.append(("ebitda", ebitda_surprise))
 
     is_beat = False
     is_miss = False
-    if surprises:
-        # Beat if majority of surprises are positive
-        positive_count = sum(1 for s in surprises if s > 0)
-        negative_count = sum(1 for s in surprises if s < 0)
-        is_beat = positive_count > negative_count
-        is_miss = negative_count > positive_count
+    if metric_results:
+        # EPS gets double weight in beat/miss determination
+        weighted_beat = sum(
+            2 if metric == "eps" else 1
+            for metric, surprise in metric_results if surprise > 0
+        )
+        weighted_miss = sum(
+            2 if metric == "eps" else 1
+            for metric, surprise in metric_results if surprise < 0
+        )
+        is_beat = weighted_beat > weighted_miss
+        is_miss = weighted_miss > weighted_beat
 
     return SurpriseResult(
         eps_surprise_pct=eps_surprise,

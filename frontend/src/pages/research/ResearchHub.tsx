@@ -1,9 +1,7 @@
 // ---------------------------------------------------------------------------
 // AI Research Hub
 // ---------------------------------------------------------------------------
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@/api/client';
 import { CompanyIntelCard } from '@/components/intelligence';
 import type { IntelModule } from '@/components/intelligence';
 import { useCompanyIntelligence } from '@/hooks';
@@ -26,7 +24,7 @@ function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?:
   );
 }
 
-// --- Mock Data (fallback) ----------------------------------------------------
+// --- Static Research Cards (these describe available modules, not API data) ---
 
 interface ResearchCard {
   id: string;
@@ -37,7 +35,7 @@ interface ResearchCard {
   status: 'Available' | 'Beta' | 'Coming Soon';
 }
 
-const MOCK_CARDS: ResearchCard[] = [
+const RESEARCH_CARDS: ResearchCard[] = [
   {
     id: 'primer',
     title: 'Company Primer',
@@ -88,14 +86,6 @@ const MOCK_CARDS: ResearchCard[] = [
   },
 ];
 
-// Quick Intelligence mock data for active security
-const quickIntelModules: IntelModule[] = [
-  { name: 'Business Model', score: 85, classification: 'Strong' },
-  { name: 'Capital Allocation', score: 91, classification: 'Excellent' },
-  { name: 'Management Quality', score: 82, classification: 'Strong' },
-  { name: 'Balance Sheet Risk', score: 78, classification: 'Moderate' },
-];
-
 function statusBadgeClass(status: ResearchCard['status']): string {
   switch (status) {
     case 'Available':   return 'terminal-badge terminal-badge-positive';
@@ -119,19 +109,11 @@ export default function ResearchHub() {
   const navigate = useNavigate();
 
   const activeSecurity = useSecurityStore((s) => s.primary);
-  const activeEntityId = activeSecurity?.entity_id ?? 'AAPL';
-  const activeTicker = activeSecurity?.ticker ?? 'AAPL';
-  const { data: apiIntel } = useCompanyIntelligence(activeEntityId) as { data: any };
+  const activeEntityId = activeSecurity?.entity_id;
+  const activeTicker = activeSecurity?.ticker ?? '--';
+  const { data: apiIntel, isLoading: intelLoading } = useCompanyIntelligence(activeEntityId);
 
-  const activeModules = (apiIntel as any)?.modules ?? quickIntelModules;
-
-  // Fetch module status from API
-  const { data: modulesData, isLoading } = useQuery<ResearchCard[]>({
-    queryKey: ['research', 'modules'],
-    queryFn: () => api.get('/v4/research/modules'),
-    retry: 0,
-  });
-  const researchCards = modulesData ?? MOCK_CARDS;
+  const activeModules = (apiIntel as Record<string, any>)?.modules as IntelModule[] | undefined;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -147,95 +129,101 @@ export default function ResearchHub() {
       </div>
 
       {/* Quick Intelligence — active security intel card */}
-      <div style={{ marginBottom: 'var(--panel-gap, 8px)' }}>
-        <h2 className="terminal-section-title" style={{ fontSize: 'var(--text-md)', margin: '0 0 8px 0' }}>
-          Quick Intelligence &mdash; {activeTicker}
-        </h2>
-        <div style={{ maxWidth: 400 }}>
-          <CompanyIntelCard modules={activeModules} />
-        </div>
-      </div>
-
-      {/* Cards Grid */}
-      {isLoading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="terminal-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '180px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      {activeEntityId ? (
+        <div style={{ marginBottom: 'var(--panel-gap, 8px)' }}>
+          <h2 className="terminal-section-title" style={{ fontSize: 'var(--text-md)', margin: '0 0 8px 0' }}>
+            Quick Intelligence &mdash; {activeTicker}
+          </h2>
+          <div style={{ maxWidth: 400 }}>
+            {intelLoading ? (
+              <div className="terminal-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' }}>
                 <Skeleton width="140px" height="18px" />
-                <Skeleton width="60px" height="18px" />
+                <Skeleton width="100%" height="16px" />
+                <Skeleton width="100%" height="16px" />
+                <Skeleton width="100%" height="16px" />
               </div>
-              <Skeleton width="100%" height="48px" />
-              <Skeleton width="80px" height="28px" />
-            </div>
-          ))}
+            ) : activeModules ? (
+              <CompanyIntelCard modules={activeModules} />
+            ) : (
+              <div className="terminal-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                <span className="terminal-label">No intelligence data available for {activeTicker}</span>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          {researchCards.map((card) => (
-            <div
-              key={card.id}
-              className="terminal-panel"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                cursor: 'pointer',
-                borderTop: `2px solid ${card.accentColor}`,
-                transition: 'background 0.15s',
-              }}
-              onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-raised)'; }}
-              onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-base)'; }}
-            >
-              {/* Card Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '18px' }}>{card.icon}</span>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                    {card.title}
-                  </span>
-                </div>
-                <span className={statusBadgeClass(card.status)}>{card.status}</span>
-              </div>
-
-              {/* Description */}
-              <p style={{
-                fontFamily: 'var(--font-ui)',
-                fontSize: 'var(--text-sm)',
-                color: 'var(--color-text-secondary)',
-                lineHeight: 1.5,
-                margin: 0,
-                flex: 1,
-              }}>
-                {card.description}
-              </p>
-
-              {/* Launch Button */}
-              <button
-                onClick={() => {
-                  const route = CARD_ROUTES[card.id];
-                  if (route) navigate(route);
-                }}
-                style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 500,
-                  padding: '6px 16px',
-                  background: card.status === 'Coming Soon' ? 'var(--color-surface-border)' : card.accentColor,
-                  color: card.status === 'Coming Soon' ? 'var(--color-text-tertiary)' : '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: card.status === 'Coming Soon' ? 'not-allowed' : 'pointer',
-                  alignSelf: 'flex-start',
-                }}
-                disabled={card.status === 'Coming Soon'}
-              >
-                {card.status === 'Coming Soon' ? 'Coming Soon' : 'Launch'}
-              </button>
-            </div>
-          ))}
+        <div style={{ marginBottom: 'var(--panel-gap, 8px)' }}>
+          <div className="terminal-panel" style={{ padding: '16px', textAlign: 'center' }}>
+            <span className="terminal-label">Select a security to view Quick Intelligence</span>
+          </div>
         </div>
       )}
+
+      {/* Cards Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+        {RESEARCH_CARDS.map((card) => (
+          <div
+            key={card.id}
+            className="terminal-panel"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              cursor: 'pointer',
+              borderTop: `2px solid ${card.accentColor}`,
+              transition: 'background 0.15s',
+            }}
+            onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-raised)'; }}
+            onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-base)'; }}
+          >
+            {/* Card Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>{card.icon}</span>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  {card.title}
+                </span>
+              </div>
+              <span className={statusBadgeClass(card.status)}>{card.status}</span>
+            </div>
+
+            {/* Description */}
+            <p style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-text-secondary)',
+              lineHeight: 1.5,
+              margin: 0,
+              flex: 1,
+            }}>
+              {card.description}
+            </p>
+
+            {/* Launch Button */}
+            <button
+              onClick={() => {
+                const route = CARD_ROUTES[card.id];
+                if (route) navigate(route);
+              }}
+              style={{
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-sm)',
+                fontWeight: 500,
+                padding: '6px 16px',
+                background: card.status === 'Coming Soon' ? 'var(--color-surface-border)' : card.accentColor,
+                color: card.status === 'Coming Soon' ? 'var(--color-text-tertiary)' : '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: card.status === 'Coming Soon' ? 'not-allowed' : 'pointer',
+                alignSelf: 'flex-start',
+              }}
+              disabled={card.status === 'Coming Soon'}
+            >
+              {card.status === 'Coming Soon' ? 'Coming Soon' : 'Launch'}
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

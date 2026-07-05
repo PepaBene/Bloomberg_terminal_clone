@@ -33,6 +33,12 @@ STANCE_KEYWORDS = {
     "NEUTRAL": ["data-dependent", "monitor", "balanced"],
 }
 
+# Priority order for keyword-based stance classification.
+# When multiple stances match, the one with the lowest index wins.
+# HAWKISH/DOVISH are prioritized over NEUTRAL since explicit hawkish/dovish
+# signals are more actionable than neutral language.
+STANCE_PRIORITY = ["HAWKISH", "DOVISH", "NEUTRAL"]
+
 RECESSION_WEIGHTS = {
     "yield_curve": 0.35,
     "pmi": 0.30,
@@ -73,7 +79,7 @@ class InflationComparison:
     """Cross-country inflation comparison."""
 
     country_data: list[dict]  # [{country, headline, core, trend}]
-    global_median_headline: float
+    global_median_headline: float | None
     countries_accelerating: int
     countries_decelerating: int
     countries_stable: int
@@ -111,13 +117,19 @@ def classify_policy_stance(
     str
         HAWKISH, DOVISH, or NEUTRAL.
     """
-    # Keywords override if provided
+    # Keywords override if provided — use priority ranking to avoid
+    # ambiguous results when multiple stances match (E-019 fix).
     if keywords:
         lower_keywords = [k.lower() for k in keywords]
-        for stance, stance_words in STANCE_KEYWORDS.items():
+        matched_stances: list[str] = []
+        for stance in STANCE_PRIORITY:
+            stance_words = STANCE_KEYWORDS[stance]
             for sw in stance_words:
                 if any(sw in kw for kw in lower_keywords):
-                    return stance
+                    matched_stances.append(stance)
+                    break
+        if matched_stances:
+            return matched_stances[0]
 
     # Action-based classification
     if not rate_changes:
@@ -160,14 +172,25 @@ def compute_global_rate_environment(
         code = bd["bank_code"]
         action = bd.get("last_action", "HOLD")
         ytd_bps = int(bd.get("rate_change_ytd_bps", 0))
+        last_action_info = bd.get("last_action_info")
 
-        # Determine stance from YTD changes
-        if ytd_bps > 0:
+        # Determine stance from most recent action (not YTD cumulative changes,
+        # which can be misleading — e.g. a bank that hiked 100bps then cut 50bps
+        # shows +50 YTD but current stance is dovish).
+        if last_action_info and last_action_info.get("direction") == "HIKE":
             stance = "HAWKISH"
-        elif ytd_bps < 0:
+        elif last_action_info and last_action_info.get("direction") == "CUT":
             stance = "DOVISH"
-        else:
+        elif last_action_info and last_action_info.get("direction") == "HOLD":
             stance = "NEUTRAL"
+        else:
+            # Fallback to YTD bps if last_action_info unavailable
+            if ytd_bps > 0:
+                stance = "HAWKISH"
+            elif ytd_bps < 0:
+                stance = "DOVISH"
+            else:
+                stance = "NEUTRAL"
 
         # Count by last action
         if action == "HIKE":
@@ -279,7 +302,9 @@ def compute_inflation_comparison(
             "trend": trend,
         })
 
-    global_median = round(median(headlines), 2) if headlines else 0.0
+    # Return None (not 0.0) when no inflation data — 0.0 would be
+    # misleading, implying zero inflation rather than missing data.
+    global_median = round(median(headlines), 2) if headlines else None
 
     return InflationComparison(
         country_data=country_data,

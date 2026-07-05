@@ -465,32 +465,44 @@ def map_company_exposure(
 
     # Revenue segments
     for seg in segment_data.get("revenue_segments", []):
+        country_code = seg.get("country_code")
+        pct = seg.get("pct")
+        if not country_code or pct is None:
+            continue  # skip malformed segments
         exposures.append(CompanyExposure(
             entity_id=entity_id,
-            country_code=seg["country_code"],
+            country_code=country_code,
             exposure_type="REVENUE",
-            exposure_pct=float(seg["pct"]),
+            exposure_pct=float(pct),
             source=seg.get("source", "filing"),
         ))
 
     # Operations segments
     for seg in segment_data.get("operations", []):
+        country_code = seg.get("country_code")
+        pct = seg.get("pct")
+        if not country_code or pct is None:
+            continue  # skip malformed segments
         exposures.append(CompanyExposure(
             entity_id=entity_id,
-            country_code=seg["country_code"],
+            country_code=country_code,
             exposure_type="OPERATIONS",
-            exposure_pct=float(seg["pct"]),
+            exposure_pct=float(pct),
             source=seg.get("source", "filing"),
         ))
 
     # Supply chain from relationship data
     if relationship_data is not None:
         for seg in relationship_data.get("supply_chain", []):
+            country_code = seg.get("country_code")
+            pct = seg.get("pct")
+            if not country_code or pct is None:
+                continue  # skip malformed segments
             exposures.append(CompanyExposure(
                 entity_id=entity_id,
-                country_code=seg["country_code"],
+                country_code=country_code,
                 exposure_type="SUPPLY_CHAIN",
-                exposure_pct=float(seg["pct"]),
+                exposure_pct=float(pct),
                 source=seg.get("source", "relationship"),
             ))
 

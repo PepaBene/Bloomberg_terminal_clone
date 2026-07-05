@@ -2,8 +2,6 @@
 // Themes Dashboard — Macro Themes with Sector Sensitivity Heatmap
 // ---------------------------------------------------------------------------
 import { useResearchThemes } from '@/hooks';
-import { api } from '@/api/client';
-import { RESEARCH } from '@/api/endpoints';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -33,11 +31,25 @@ const heatmapData = [
 ];
 
 export default function ThemesDashboard() {
-  const { data: apiThemes } = useResearchThemes() as { data: any };
+  const { data: apiThemes, isLoading, isError } = useResearchThemes();
 
   const activeThemes = (apiThemes as any)?.themes ?? themes;
   const activeHeatmap = (apiThemes as any)?.heatmap ?? heatmapData;
   const activeSectors = (apiThemes as any)?.sectors ?? sectors;
+
+  if (isLoading) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Macro Themes</h1>
+      <p style={{ ...labelStyle, marginTop: '12px' }}>Loading themes data...</p>
+    </div>
+  );
+
+  if (isError) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Macro Themes</h1>
+      <p style={{ ...labelStyle, marginTop: '12px', color: 'var(--color-signal-negative)' }}>Failed to load themes data.</p>
+    </div>
+  );
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>

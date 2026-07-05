@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,21 +20,22 @@ class SentimentScore(TimestampMixin, Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("entities.entity_id"),
+        UUID(as_uuid=True), ForeignKey("entities.entity_id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
     source_reference: Mapped[str | None] = mapped_column(String(500))
     source_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sentiment: Mapped[str] = mapped_column(String(10), nullable=False)
     sentiment_score: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0.5)
     relevance: Mapped[float | None] = mapped_column(Numeric(5, 4))
-    topics: Mapped[dict | None] = mapped_column(JSONB)
+    topics: Mapped[dict | None] = mapped_column(JSONB)  # List of topic tags for this sentiment score
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         Index("idx_sentiment_entity_date", "entity_id", "source_date"),
+        UniqueConstraint("entity_id", "source_type", "source_reference", name="uq_sentiment_entity_source"),
     )
 
 
@@ -47,7 +48,7 @@ class SentimentAggregate(TimestampMixin, Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("entities.entity_id"),
+        UUID(as_uuid=True), ForeignKey("entities.entity_id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -76,6 +77,7 @@ class SentimentAggregate(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_sent_agg_entity_date_tf", "entity_id", "as_of_date", "timeframe", unique=True),
+        Index("ix_sentiment_agg_entity_date", "entity_id", "as_of_date", postgresql_ops={"as_of_date": "DESC"}),
     )
 
 
@@ -193,6 +195,7 @@ class Watchlist(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # TODO: Add ForeignKey("users.id") once the users table is created.
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -216,10 +219,11 @@ class AlertRule(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # TODO: Add ForeignKey("users.id") once the users table is created.
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    entity_scope: Mapped[dict | None] = mapped_column(JSONB)
-    conditions: Mapped[dict | None] = mapped_column(JSONB)
+    entity_scope: Mapped[dict | None] = mapped_column(JSONB)  # {entity_ids: [uuid], sectors: [str], ...}
+    conditions: Mapped[dict | None] = mapped_column(JSONB)  # {threshold: float, direction: str, metric: str, ...}
     priority_threshold: Mapped[str | None] = mapped_column(String(10))
     delivery_preference: Mapped[str] = mapped_column(
         String(20), nullable=False, default="DAILY_DIGEST"
@@ -245,6 +249,7 @@ class AlertEvent(TimestampMixin, Base):
         UUID(as_uuid=True),
         ForeignKey("alert_rules.id"),
     )
+    # TODO: Add ForeignKey("users.id") once the users table is created.
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -255,7 +260,7 @@ class AlertEvent(TimestampMixin, Base):
     alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default="MEDIUM")
     title: Mapped[str] = mapped_column(String(500), nullable=False)
-    detail: Mapped[dict | None] = mapped_column(JSONB)
+    detail: Mapped[dict | None] = mapped_column(JSONB)  # Alert-specific detail payload (metrics, context, etc.)
     is_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

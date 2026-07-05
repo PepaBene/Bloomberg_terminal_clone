@@ -1,6 +1,8 @@
 """Pydantic schemas for Pillar 3 Phase 2: FinBERT Sentiment Extensions."""
 
-from pydantic import BaseModel
+from datetime import date
+
+from pydantic import BaseModel, Field
 from uuid import UUID
 
 
@@ -42,3 +44,11 @@ class SentimentScreenRequest(BaseModel):
 class SentimentScreenResponse(BaseModel):
     results: list[SentimentSummaryResponse] = []
     total_count: int = 0
+
+
+class BulkNewsRequest(BaseModel):
+    """Validated request body for bulk news fetching."""
+    entity_ids: list[str] = Field(default_factory=list, description="List of entity UUID strings")
+    from_date: date | None = Field(None, description="Start date filter")
+    to_date: date | None = Field(None, description="End date filter")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum articles to return")

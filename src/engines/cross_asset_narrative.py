@@ -107,19 +107,23 @@ def detect_fallen_angel_overhang(
     bbb_ratings = {"BBB+", "BBB", "BBB-"}
     if rating not in bbb_ratings:
         return None
-    if momentum != "DETERIORATING":
-        return None
 
     forced_selling = ig_holders_pct if ig_holders_pct is not None else 0.0
 
-    if rating == "BBB-" and forced_selling >= 50:
-        risk_level = "HIGH"
-    elif rating == "BBB-" and forced_selling >= 30:
+    if momentum == "DETERIORATING":
+        if rating == "BBB-" and forced_selling >= 50:
+            risk_level = "HIGH"
+        elif rating == "BBB-" and forced_selling >= 30:
+            risk_level = "MEDIUM"
+        elif rating in ("BBB", "BBB+"):
+            risk_level = "LOW"
+        else:
+            risk_level = "LOW"
+    elif forced_selling >= 50:
+        # High forced-seller scenario regardless of momentum
         risk_level = "MEDIUM"
-    elif rating in ("BBB", "BBB+") and momentum == "DETERIORATING":
-        risk_level = "LOW"
     else:
-        risk_level = "LOW"
+        return None
 
     narrative = (
         f"Fallen angel overhang risk: {rating} rated with {momentum} momentum. "

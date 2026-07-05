@@ -362,7 +362,7 @@ def extract_key_people(text: str) -> list[dict]:
     results: list[dict] = []
     seen_keys: set[tuple[str, str]] = set()
 
-    action_keywords = ["appointed", "resigned", "terminated", "appointed"]
+    action_keywords = ["appointed", "resigned", "terminated", "elected"]
 
     for idx, pattern in enumerate(_PEOPLE_PATTERNS):
         for match in pattern.finditer(text):

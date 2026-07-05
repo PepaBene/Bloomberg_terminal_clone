@@ -426,7 +426,7 @@ def _compute_sanctions_trajectory(sanctions: list[dict]) -> str:
     if len(dated) < 2:
         return "STABLE"
 
-    dated.sort(key=lambda s: s["date_imposed"])
+    dated.sort(key=lambda s: s.get("date_imposed", "1900-01-01"))
 
     # Simple heuristic: compare count in first half vs second half
     mid = len(dated) // 2

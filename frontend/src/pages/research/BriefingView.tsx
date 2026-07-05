@@ -33,20 +33,39 @@ const portfolioImpact = [
 ];
 
 export default function BriefingView() {
-  const { data: apiBriefing } = useMorningBriefing() as { data: any };
-  const { data: apiHistory } = useBriefingHistory() as { data: any };
+  const { data: apiBriefing, isLoading, isError } = useMorningBriefing();
+  const { data: apiHistory } = useBriefingHistory();
   const [generating, setGenerating] = useState(false);
 
   const activeMeta = (apiBriefing as any)?.meta ?? briefingMeta;
   const activeContext = (apiBriefing as any)?.marketContext ?? marketContext;
   const activeThemes = (apiBriefing as any)?.themes ?? keyThemes;
   const activeImpact = (apiBriefing as any)?.portfolioImpact ?? portfolioImpact;
+  const briefingHistory = (apiHistory as any)?.briefings ?? (apiHistory as any[]) ?? [];
 
   const handleGenerate = async () => {
     setGenerating(true);
-    try { await api.post(RESEARCH.briefings.generate, {}); } catch {}
+    try {
+      await api.post(RESEARCH.briefings.generate, {});
+    } catch (error) {
+      console.error('Failed to generate briefing:', error);
+    }
     setGenerating(false);
   };
+
+  if (isLoading) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Morning Briefing</h1>
+      <p style={{ ...labelStyle, marginTop: '12px' }}>Loading briefing data...</p>
+    </div>
+  );
+
+  if (isError) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Morning Briefing</h1>
+      <p style={{ ...labelStyle, marginTop: '12px', color: 'var(--color-signal-negative)' }}>Failed to load briefing data.</p>
+    </div>
+  );
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -106,6 +125,28 @@ export default function BriefingView() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Briefing History */}
+      <div style={{ ...panelStyle, marginTop: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Briefing History</h2>
+        {briefingHistory.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {briefingHistory.map((b: any, i: number) => (
+              <div key={b.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                <div>
+                  <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 500 }}>{b.date ?? b.title}</span>
+                  {b.summary && (
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>{b.summary}</span>
+                  )}
+                </div>
+                <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{b.confidence != null ? `${b.confidence}%` : ''}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={labelStyle}>No previous briefings available.</p>
+        )}
       </div>
     </div>
   );

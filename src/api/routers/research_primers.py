@@ -164,7 +164,7 @@ async def trigger_primer_refresh(
         started_at=datetime.now(timezone.utc),
     )
     session.add(refresh)
-    await session.flush()
+    await session.commit()
 
     return PrimerRefreshResponse(
         id=refresh.id,

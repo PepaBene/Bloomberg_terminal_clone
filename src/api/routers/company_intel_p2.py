@@ -115,7 +115,7 @@ async def get_company_intelligence(
             "z_score": float(bsra.z_score) if bsra and bsra.z_score else None,
         } if bsra else None,
         governance_score=float(mqa.governance_score) if mqa and mqa.governance_score else None,
-        ai_summary=" | ".join(ai_summaries) if ai_summaries else None,
+        ai_summary="\n\n".join(ai_summaries) if ai_summaries else None,
     )
 
 

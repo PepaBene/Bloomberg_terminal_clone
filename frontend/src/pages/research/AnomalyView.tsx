@@ -38,19 +38,36 @@ const anomalies = [
 ];
 
 export default function AnomalyView() {
-  const { data: apiActive } = useAnomalies() as { data: any };
-  const { data: apiCritical } = useCriticalAnomalies() as { data: any };
+  const { data: apiActive, isLoading, isError } = useAnomalies();
+  const { data: apiCritical } = useCriticalAnomalies();
   const [acknowledged, setAcknowledged] = useState<Set<number>>(new Set());
 
   const activeStats = (apiActive as any)?.stats ?? anomalyStats;
   const activeAnomalies = (apiActive as any)?.anomalies ?? anomalies;
+  const criticalAnomalies = (apiCritical as any)?.anomalies ?? (apiCritical as any[]) ?? [];
 
   const handleAcknowledge = async (anomalyId: number) => {
     try {
       await api.post(RESEARCH.anomalies.acknowledge(String(anomalyId)), {});
       setAcknowledged(prev => new Set(prev).add(anomalyId));
-    } catch {}
+    } catch (error) {
+      console.error('Failed to acknowledge anomaly:', error);
+    }
   };
+
+  if (isLoading) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Anomaly Detection</h1>
+      <p style={{ ...labelStyle, marginTop: '12px' }}>Loading anomaly data...</p>
+    </div>
+  );
+
+  if (isError) return (
+    <div style={{ padding: '16px' }}>
+      <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Anomaly Detection</h1>
+      <p style={{ ...labelStyle, marginTop: '12px', color: 'var(--color-signal-negative)' }}>Failed to load anomaly data.</p>
+    </div>
+  );
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -66,6 +83,24 @@ export default function AnomalyView() {
           </div>
         ))}
       </div>
+      {/* Critical Anomalies */}
+      {criticalAnomalies.length > 0 && (
+        <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)', borderLeft: '3px solid var(--color-signal-negative)' }}>
+          <h2 style={sectionTitle}>Critical Anomalies</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {criticalAnomalies.map((c: any, i: number) => (
+              <div key={c.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                <div>
+                  <span style={{ ...dataStyle, fontWeight: 600, color: 'var(--color-accent-primary)', marginRight: '8px' }}>{c.entity ?? c.ticker}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>{c.detail ?? c.description ?? c.type}</span>
+                </div>
+                <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-signal-negative)' }}>{c.zScore != null ? `${Number(c.zScore).toFixed(1)}\u03c3` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={panelStyle}>
         <h2 style={sectionTitle}>Detected Anomalies</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -8,8 +8,11 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import logging
 import statistics
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────────
@@ -119,7 +122,12 @@ def _compute_cyclicality(revenue_history: list[float]) -> float:
     Higher volatility = higher cyclicality score.
     """
     if len(revenue_history) < 3:
-        return 50.0  # Unknown
+        logger.warning(
+            "Cyclicality score defaulting to 50.0 (neutral): "
+            "insufficient revenue history (%d periods, need >= 3)",
+            len(revenue_history),
+        )
+        return 50.0  # Insufficient data — neutral default
 
     growth_rates = []
     for i in range(1, len(revenue_history)):
@@ -329,7 +337,7 @@ def assess_business_model_durability(data: dict) -> BusinessModelDurability:
             max_hits = hits
             detected_moat = moat_type
 
-    if max_hits < 2:
+    if max_hits < 1:  # Single strong keyword is sufficient for detection
         detected_moat = None
 
     # Disruption vulnerability (0-100, higher = more vulnerable)

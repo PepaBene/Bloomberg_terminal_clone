@@ -109,13 +109,13 @@ def analyze_eps_surprise(consensus: float, actual: float) -> EPSAnalysis:
     EPSAnalysis
     """
     if consensus == 0:
-        surprise_pct = 0.0 if actual == 0 else 100.0
+        surprise_pct = None  # No consensus = no surprise calculable
     else:
         surprise_pct = round(((actual - consensus) / abs(consensus)) * 100, 4)
 
     beat = actual >= consensus
 
-    abs_surprise = abs(surprise_pct)
+    abs_surprise = abs(surprise_pct) if surprise_pct is not None else 0.0
     if abs_surprise <= 2.0:
         magnitude = "inline"
     elif abs_surprise <= 10.0:
@@ -149,13 +149,13 @@ def analyze_revenue_surprise(consensus: float, actual: float) -> RevenueAnalysis
     RevenueAnalysis
     """
     if consensus == 0:
-        surprise_pct = 0.0 if actual == 0 else 100.0
+        surprise_pct = None  # No consensus = no surprise calculable
     else:
         surprise_pct = round(((actual - consensus) / abs(consensus)) * 100, 4)
 
     beat = actual >= consensus
 
-    abs_surprise = abs(surprise_pct)
+    abs_surprise = abs(surprise_pct) if surprise_pct is not None else 0.0
     if abs_surprise <= 1.0:
         magnitude = "inline"
     elif abs_surprise <= 5.0:
@@ -455,14 +455,16 @@ def generate_key_takeaways(
     # EPS
     verb = "beat" if eps_analysis.beat else "missed"
     takeaways.append(
-        f"EPS {verb} consensus by {abs(eps_analysis.surprise_pct):.1f}% "
+        f"EPS {verb} consensus by "
+        f"{f'{abs(eps_analysis.surprise_pct):.1f}%' if eps_analysis.surprise_pct is not None else 'N/A'} "
         f"(${eps_analysis.actual:.2f} vs ${eps_analysis.consensus:.2f})"
     )
 
     # Revenue
     verb = "exceeded" if revenue_analysis.beat else "fell short of"
     takeaways.append(
-        f"Revenue {verb} expectations by {abs(revenue_analysis.surprise_pct):.1f}%"
+        f"Revenue {verb} expectations by "
+        f"{f'{abs(revenue_analysis.surprise_pct):.1f}%' if revenue_analysis.surprise_pct is not None else 'N/A'}"
     )
 
     # Margins
@@ -513,9 +515,9 @@ def generate_narrative_template(
     narrative = (
         f"The company reported EPS of ${eps_analysis.actual:.2f}, "
         f"which {eps_verb} the consensus estimate of ${eps_analysis.consensus:.2f} "
-        f"by {abs(eps_analysis.surprise_pct):.1f}% (a {eps_analysis.magnitude} "
+        f"by {f'{abs(eps_analysis.surprise_pct):.1f}%' if eps_analysis.surprise_pct is not None else 'N/A'} (a {eps_analysis.magnitude} "
         f"{'beat' if eps_analysis.beat else 'miss'}). "
-        f"Revenue {rev_verb} expectations by {abs(revenue_analysis.surprise_pct):.1f}%. "
+        f"Revenue {rev_verb} expectations by {f'{abs(revenue_analysis.surprise_pct):.1f}%' if revenue_analysis.surprise_pct is not None else 'N/A'}. "
         f"Overall assessment: {recommendation}."
     )
 

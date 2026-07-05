@@ -8,6 +8,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines.governance_scoring import compute_governance_score
 from src.models.entity import Entity
 from src.models.governance_intelligence import (
     BoardMember,
@@ -36,6 +37,77 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
     return entity
+
+
+@router.get(
+    "/governance/{entity_id}/score",
+    response_model=GovernanceAssessmentResponse,
+)
+async def get_governance_score(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get governance score for an entity, computing on-demand if needed."""
+    await _get_entity(session, entity_id)
+
+    result = await session.execute(
+        select(GovernanceAssessment)
+        .where(GovernanceAssessment.entity_id == entity_id)
+        .order_by(GovernanceAssessment.assessment_date.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+
+    if not row:
+        # No pre-computed score — compute on-demand using governance engine
+        governance_data: dict = {
+            "dual_class": False,
+            "ceo_is_chair": False,
+            "board_independence_pct": None,
+            "avg_board_tenure": None,
+            "has_poison_pill": False,
+            "has_staggered_board": False,
+            "ceo_pay_ratio": None,
+            "related_party_flag": False,
+            "long_term_incentive_pct": None,
+            "has_majority_voting": False,
+        }
+        score_result = compute_governance_score(governance_data)
+
+        today = date.today()
+        row = GovernanceAssessment(
+            id=uuid.uuid4(),
+            entity_id=entity_id,
+            assessment_date=today,
+            governance_score=score_result["score"],
+            classification=score_result["classification"],
+            red_flags=score_result["red_flags"],
+        )
+        session.add(row)
+        await session.commit()
+
+    red_flags = []
+    if row.red_flags:
+        for rf in row.red_flags:
+            red_flags.append(
+                GovernanceRedFlagResponse(
+                    flag=rf.get("flag", ""),
+                    severity=rf.get("severity", "LOW"),
+                    detail=rf.get("detail", ""),
+                    weight=rf.get("weight", 0),
+                )
+            )
+
+    return GovernanceAssessmentResponse(
+        entity_id=row.entity_id,
+        assessment_date=row.assessment_date,
+        governance_score=row.governance_score,
+        classification=row.classification,
+        red_flags=red_flags,
+        board_independence_pct=float(row.board_independence_pct) if row.board_independence_pct is not None else None,
+        board_diversity_pct=float(row.board_diversity_pct) if row.board_diversity_pct is not None else None,
+        ceo_is_chair=row.ceo_is_chair,
+    )
 
 
 @router.get(
@@ -138,16 +210,17 @@ async def get_governance_assessment(
         raise HTTPException(status_code=404, detail="No governance assessment found for this entity")
 
     red_flags = []
-    if row.red_flags:
+    if isinstance(row.red_flags, list):
         for rf in row.red_flags:
-            red_flags.append(
-                GovernanceRedFlagResponse(
-                    flag=rf.get("flag", ""),
-                    severity=rf.get("severity", "LOW"),
-                    detail=rf.get("detail", ""),
-                    weight=rf.get("weight", 0),
+            if isinstance(rf, dict):
+                red_flags.append(
+                    GovernanceRedFlagResponse(
+                        flag=rf.get("flag", ""),
+                        severity=rf.get("severity", "LOW"),
+                        detail=rf.get("detail", ""),
+                        weight=rf.get("weight", 0),
+                    )
                 )
-            )
 
     return GovernanceAssessmentResponse(
         entity_id=row.entity_id,
@@ -183,16 +256,17 @@ async def get_governance_red_flags(
         raise HTTPException(status_code=404, detail="No governance assessment found for this entity")
 
     red_flags = []
-    if row.red_flags:
+    if isinstance(row.red_flags, list):
         for rf in row.red_flags:
-            red_flags.append(
-                GovernanceRedFlagResponse(
-                    flag=rf.get("flag", ""),
-                    severity=rf.get("severity", "LOW"),
-                    detail=rf.get("detail", ""),
-                    weight=rf.get("weight", 0),
+            if isinstance(rf, dict):
+                red_flags.append(
+                    GovernanceRedFlagResponse(
+                        flag=rf.get("flag", ""),
+                        severity=rf.get("severity", "LOW"),
+                        detail=rf.get("detail", ""),
+                        weight=rf.get("weight", 0),
+                    )
                 )
-            )
 
     return red_flags
 

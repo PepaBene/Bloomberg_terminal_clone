@@ -172,12 +172,23 @@ class TranscriptAnalysis:
 # ---------------------------------------------------------------------------
 
 
+_ABBREV_LOOKBEHIND = (
+    r'(?<!\bDr)(?<!\bMr)(?<!\bMs)(?<!\bMrs)(?<!\bSr)(?<!\bJr)'
+    r'(?<!\bSt)(?<!\bInc)(?<!\bCo)(?<!\bLtd)(?<!\bCorp)(?<!\bvs)'
+    r'(?<!\bU\.S)'
+)
+_SENTENCE_SPLIT_RE = re.compile(_ABBREV_LOOKBEHIND + r'\.\s+')
+
+
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences by period followed by space or end."""
+    """Split text into sentences by period followed by space or end.
+
+    Uses lookbehind assertions to avoid splitting on common abbreviations
+    (Dr., Mr., Ms., Mrs., Sr., Jr., St., Inc., Co., Ltd., Corp., vs., U.S.).
+    """
     if not text or not text.strip():
         return []
-    # Split on period + space or period at end of string
-    sentences = re.split(r"\.\s+", text.strip())
+    sentences = _SENTENCE_SPLIT_RE.split(text.strip())
     return [s.strip() for s in sentences if s.strip()]
 
 
@@ -488,8 +499,15 @@ def extract_topics(text: str, top_n: int = 5) -> list[str]:
     if not text or not text.strip():
         return []
 
-    # Tokenize: extract words (3+ characters to skip noise)
-    words = re.findall(r"\b[a-z]{3,}\b", text.lower())
+    # Short words that are meaningful domain terms
+    KEEP_SHORT_WORDS = {"AI", "5G", "EV", "IP", "ML", "UI", "UX"}
+
+    # Tokenize: extract words (2+ characters), then filter short ones
+    words_raw = re.findall(r"\b[a-zA-Z0-9]{2,}\b", text)
+    words = [
+        w.lower() for w in words_raw
+        if len(w) >= 3 or w.upper() in KEEP_SHORT_WORDS
+    ]
 
     # Remove stopwords
     filtered = [w for w in words if w not in _STOPWORDS]

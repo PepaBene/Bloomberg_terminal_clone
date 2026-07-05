@@ -21,13 +21,13 @@ class NewsArticle(TimestampMixin, Base):
     )
     source_url: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
-    summary: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
     body_text: Mapped[str | None] = mapped_column(Text)
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
     publish_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     ingest_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     news_type: Mapped[str | None] = mapped_column(String(30))
-    topics: Mapped[list | None] = mapped_column(JSONB)
+    topics: Mapped[list | None] = mapped_column(JSONB)  # [str] list of topic tags
     materiality: Mapped[str | None] = mapped_column(String(10))
     sentiment_score: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))
     sentiment_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
@@ -58,7 +58,7 @@ class ArticleEntityLink(TimestampMixin, Base):
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("entities.entity_id"),
+        ForeignKey("entities.entity_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
