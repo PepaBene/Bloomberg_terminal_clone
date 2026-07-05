@@ -17,7 +17,7 @@ from PySide6.QtCharts import (
     QLineSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QDateTime, Qt, Slot
+from PySide6.QtCore import QDateTime, QMargins, Qt, Slot
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
@@ -184,7 +184,7 @@ class _IndicatorDetail(QWidget):
         self._chart = QChart()
         self._chart.setBackgroundBrush(QColor(_BG_CARD))
         self._chart.legend().hide()
-        self._chart.setMargins(Qt.QMargins(4, 4, 4, 4))  # type: ignore[arg-type]
+        self._chart.setMargins(QMargins(4, 4, 4, 4))
 
         self._chart_view = QChartView(self._chart)
         self._chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)

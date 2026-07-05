@@ -21,7 +21,7 @@ from PySide6.QtCharts import (
     QDateTimeAxis,
     QValueAxis,
 )
-from PySide6.QtCore import QDateTime, QPointF, Qt, Slot
+from PySide6.QtCore import QDateTime, QMargins, QPointF, Qt, Slot
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
@@ -209,7 +209,7 @@ class GPPanel(BasePanel):
         self._chart = QChart()
         self._chart.setBackgroundBrush(QColor(_BG_CARD))
         self._chart.legend().hide()
-        self._chart.setMargins(Qt.QMargins(4, 4, 4, 4))  # type: ignore[arg-type]
+        self._chart.setMargins(QMargins(4, 4, 4, 4))
         # Title styling
         self._chart.setTitleBrush(QColor(_TEXT))
 

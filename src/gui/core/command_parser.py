@@ -42,6 +42,10 @@ PANEL_CODES: dict[str, str] = {
     "FLOW": "flows",
     "QANT": "quant",
     "SCEN": "scenario",
+    # Financial Analysis Suite
+    "SMRT": "smart_money",       # Follow notable investors / insiders / politicians
+    "MODL": "auto_model",        # Automatic analytical model builder
+    "STRC": "complex_structure", # Complex financial structure analysis
 }
 
 # Reverse lookup: panel name -> mnemonic (useful for status display).
