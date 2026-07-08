@@ -7,8 +7,11 @@ the filing text.
 
 import logging
 import re
+from datetime import date
 from typing import Any
 
+import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -16,6 +19,19 @@ from src.ingestion.base import BaseConnector
 from src.ingestion.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
+
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+FILING_DOC_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{primary_doc}"
+
+# 8-K items most likely to disclose a rating action.
+RATING_8K_ITEMS = ("2.06", "8.01")
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(raw: str) -> str:
+    """Cheap HTML-to-text so 8-K prose can be regex-scanned."""
+    return _HTML_TAG_RE.sub(" ", raw)
 
 # Patterns to detect rating agency mentions
 AGENCY_PATTERNS = {
@@ -122,30 +138,112 @@ class EdgarCreditRatingConnector(BaseConnector):
     connector_type = "BATCH_API"
     data_domain = "CREDIT_RATINGS"
 
-    def __init__(self, ciks: list[str] | None = None):
+    def __init__(self, ciks: list[str] | None = None, filing_limit: int = 20):
         self.ciks = ciks or []
+        self.filing_limit = filing_limit
         self.rate_limiter = RateLimiter(
             max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
         )
+        self.headers = {"User-Agent": settings.SEC_USER_AGENT}
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(headers=self.headers, timeout=30.0)
+        return self._client
+
+    async def _sec_get_json(self, url: str) -> dict[str, Any] | None:
+        await self.rate_limiter.acquire()
+        client = await self._get_client()
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Credit ratings: failed GET %s: %s", url, e)
+            return None
+
+    async def _fetch_8k_index(self, cik: str) -> list[dict[str, Any]]:
+        """Return recent 8-K filing metadata (with rating-relevant items) for a CIK."""
+        data = await self._sec_get_json(SUBMISSIONS_URL.format(cik=cik.zfill(10)))
+        if not data:
+            return []
+        recent = data.get("filings", {}).get("recent", {})
+        forms = recent.get("form", [])
+        accessions = recent.get("accessionNumber", [])
+        primary_docs = recent.get("primaryDocument", [])
+        filing_dates = recent.get("filingDate", [])
+        items = recent.get("items", [])
+
+        filings: list[dict[str, Any]] = []
+        for i, form in enumerate(forms):
+            if form != "8-K":
+                continue
+            item_str = items[i] if i < len(items) else ""
+            if not any(it in item_str for it in RATING_8K_ITEMS):
+                continue
+            filings.append({
+                "cik": cik,
+                "accession_number": accessions[i],
+                "filing_date": filing_dates[i],
+                "url": FILING_DOC_URL.format(
+                    cik=cik,
+                    accession=accessions[i].replace("-", ""),
+                    primary_doc=primary_docs[i],
+                ),
+            })
+            if len(filings) >= self.filing_limit:
+                break
+        return filings
+
+    async def _fetch_text(self, url: str) -> str | None:
+        await self.rate_limiter.acquire()
+        client = await self._get_client()
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Credit ratings: failed text GET %s: %s", url, e)
+            return None
 
     async def extract(self) -> list[dict[str, Any]]:
-        """Extract credit rating events from 8-K filings."""
+        """Extract candidate credit-rating events from recent 8-K filings.
+
+        Only 8-Ks whose text mentions a recognised rating agency are emitted;
+        transform() then classifies direction/outlook and extracts the rating.
+        """
         if not self.ciks:
             logger.warning("No CIKs configured — skipping credit rating extraction")
             return []
 
         records: list[dict[str, Any]] = []
-        # In production this would fetch 8-K filings from EDGAR and parse
-        # Item 2.06 / Item 8.01 text for rating agency mentions.
-        # For now, return empty — the connector skeleton is ready.
-        logger.info("Credit rating extraction: %d CIKs queued", len(self.ciks))
+        for cik in self.ciks:
+            filings = await self._fetch_8k_index(cik)
+            for filing in filings:
+                raw = await self._fetch_text(filing["url"])
+                if not raw:
+                    continue
+                text = strip_html(raw)
+                agency = detect_agency(text)
+                if agency is None:
+                    continue
+                records.append({
+                    "cik": cik,
+                    "agency": agency,
+                    "event_date": filing["filing_date"],
+                    "raw_text": text,
+                    "source_type": "8K_FILING",
+                    "source_url": filing["url"],
+                })
+            logger.info("  RATC: CIK %s — %d rating-related 8-Ks", cik, len(filings))
         return records
 
     async def validate(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Validate extracted credit rating records."""
         valid = []
         for rec in records:
-            if not rec.get("entity_id"):
+            if not (rec.get("cik") or rec.get("entity_id")):
                 continue
             if not rec.get("agency"):
                 continue
@@ -187,16 +285,36 @@ class EdgarCreditRatingConnector(BaseConnector):
         for rec in records:
             try:
                 from src.models.credit_rating import CreditRatingEvent
+                from src.models.entity import EntityIdentifier
+
+                entity_id = rec.get("entity_id")
+                if entity_id is None and rec.get("cik"):
+                    result = await session.execute(
+                        select(EntityIdentifier).where(
+                            EntityIdentifier.identifier_type == "CIK",
+                            EntityIdentifier.identifier_value == rec["cik"],
+                        )
+                    )
+                    ident = result.scalar_one_or_none()
+                    if ident is None:
+                        logger.debug("No entity for CIK %s — skipping", rec["cik"])
+                        stats["skipped"] += 1
+                        continue
+                    entity_id = ident.entity_id
+
+                event_date = rec["event_date"]
+                if isinstance(event_date, str):
+                    event_date = date.fromisoformat(event_date)
 
                 event = CreditRatingEvent(
-                    entity_id=rec["entity_id"],
+                    entity_id=entity_id,
                     agency=rec["agency"],
                     rating_type=rec.get("rating_type", "LONG_TERM"),
                     new_rating=rec.get("new_rating"),
                     old_rating=rec.get("old_rating"),
                     direction=rec.get("direction"),
                     outlook=rec.get("outlook"),
-                    event_date=rec["event_date"],
+                    event_date=event_date,
                     effective_date=rec.get("effective_date"),
                     source_type=rec.get("source_type", "8K_FILING"),
                     source_filing_id=rec.get("source_filing_id"),
@@ -209,3 +327,9 @@ class EdgarCreditRatingConnector(BaseConnector):
                 stats["errors"] += 1
 
         return stats
+
+    async def close(self) -> None:
+        """Close HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None

@@ -19,6 +19,9 @@ async def main():
     logger.info("Starting reference data seed...")
     async with get_session_factory()() as session:
         results = await load_all_reference_data(session)
+        # load_all_reference_data only flushes; commit here or the whole seed
+        # is rolled back when the session closes.
+        await session.commit()
         logger.info("Seed complete.")
         for name, stats in results.items():
             logger.info(f"  {name}: {stats}")

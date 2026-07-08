@@ -68,7 +68,7 @@ def upgrade() -> None:
         sa.Column("margin_vs_peers", sa.Numeric(8, 4)),
         sa.Column("roic_vs_peers", sa.Numeric(8, 4)),
         sa.Column("valuation_vs_peers", JSONB),
-        sa.Column("share_gainer", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("share_gainer", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("value_chain_position", sa.String(20)),
         sa.Column("competitive_advantages", JSONB),
         sa.Column("competitive_threats", JSONB),

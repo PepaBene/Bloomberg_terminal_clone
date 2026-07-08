@@ -13,6 +13,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -89,6 +90,11 @@ def make_input(
     filing_source: str = "",
 ) -> dict:
     """Build a lineage input dict for EngineOutput.inputs."""
+    # Coerce Decimal to float so the inputs list stays JSON-serializable when
+    # persisted into the analytics_results.inputs JSONB column (fundamentals
+    # come back as Decimal, which json.dumps cannot encode).
+    if isinstance(value, Decimal):
+        value = float(value)
     return {
         "name": name,
         "source": source,

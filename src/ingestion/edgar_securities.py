@@ -15,6 +15,49 @@ from src.models.security import EquityDetails, Security
 logger = logging.getLogger(__name__)
 
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+# XBRL company-concept endpoint for the DEI shares-outstanding fact.
+SHARES_OUTSTANDING_URL = (
+    "https://data.sec.gov/api/xbrl/companyconcept/"
+    "CIK{cik}/dei/EntityCommonStockSharesOutstanding.json"
+)
+
+
+async def _fetch_shares_outstanding(
+    client: httpx.AsyncClient, rate_limiter: RateLimiter, cik: str
+) -> float | None:
+    """Fetch the most recent common-shares-outstanding value from SEC XBRL.
+
+    Reads ``dei:EntityCommonStockSharesOutstanding`` (the cover-page fact every
+    10-K/10-Q reports) and returns the value from the observation with the
+    latest period-end date, tie-broken by filing date. Returns ``None`` if the
+    company has no such fact (e.g. funds / foreign private issuers).
+    """
+    padded_cik = cik.zfill(10)
+    url = SHARES_OUTSTANDING_URL.format(cik=padded_cik)
+    await rate_limiter.acquire()
+    try:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning(f"Shares-outstanding fetch failed for CIK {cik}: {e}")
+        return None
+
+    observations = (data.get("units", {}) or {}).get("shares", []) or []
+    if not observations:
+        return None
+
+    # Most recent by (period end, filing date); both are ISO strings, sortable.
+    latest = max(
+        observations,
+        key=lambda o: (o.get("end", ""), o.get("filed", "")),
+    )
+    val = latest.get("val")
+    try:
+        return float(val) if val is not None else None
+    except (TypeError, ValueError):
+        return None
 
 # SEC exchange code -> ISO MIC mapping (common US exchanges)
 EXCHANGE_MIC_MAP = {
@@ -77,20 +120,14 @@ async def enrich_securities_from_edgar(
                     if mic:
                         security.primary_exchange_mic = mic
 
-                # Try to get shares outstanding from recent filings
-                recent_filings = data.get("filings", {}).get("recent", {})
-                if recent_filings:
-                    # Look for 10-K or 10-Q filings
-                    forms = recent_filings.get("form", [])
-                    for idx, form in enumerate(forms):
-                        if form in ("10-K", "10-Q"):
-                            # Note: Shares outstanding typically comes from the filing itself,
-                            # not the submissions JSON. This is a placeholder for XBRL parsing.
-                            break
-
-                if equity and equity.shares_outstanding is None:
-                    # Placeholder — real implementation would parse XBRL
-                    pass
+                # Shares outstanding from the DEI cover-page XBRL fact
+                # (dei:EntityCommonStockSharesOutstanding).
+                if equity is not None and equity.shares_outstanding is None:
+                    shares = await _fetch_shares_outstanding(
+                        client, rate_limiter, identifier.identifier_value
+                    )
+                    if shares is not None:
+                        equity.shares_outstanding = shares
 
                 stats["enriched"] += 1
 

@@ -17,10 +17,28 @@ from src.ingestion.base import BaseConnector
 from src.ingestion.rate_limiter import RateLimiter
 from src.models.entity import Entity, EntityIdentifier
 from src.resolution.resolver import resolve
+from src.temporal.pit import record_entity_history
 
 logger = logging.getLogger(__name__)
 
 GLEIF_API_URL = "https://api.gleif.org/api/v1/lei-records"
+
+
+def _extract_parent_lei(relationships: dict, key: str) -> str | None:
+    """Pull the parent LEI out of a GLEIF JSON:API relationship block.
+
+    GLEIF Level-2 records expose ``direct-parent`` / ``ultimate-parent``
+    relationships whose ``links.lei-record`` points at the parent's own
+    LEI record (``.../lei-records/{PARENT_LEI}``). When the entity reports
+    a parent-disclosure *exception* instead, only a ``reporting-exception``
+    link is present and there is no parent LEI to extract.
+    """
+    block = (relationships or {}).get(key) or {}
+    lei_record_url = (block.get("links") or {}).get("lei-record")
+    if not lei_record_url:
+        return None
+    parent_lei = lei_record_url.rstrip("/").rsplit("/", 1)[-1].strip()
+    return parent_lei or None
 
 
 class GleifEntityConnector(BaseConnector):
@@ -93,6 +111,7 @@ class GleifEntityConnector(BaseConnector):
             attrs = r.get("attributes", {})
             entity_data = attrs.get("entity", {})
             registration = attrs.get("registration", {})
+            relationships = r.get("relationships", {})
 
             legal_name = entity_data.get("legalName", {}).get("name", "")
             lei = attrs.get("lei", "")
@@ -121,6 +140,13 @@ class GleifEntityConnector(BaseConnector):
                     "address": address,
                     "source": "GLEIF",
                     "registration_date": registration.get("initialRegistrationDate"),
+                    # Level-2 corporate hierarchy (parent LEIs) when disclosed
+                    "immediate_parent_lei": _extract_parent_lei(
+                        relationships, "direct-parent"
+                    ),
+                    "ultimate_parent_lei": _extract_parent_lei(
+                        relationships, "ultimate-parent"
+                    ),
                 }
             )
         return transformed
@@ -151,12 +177,14 @@ class GleifEntityConnector(BaseConnector):
                     stats["matched"] += 1
                     continue
 
-                # Try to resolve against existing entities
+                # Try to resolve against existing entities. UNCERTAIN verdicts
+                # are enqueued for human review inside resolve() itself.
                 resolution = await resolve(
                     legal_name=record["legal_name"],
                     country=record.get("country"),
                     identifiers={"LEI": lei},
                     session=session,
+                    source_system="GLEIF",
                 )
 
                 if resolution.status == "MATCHED" and resolution.entity_id:
@@ -171,10 +199,16 @@ class GleifEntityConnector(BaseConnector):
                             is_primary=True,
                         )
                     )
+                    # Populate corporate hierarchy on the matched entity
+                    matched = await session.get(Entity, resolution.entity_id)
+                    if matched is not None:
+                        await self._apply_parents(matched, record, session)
+                        await record_entity_history(matched, session)
                     stats["matched"] += 1
 
                 elif resolution.status == "UNCERTAIN":
-                    # Add to review queue (handled by resolver)
+                    # Uncertain match — resolve() has parked it on the review
+                    # queue (resolution_queue); surfaced via /resolution/queue.
                     stats["uncertain"] += 1
 
                 else:
@@ -201,6 +235,10 @@ class GleifEntityConnector(BaseConnector):
                             is_primary=True,
                         )
                     )
+                    # Populate corporate hierarchy from GLEIF parent LEIs and
+                    # snapshot the initial state into entity history.
+                    await self._apply_parents(entity, record, session)
+                    await record_entity_history(entity, session)
                     stats["created"] += 1
 
             except Exception as e:
@@ -209,6 +247,42 @@ class GleifEntityConnector(BaseConnector):
 
         await session.flush()
         return stats
+
+    @staticmethod
+    async def _lookup_entity_by_lei(
+        lei: str | None, session: AsyncSession
+    ) -> uuid.UUID | None:
+        """Resolve a parent LEI to a local entity_id, if it is already loaded."""
+        if not lei:
+            return None
+        result = await session.execute(
+            select(EntityIdentifier.entity_id).where(
+                EntityIdentifier.identifier_type == "LEI",
+                EntityIdentifier.identifier_value == lei,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def _apply_parents(
+        self, entity: Entity, record: dict[str, Any], session: AsyncSession
+    ) -> None:
+        """Set immediate/ultimate parent ids from GLEIF parent LEIs.
+
+        Parents are only set when the referenced LEI is already present in
+        our entity master (best-effort). Self-references are skipped. GLEIF is
+        the one source with clean parent-LEI data; EDGAR has no comparable
+        parent linkage, which is why EDGAR entities carry no hierarchy.
+        """
+        imm_id = await self._lookup_entity_by_lei(
+            record.get("immediate_parent_lei"), session
+        )
+        ult_id = await self._lookup_entity_by_lei(
+            record.get("ultimate_parent_lei"), session
+        )
+        if imm_id and imm_id != entity.entity_id:
+            entity.immediate_parent_id = imm_id
+        if ult_id and ult_id != entity.entity_id:
+            entity.ultimate_parent_id = ult_id
 
     @staticmethod
     def _map_entity_type(gleif_category: str) -> str:

@@ -83,6 +83,24 @@ class OpenFigiSecurityConnector(BaseConnector):
                 ticker_map[ticker] = (entity.entity_id, entity.legal_name)
 
         tickers = list(ticker_map.keys())
+
+        # Resumability: skip tickers we've already mapped to a security so a
+        # re-run only fetches what's missing (and doesn't waste API calls).
+        existing = set(
+            (
+                await session.execute(
+                    select(SecurityIdentifier.identifier_value).where(
+                        SecurityIdentifier.identifier_type == "TICKER"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if existing:
+            before = len(tickers)
+            tickers = [t for t in tickers if t not in existing]
+            logger.info("Skipping %d already-mapped tickers", before - len(tickers))
         logger.info(f"Found {len(tickers)} tickers to look up via OpenFIGI")
 
         # Process in batches
@@ -91,24 +109,34 @@ class OpenFigiSecurityConnector(BaseConnector):
             batch_results = await self._query_openfigi(batch)
 
             for ticker, figi_data in zip(batch, batch_results):
-                if not figi_data or "data" not in figi_data:
+                if not figi_data or "data" not in figi_data or not figi_data["data"]:
                     stats["skipped"] += 1
                     continue
 
-                for item in figi_data["data"]:
-                    try:
+                # OpenFIGI returns several overlapping results per ticker
+                # (composite, share-class, per-venue listings). Use the first
+                # (primary) so a ticker maps to a single security and we don't
+                # collide on the unique (identifier_type, identifier_value).
+                item = figi_data["data"][0]
+                try:
+                    # Savepoint per ticker: a duplicate/constraint failure rolls
+                    # back just this record instead of poisoning the whole batch.
+                    async with session.begin_nested():
                         result = await self._create_security(
                             ticker, item, ticker_map.get(ticker), session
                         )
-                        if result:
-                            stats["inserted"] += 1
-                        else:
-                            stats["skipped"] += 1
-                    except Exception as e:
-                        logger.error(f"Error creating security for {ticker}: {e}")
-                        stats["errors"] += 1
+                        await session.flush()
+                    if result:
+                        stats["inserted"] += 1
+                    else:
+                        stats["skipped"] += 1
+                except Exception as e:
+                    logger.debug(f"Skipped security for {ticker}: {e}")
+                    stats["skipped"] += 1
 
-            await session.flush()
+            # Commit each batch so partial progress persists and a later failure
+            # doesn't lose everything (and keeps transactions small).
+            await session.commit()
             logger.info(
                 f"Processed batch {i // BATCH_SIZE + 1}: "
                 f"{stats['inserted']} inserted, {stats['skipped']} skipped"
@@ -164,6 +192,12 @@ class OpenFigiSecurityConnector(BaseConnector):
         entity_id = entity_info[0] if entity_info else None
         entity_name = entity_info[1] if entity_info else ""
 
+        # OpenFIGI's exchCode is its own code (e.g. "UN"/"UW"), NOT an ISO MIC,
+        # so it never matches exchanges.mic and would violate the FK. Map the
+        # common US venues to the real MICs we seed and null anything else.
+        _exch_to_mic = {"UN": "XNYS", "UW": "XNAS", "UQ": "XNAS", "UR": "XNAS", "UF": "XNAS"}
+        exch_mic = _exch_to_mic.get(figi_item.get("exchCode") or "")
+
         security = Security(
             security_id=security_id,
             security_type=sec_type,
@@ -172,7 +206,7 @@ class OpenFigiSecurityConnector(BaseConnector):
             short_name=ticker,
             status="ACTIVE",
             asset_class=asset_class,
-            primary_exchange_mic=figi_item.get("exchCode"),
+            primary_exchange_mic=exch_mic,
             primary_currency="USD",
         )
         session.add(security)

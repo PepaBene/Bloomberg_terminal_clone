@@ -16,7 +16,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
-        "company_primers",
+        "research_primers",
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("entity_id", sa.UUID(), sa.ForeignKey("entities.entity_id"), nullable=False, index=True),
         sa.Column("primer_version", sa.Integer(), nullable=False),
@@ -54,4 +54,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("primer_refresh_log")
-    op.drop_table("company_primers")
+    op.drop_table("research_primers")

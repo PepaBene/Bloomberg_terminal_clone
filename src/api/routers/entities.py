@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +15,8 @@ from src.models.entity import (
     EntityHistory,
     EntityIdentifier,
     EntityName,
-    EntityRelationship,
 )
+from src.models.relationships import BusinessRelationship
 from src.models.security import Security
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.entity import (
@@ -33,19 +33,50 @@ from src.schemas.entity import (
     EntitySearchResult,
 )
 from src.schemas.security import SecurityBriefResponse
+from src.services.freshness import trigger_entity_refresh
 
 router = APIRouter(prefix="/entities", tags=["Entities"])
 
 
-def _compute_relevance(name: str, query: str) -> float:
-    """Basic relevance score: exact=1.0, starts-with=0.8, contains=0.5."""
-    name_lower = name.lower() if name else ""
-    q_lower = query.lower()
-    if name_lower == q_lower:
+def _field_score(field: str | None, q: str) -> float:
+    """Score a single field against the (already-lowercased) query.
+
+    Tiers: exact=1.0 > prefix=[0.70, 0.80] > substring=[0.40, 0.50].
+    Within the prefix/substring tiers the score is tie-broken by how much
+    of the field the query covers (len(query)/len(field)) — a shorter,
+    tighter match (e.g. "Apple Inc" for "apple") ranks above a long name
+    that merely contains the query as a fragment.
+    """
+    if not field:
+        return 0.0
+    n = field.lower().strip()
+    if not n:
+        return 0.0
+    if n == q:
         return 1.0
-    if name_lower.startswith(q_lower):
-        return 0.8
-    return 0.5
+    ratio = len(q) / len(n)  # (0, 1]; higher = tighter match
+    if n.startswith(q):
+        lo, hi = 0.70, 0.80
+    elif q in n:
+        lo, hi = 0.40, 0.50
+    else:
+        return 0.30  # matched via a different field (e.g. short_name)
+    return lo + (hi - lo) * ratio
+
+
+def _compute_relevance(
+    name: str | None, query: str, short_name: str | None = None
+) -> float:
+    """Real relevance score derived from how the query matched the entity.
+
+    Considers both legal_name and short_name and takes the best field
+    score. exact-match > prefix-match > substring-match, tie-broken by
+    match tightness (name length relative to the query).
+    """
+    q = query.lower().strip()
+    if not q:
+        return 0.0
+    return max(_field_score(name, q), _field_score(short_name, q))
 
 
 # ── GET /v1/entities/search ────────────────────────────────────────
@@ -95,7 +126,7 @@ async def search_entities(
             entity_type=e.entity_type,
             status=e.status,
             incorporation_country=e.incorporation_country,
-            score=_compute_relevance(e.legal_name, q),
+            score=_compute_relevance(e.legal_name, q, e.short_name),
         )
         for e in entities
     ]
@@ -109,12 +140,17 @@ async def search_entities(
 @router.get("/{entity_id}", response_model=EntityResponse)
 async def get_entity(
     entity_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     expand: list[str] = Query(default=[]),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single entity by ID with optional expansion.
 
     Supported expand values: identifiers, names, relationships
+
+    Viewing a company triggers a background refresh of its latest fundamentals,
+    filings, and news (stale-while-revalidate) — the response is served from the
+    current DB immediately; the refetch lands for the next load.
     """
     result = await session.execute(
         select(Entity).where(Entity.entity_id == entity_id)
@@ -122,6 +158,9 @@ async def get_entity(
     entity = result.scalar_one_or_none()
     if not entity:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
+
+    # Fire-and-forget: gated by per-type TTL + cooldown inside the service.
+    background_tasks.add_task(trigger_entity_refresh, entity_id)
 
     resp = EntityResponse.model_validate(entity)
 
@@ -387,7 +426,13 @@ async def get_entity_relationships(
     type: str | None = Query(None, description="Relationship type filter"),
     active: bool | None = Query(None, description="Active-only filter"),
 ):
-    """Get relationships for an entity, optionally filtered by type and active status."""
+    """Get relationships for an entity, optionally filtered by type and active status.
+
+    Reads from ``business_relationships`` — the table actually populated by the
+    10-K NLP relationship-extraction pipeline. (The legacy ``entity_relationships``
+    table has no writer anywhere, so querying it would always return empty; the
+    two tables model the same concept under different names.)
+    """
     # Verify entity exists
     ent_result = await session.execute(
         select(Entity.entity_id).where(Entity.entity_id == entity_id)
@@ -395,25 +440,27 @@ async def get_entity_relationships(
     if not ent_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
 
-    query = select(EntityRelationship).where(
-        (EntityRelationship.source_entity_id == entity_id)
-        | (EntityRelationship.target_entity_id == entity_id)
+    query = select(BusinessRelationship).where(
+        (BusinessRelationship.source_entity_id == entity_id)
+        | (BusinessRelationship.target_entity_id == entity_id)
     )
-    count_query = select(EntityRelationship).where(
-        (EntityRelationship.source_entity_id == entity_id)
-        | (EntityRelationship.target_entity_id == entity_id)
+    count_query = select(BusinessRelationship).where(
+        (BusinessRelationship.source_entity_id == entity_id)
+        | (BusinessRelationship.target_entity_id == entity_id)
     )
 
     if type:
-        query = query.where(EntityRelationship.relationship_type == type)
-        count_query = count_query.where(EntityRelationship.relationship_type == type)
+        query = query.where(BusinessRelationship.relationship_type == type)
+        count_query = count_query.where(
+            BusinessRelationship.relationship_type == type
+        )
 
     if active is True:
-        query = query.where(EntityRelationship.termination_date.is_(None))
-        count_query = count_query.where(EntityRelationship.termination_date.is_(None))
+        query = query.where(BusinessRelationship.is_active.is_(True))
+        count_query = count_query.where(BusinessRelationship.is_active.is_(True))
     elif active is False:
-        query = query.where(EntityRelationship.termination_date.isnot(None))
-        count_query = count_query.where(EntityRelationship.termination_date.isnot(None))
+        query = query.where(BusinessRelationship.is_active.is_(False))
+        count_query = count_query.where(BusinessRelationship.is_active.is_(False))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())
@@ -422,15 +469,31 @@ async def get_entity_relationships(
 
     offset = (pagination.page - 1) * pagination.page_size
     query = (
-        query.order_by(EntityRelationship.effective_date.desc().nulls_last())
+        query.order_by(BusinessRelationship.effective_date.desc().nulls_last())
         .offset(offset)
         .limit(pagination.page_size)
     )
     result = await session.execute(query)
     relationships = result.scalars().all()
 
+    data = [
+        EntityRelationshipResponse(
+            relationship_id=r.relationship_id,
+            source_entity_id=r.source_entity_id,
+            target_entity_id=r.target_entity_id,
+            relationship_type=r.relationship_type,
+            effective_date=r.effective_date,
+            termination_date=r.termination_date,
+            ownership_percentage=None,  # not modelled on business_relationships
+            relationship_details=r.metadata_json,
+            source=r.extraction_method,
+            source_document=r.source_document,
+        )
+        for r in relationships
+    ]
+
     return PaginatedResponse(
-        data=[EntityRelationshipResponse.model_validate(r) for r in relationships],
+        data=data,
         meta=build_paginated_meta(total_count, pagination),
     )
 

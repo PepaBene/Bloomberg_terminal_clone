@@ -240,6 +240,7 @@ class Edgar8KConnector(BaseConnector):
         """Write corporate action records to database."""
         from src.models.corporate_actions import CorporateAction
         from src.models.entity import EntityIdentifier
+        from src.models.security import Security
 
         stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
 
@@ -256,6 +257,25 @@ class Edgar8KConnector(BaseConnector):
                 )
                 entity_ident = result.scalar_one_or_none()
                 entity_id = entity_ident.entity_id if entity_ident else None
+
+                # Resolve the issuer's primary equity security so that the
+                # per-security corporate-actions endpoint (which filters on
+                # security_id) can return these rows. Prefer common stock.
+                security_id = None
+                if entity_id is not None:
+                    sec_result = await session.execute(
+                        select(Security.security_id)
+                        .where(
+                            Security.issuer_entity_id == entity_id,
+                            Security.asset_class == "EQUITY",
+                        )
+                        .order_by(
+                            (Security.security_type == "COMMON_STOCK").desc(),
+                            Security.security_id,
+                        )
+                        .limit(1)
+                    )
+                    security_id = sec_result.scalar_one_or_none()
 
                 announcement_date = date.fromisoformat(rec["announcement_date"])
 
@@ -274,11 +294,19 @@ class Edgar8KConnector(BaseConnector):
                     stats["skipped"] += 1
                     continue
 
+                # NOTE: ex_date / record_date / payment_date are dividend- and
+                # split-specific schedule dates. The 8-K item types handled here
+                # (acquisitions, management changes, material agreements, earnings,
+                # shareholder votes, other events) are point-in-time announced
+                # events that carry no such schedule, so those fields are left
+                # null by design. announcement_date is the meaningful event date;
+                # the corporate_actions router coalesces it into the calendar.
                 action = CorporateAction(
                     action_id=uuid.uuid4(),
                     action_type=rec["action_type"],
                     action_subtype=rec["action_subtype"],
                     entity_id=entity_id,
+                    security_id=security_id,
                     announcement_date=announcement_date,
                     status=rec["status"],
                     description=rec.get("description"),

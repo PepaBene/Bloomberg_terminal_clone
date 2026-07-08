@@ -14,7 +14,7 @@ from src.models.base import Base, TimestampMixin
 class CompanyPrimer(TimestampMixin, Base):
     """AI-generated company research primer."""
 
-    __tablename__ = "company_primers"
+    __tablename__ = "research_primers"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -39,10 +39,6 @@ class CompanyPrimer(TimestampMixin, Base):
     last_earnings_call_date: Mapped[date | None] = mapped_column(Date)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     prompt_template_used: Mapped[str | None] = mapped_column(String(50))
-
-    __table_args__ = (
-        {"extend_existing": True},
-    )
 
 
 class PrimerRefreshLog(Base):

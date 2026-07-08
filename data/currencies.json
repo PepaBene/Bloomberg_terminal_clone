@@ -1,32 +1,296 @@
 [
-  {"currency_code": "USD", "name": "US Dollar", "numeric_code": "840", "minor_unit": 2, "is_active": true},
-  {"currency_code": "EUR", "name": "Euro", "numeric_code": "978", "minor_unit": 2, "is_active": true},
-  {"currency_code": "GBP", "name": "Pound Sterling", "numeric_code": "826", "minor_unit": 2, "is_active": true},
-  {"currency_code": "JPY", "name": "Yen", "numeric_code": "392", "minor_unit": 0, "is_active": true},
-  {"currency_code": "CHF", "name": "Swiss Franc", "numeric_code": "756", "minor_unit": 2, "is_active": true},
-  {"currency_code": "CAD", "name": "Canadian Dollar", "numeric_code": "124", "minor_unit": 2, "is_active": true},
-  {"currency_code": "AUD", "name": "Australian Dollar", "numeric_code": "036", "minor_unit": 2, "is_active": true},
-  {"currency_code": "NZD", "name": "New Zealand Dollar", "numeric_code": "554", "minor_unit": 2, "is_active": true},
-  {"currency_code": "CNY", "name": "Yuan Renminbi", "numeric_code": "156", "minor_unit": 2, "is_active": true},
-  {"currency_code": "HKD", "name": "Hong Kong Dollar", "numeric_code": "344", "minor_unit": 2, "is_active": true},
-  {"currency_code": "SGD", "name": "Singapore Dollar", "numeric_code": "702", "minor_unit": 2, "is_active": true},
-  {"currency_code": "KRW", "name": "Won", "numeric_code": "410", "minor_unit": 0, "is_active": true},
-  {"currency_code": "INR", "name": "Indian Rupee", "numeric_code": "356", "minor_unit": 2, "is_active": true},
-  {"currency_code": "BRL", "name": "Brazilian Real", "numeric_code": "986", "minor_unit": 2, "is_active": true},
-  {"currency_code": "MXN", "name": "Mexican Peso", "numeric_code": "484", "minor_unit": 2, "is_active": true},
-  {"currency_code": "ZAR", "name": "Rand", "numeric_code": "710", "minor_unit": 2, "is_active": true},
-  {"currency_code": "SEK", "name": "Swedish Krona", "numeric_code": "752", "minor_unit": 2, "is_active": true},
-  {"currency_code": "NOK", "name": "Norwegian Krone", "numeric_code": "578", "minor_unit": 2, "is_active": true},
-  {"currency_code": "DKK", "name": "Danish Krone", "numeric_code": "208", "minor_unit": 2, "is_active": true},
-  {"currency_code": "PLN", "name": "Zloty", "numeric_code": "985", "minor_unit": 2, "is_active": true},
-  {"currency_code": "CZK", "name": "Czech Koruna", "numeric_code": "203", "minor_unit": 2, "is_active": true},
-  {"currency_code": "HUF", "name": "Forint", "numeric_code": "348", "minor_unit": 2, "is_active": true},
-  {"currency_code": "TRY", "name": "Turkish Lira", "numeric_code": "949", "minor_unit": 2, "is_active": true},
-  {"currency_code": "RUB", "name": "Russian Ruble", "numeric_code": "643", "minor_unit": 2, "is_active": true},
-  {"currency_code": "THB", "name": "Baht", "numeric_code": "764", "minor_unit": 2, "is_active": true},
-  {"currency_code": "TWD", "name": "New Taiwan Dollar", "numeric_code": "901", "minor_unit": 2, "is_active": true},
-  {"currency_code": "ILS", "name": "New Israeli Sheqel", "numeric_code": "376", "minor_unit": 2, "is_active": true},
-  {"currency_code": "AED", "name": "UAE Dirham", "numeric_code": "784", "minor_unit": 2, "is_active": true},
-  {"currency_code": "SAR", "name": "Saudi Riyal", "numeric_code": "682", "minor_unit": 2, "is_active": true},
-  {"currency_code": "PHP", "name": "Philippine Peso", "numeric_code": "608", "minor_unit": 2, "is_active": true}
+  {
+    "currency_code": "USD",
+    "name": "US Dollar",
+    "numeric_code": "840",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "EUR",
+    "name": "Euro",
+    "numeric_code": "978",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "GBP",
+    "name": "Pound Sterling",
+    "numeric_code": "826",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "JPY",
+    "name": "Yen",
+    "numeric_code": "392",
+    "minor_unit": 0,
+    "is_active": true
+  },
+  {
+    "currency_code": "CHF",
+    "name": "Swiss Franc",
+    "numeric_code": "756",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "CAD",
+    "name": "Canadian Dollar",
+    "numeric_code": "124",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "AUD",
+    "name": "Australian Dollar",
+    "numeric_code": "036",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "NZD",
+    "name": "New Zealand Dollar",
+    "numeric_code": "554",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "CNY",
+    "name": "Yuan Renminbi",
+    "numeric_code": "156",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "HKD",
+    "name": "Hong Kong Dollar",
+    "numeric_code": "344",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "SGD",
+    "name": "Singapore Dollar",
+    "numeric_code": "702",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "KRW",
+    "name": "Won",
+    "numeric_code": "410",
+    "minor_unit": 0,
+    "is_active": true
+  },
+  {
+    "currency_code": "INR",
+    "name": "Indian Rupee",
+    "numeric_code": "356",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "BRL",
+    "name": "Brazilian Real",
+    "numeric_code": "986",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "MXN",
+    "name": "Mexican Peso",
+    "numeric_code": "484",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "ZAR",
+    "name": "Rand",
+    "numeric_code": "710",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "SEK",
+    "name": "Swedish Krona",
+    "numeric_code": "752",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "NOK",
+    "name": "Norwegian Krone",
+    "numeric_code": "578",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "DKK",
+    "name": "Danish Krone",
+    "numeric_code": "208",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "PLN",
+    "name": "Zloty",
+    "numeric_code": "985",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "CZK",
+    "name": "Czech Koruna",
+    "numeric_code": "203",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "HUF",
+    "name": "Forint",
+    "numeric_code": "348",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "TRY",
+    "name": "Turkish Lira",
+    "numeric_code": "949",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "RUB",
+    "name": "Russian Ruble",
+    "numeric_code": "643",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "THB",
+    "name": "Baht",
+    "numeric_code": "764",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "TWD",
+    "name": "New Taiwan Dollar",
+    "numeric_code": "901",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "ILS",
+    "name": "New Israeli Sheqel",
+    "numeric_code": "376",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "AED",
+    "name": "UAE Dirham",
+    "numeric_code": "784",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "SAR",
+    "name": "Saudi Riyal",
+    "numeric_code": "682",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "PHP",
+    "name": "Philippine Peso",
+    "numeric_code": "608",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "ARS",
+    "name": "Argentine Peso",
+    "numeric_code": "032",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "BDT",
+    "name": "Bangladeshi Taka",
+    "numeric_code": "050",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "CLP",
+    "name": "Chilean Peso",
+    "numeric_code": "152",
+    "minor_unit": 0,
+    "is_active": true
+  },
+  {
+    "currency_code": "COP",
+    "name": "Colombian Peso",
+    "numeric_code": "170",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "EGP",
+    "name": "Egyptian Pound",
+    "numeric_code": "818",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "IDR",
+    "name": "Indonesian Rupiah",
+    "numeric_code": "360",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "KES",
+    "name": "Kenyan Shilling",
+    "numeric_code": "404",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "MYR",
+    "name": "Malaysian Ringgit",
+    "numeric_code": "458",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "NGN",
+    "name": "Nigerian Naira",
+    "numeric_code": "566",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "PEN",
+    "name": "Peruvian Sol",
+    "numeric_code": "604",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "PKR",
+    "name": "Pakistani Rupee",
+    "numeric_code": "586",
+    "minor_unit": 2,
+    "is_active": true
+  },
+  {
+    "currency_code": "VND",
+    "name": "Vietnamese Dong",
+    "numeric_code": "704",
+    "minor_unit": 0,
+    "is_active": true
+  }
 ]

@@ -3,13 +3,14 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_, desc, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.news_article import NewsArticle, ArticleEntityLink
+from src.services.freshness import refresh_entity, refresh_global_news
 from src.schemas.news_article import (
     ArticleEntityLinkResponse,
     NewsArticleResponse,
@@ -91,10 +92,17 @@ async def _enrich_articles(
     response_model=list[NewsArticleResponse],
 )
 async def get_latest_news(
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     limit: int = Query(20, ge=1, le=100),
 ):
-    """Get the latest news articles across all entities."""
+    """Get the latest news articles across all entities.
+
+    Opening the news feed triggers a background refresh (debounced to at most
+    once per freshness window) that pulls fresh headlines for major companies,
+    so the feed stays current without blocking this response.
+    """
+    background_tasks.add_task(refresh_global_news)
     result = await session.execute(
         select(NewsArticle)
         .order_by(NewsArticle.publish_date.desc())
@@ -358,8 +366,18 @@ async def get_entity_news(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """Get news articles for a specific entity."""
+    """Get news articles for a specific entity.
+
+    Fetches this company's latest news on-demand before returning (debounced by
+    a short cooldown, so repeat views are cheap), so the view is always current.
+    """
     await _get_entity(session, entity_id)
+
+    # On-demand: pull the freshest headlines for this company before serving.
+    try:
+        await refresh_entity(session, entity_id, ["news"])
+    except Exception:  # never fail the read if the live fetch has a problem
+        pass
 
     # Find article IDs linked to this entity
     link_stmt = select(ArticleEntityLink.article_id).where(

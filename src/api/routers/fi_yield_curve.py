@@ -15,7 +15,6 @@ from src.engines.yield_curve_analytics import (
     compute_spread_5s30s,
     interpolate_rate,
 )
-from src.engines.yield_curve_bootstrap import enhanced_bootstrap
 from src.models.yield_curve import YieldCurveSnapshot
 from src.schemas.fi_yield_curve import (
     CurveHistoryPointResponse,

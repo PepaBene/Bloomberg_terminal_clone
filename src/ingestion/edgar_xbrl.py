@@ -220,6 +220,15 @@ class EdgarXBRLConnector(BaseConnector):
                 balance_fields = {k: v for k, v in balance.items() if not k.startswith("_")}
                 cashflow_fields = {k: v for k, v in cashflow.items() if not k.startswith("_")}
 
+                # dividends_paid follows a cash-outflow sign convention in the
+                # schema (CHECK dividends_paid <= 0); XBRL reports it as a
+                # positive magnitude, so normalize it to non-positive.
+                if cashflow_fields.get("dividends_paid") is not None:
+                    try:
+                        cashflow_fields["dividends_paid"] = -abs(float(cashflow_fields["dividends_paid"]))
+                    except (TypeError, ValueError):
+                        cashflow_fields.pop("dividends_paid", None)
+
                 # Skip periods with no actual data
                 if not income_fields and not balance_fields and not cashflow_fields:
                     continue
@@ -269,6 +278,11 @@ class EdgarXBRLConnector(BaseConnector):
 
         stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
 
+        # Within-run dedup: the same period_end is reported across multiple
+        # filings (as comparatives), and one filing backs several periods.
+        seen_periods: set[tuple] = set()
+        seen_filings: dict[str, uuid.UUID] = {}
+
         for rec in records:
             try:
                 cik = rec["cik"]
@@ -303,32 +317,56 @@ class EdgarXBRLConnector(BaseConnector):
                     stats["skipped"] += 1
                     continue
 
-                # Check if filing already exists
-                existing_filing = await session.execute(
-                    select(Filing).where(Filing.accession_number == accession)
+                # Dedup the financial period (uq_financial_period is on
+                # entity_id + period_end_date + data_version). The same period
+                # is reported across multiple filings, so skip the record if we
+                # already captured this period this run or it's already in the DB.
+                period_key = (entity_id, period_end, "AS_REPORTED")
+                if period_key in seen_periods:
+                    stats["skipped"] += 1
+                    continue
+                existing_period = await session.execute(
+                    select(FinancialPeriod.period_id).where(
+                        FinancialPeriod.entity_id == entity_id,
+                        FinancialPeriod.period_end_date == period_end,
+                        FinancialPeriod.data_version == "AS_REPORTED",
+                    )
                 )
-                if existing_filing.scalar_one_or_none() is not None:
+                if existing_period.scalar_one_or_none() is not None:
+                    seen_periods.add(period_key)
                     stats["skipped"] += 1
                     continue
 
-                # Create Filing
-                filing_id = uuid.uuid4()
-                filing = Filing(
-                    filing_id=filing_id,
-                    entity_id=entity_id,
-                    filing_type=filing_data["filing_type"],
-                    accession_number=accession,
-                    filing_date=filing_date,
-                    period_end_date=period_end,
-                    fiscal_year=fiscal_year,
-                    fiscal_quarter=filing_data.get("fiscal_quarter"),
-                    period_type=filing_data.get("period_type"),
-                    is_amendment=filing_data.get("is_amendment", False),
-                    processing_status="PROCESSED",
-                    processed_at=datetime.now(timezone.utc),
-                    source="SEC_EDGAR_XBRL",
-                )
-                session.add(filing)
+                # Reuse or create the filing (one filing can back several periods).
+                filing_id = seen_filings.get(accession)
+                if filing_id is None:
+                    existing_filing = (
+                        await session.execute(
+                            select(Filing.filing_id).where(
+                                Filing.accession_number == accession
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if existing_filing is not None:
+                        filing_id = existing_filing
+                    else:
+                        filing_id = uuid.uuid4()
+                        session.add(Filing(
+                            filing_id=filing_id,
+                            entity_id=entity_id,
+                            filing_type=filing_data["filing_type"],
+                            accession_number=accession,
+                            filing_date=filing_date,
+                            period_end_date=period_end,
+                            fiscal_year=fiscal_year,
+                            fiscal_quarter=filing_data.get("fiscal_quarter"),
+                            period_type=filing_data.get("period_type"),
+                            is_amendment=filing_data.get("is_amendment", False),
+                            processing_status="PROCESSED",
+                            processed_at=datetime.now(timezone.utc),
+                            source="SEC_EDGAR_XBRL",
+                        ))
+                    seen_filings[accession] = filing_id
 
                 # Create FinancialPeriod
                 period_start = None
@@ -350,6 +388,7 @@ class EdgarXBRLConnector(BaseConnector):
                     data_version="AS_REPORTED",
                 )
                 session.add(period)
+                seen_periods.add(period_key)
 
                 # Create IncomeStatement if we have data
                 income_fields = rec.get("income_statement", {})

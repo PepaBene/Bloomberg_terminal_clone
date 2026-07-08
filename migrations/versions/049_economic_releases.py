@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("historical_reactions", JSONB),
         sa.Column("affected_entity_ids", JSONB),
         sa.Column("ai_summary", sa.Text()),
-        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("importance", sa.String(10)),
         sa.Column("source", sa.String(30)),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),

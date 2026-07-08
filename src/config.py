@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     # Finnhub (Index constituents)
     FINNHUB_API_KEY: str = ""
 
+    # AI Services (Claude narratives, Gemini embeddings)
+    ANTHROPIC_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+
+    # Object Storage (S3/MinIO for raw file storage)
+    S3_ENDPOINT: str = ""
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_BUCKET: str = "bloomberg-raw"
+
     # JWT / Authentication
     # SECURITY: Override in .env or environment variables
     JWT_SECRET_KEY: str = "CHANGE-ME-IN-PRODUCTION-USE-32B+"

@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Ensure project root is on path
 sys.path.insert(0, ".")
 
-from src.database import async_session_factory  # noqa: E402
+from src.database import get_session_factory  # noqa: E402
 from src.models.security import Security  # noqa: E402
 from src.engines.base import EngineOutput  # noqa: E402
 from src.models.analytics import AnalyticsResult  # noqa: E402
@@ -79,7 +79,7 @@ async def run_engine(engine_name: str, dry_run: bool = False, limit: int | None 
     logger.info("Starting analytics batch: engine=%s dry_run=%s limit=%s since=%s", engine_name, dry_run, limit, since)
     start = time.perf_counter()
 
-    async with async_session_factory() as session:
+    async with get_session_factory()() as session:
         security_ids = await _get_active_security_ids(session, limit=limit, since=since)
         logger.info("Found %d active securities", len(security_ids))
 

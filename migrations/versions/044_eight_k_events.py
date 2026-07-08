@@ -36,7 +36,7 @@ def upgrade() -> None:
         sa.Column("materiality", sa.String(10)),
         sa.Column("filing_accession_number", sa.String(25)),
         sa.Column("filing_url", sa.String(500)),
-        sa.Column("is_processed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_processed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

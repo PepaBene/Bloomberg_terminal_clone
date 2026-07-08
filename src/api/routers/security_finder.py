@@ -5,6 +5,7 @@ from sqlalchemy import func as sa_func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.api.utils.query_filters import escape_like
 from src.models.security import Security, SecurityIdentifier
 from src.schemas.security_finder import (
     SecurityFinderResponse,
@@ -46,7 +47,9 @@ async def find_securities(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Search for securities by name, ticker, or identifier (CUSIP/ISIN/FIGI)."""
-    pattern = f"%{q}%"
+    # Escape LIKE metacharacters so a literal % or _ in the user query isn't
+    # treated as a wildcard (matches the pattern used in entities/securities).
+    pattern = f"%{escape_like(q)}%"
     # Match anything in the SecurityIdentifier table by exact value (so a
     # CUSIP/ISIN/ticker hit pulls in its parent security).
     ident_subq = select(SecurityIdentifier.security_id).where(
@@ -100,7 +103,7 @@ async def suggest(
     limit: int = Query(10, ge=1, le=50),
 ):
     """Return autocomplete suggestions for security search (name, ticker, ID)."""
-    pattern = f"{q}%"
+    pattern = f"{escape_like(q)}%"
     ident_subq = select(SecurityIdentifier.security_id).where(
         SecurityIdentifier.identifier_value.ilike(pattern)
     )
@@ -121,9 +124,8 @@ async def suggest(
 
     return [
         SecuritySuggestion(
-            security_id=str(s.security_id),
-            name=s.name,
-            short_name=s.short_name,
+            security_id=s.security_id,
+            display=s.short_name or s.name or "",
             security_type=s.security_type,
         )
         for s in securities

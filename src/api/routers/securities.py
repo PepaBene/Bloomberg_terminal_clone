@@ -35,15 +35,48 @@ from src.schemas.security import (
 router = APIRouter(prefix="/securities", tags=["Securities"])
 
 
-def _compute_relevance(name: str, query: str) -> float:
-    """Basic relevance score: exact=1.0, starts-with=0.8, contains=0.5."""
-    name_lower = name.lower() if name else ""
-    q_lower = query.lower()
-    if name_lower == q_lower:
+def _field_score(field: str | None, q: str) -> float:
+    """Score a single field against the (already-lowercased) query.
+
+    Tiers: exact=1.0 > prefix=[0.70, 0.80] > substring=[0.40, 0.50],
+    tie-broken within a tier by match tightness (len(query)/len(field)).
+    """
+    if not field:
+        return 0.0
+    n = field.lower().strip()
+    if not n:
+        return 0.0
+    if n == q:
         return 1.0
-    if name_lower.startswith(q_lower):
-        return 0.8
-    return 0.5
+    ratio = len(q) / len(n)  # (0, 1]; higher = tighter match
+    if n.startswith(q):
+        lo, hi = 0.70, 0.80
+    elif q in n:
+        lo, hi = 0.40, 0.50
+    else:
+        return 0.30
+    return lo + (hi - lo) * ratio
+
+
+def _compute_relevance(
+    name: str | None,
+    query: str,
+    short_name: str | None = None,
+    ticker: str | None = None,
+) -> float:
+    """Real relevance score derived from the match.
+
+    An exact ticker match is treated as the strongest signal (identifier
+    match quality) and scores 1.0. Otherwise the best of the name and
+    short_name field scores is used: exact > prefix > substring, tie-broken
+    by match tightness.
+    """
+    q = query.lower().strip()
+    if not q:
+        return 0.0
+    if ticker and ticker.lower().strip() == q:
+        return 1.0
+    return max(_field_score(name, q), _field_score(short_name, q))
 
 
 # ── GET /v1/securities/search ──────────────────────────────────────
@@ -106,7 +139,7 @@ async def search_securities(
             status=s.status,
             ticker=ticker,
             exchange=s.primary_exchange_mic,
-            score=_compute_relevance(s.name, q),
+            score=_compute_relevance(s.name, q, s.short_name, ticker),
         )
         for s, ticker in rows
     ]

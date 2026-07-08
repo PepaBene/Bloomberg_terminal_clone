@@ -169,7 +169,7 @@ class TestClaudeClient:
 
     def test_configured_detection(self):
         from src.services.ai.claude_client import ClaudeClient, CLAUDE_MODEL
-        assert CLAUDE_MODEL == "claude-sonnet-4-6"
+        assert CLAUDE_MODEL == "claude-sonnet-5"
 
 
 class TestEmbeddingClient:

@@ -37,9 +37,9 @@ def upgrade():
         sa.Column("all_bookrunners", sa.JSON()),
         sa.Column("use_of_proceeds", sa.String(30)),
         sa.Column("currency", sa.String(3)),
-        sa.Column("is_benchmark", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        sa.Column("is_144a", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        sa.Column("is_registered", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_benchmark", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("is_144a", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("is_registered", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

@@ -41,7 +41,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "stress_test_results",
+        "portfolio_stress_test_results",
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("portfolio_id", sa.UUID(), sa.ForeignKey("portfolios.id"), nullable=False, index=True),
         sa.Column("snapshot_date", sa.Date, nullable=False),
@@ -60,5 +60,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("stress_test_results")
+    op.drop_table("portfolio_stress_test_results")
     op.drop_table("factor_exposure_snapshots")

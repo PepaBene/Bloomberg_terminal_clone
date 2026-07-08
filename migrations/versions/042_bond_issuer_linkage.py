@@ -12,7 +12,7 @@ down_revision = "041"
 
 
 def upgrade() -> None:
-    op.add_column("entities", sa.Column("is_financing_subsidiary", sa.Boolean(), nullable=False, server_default=sa.text("0")))
+    op.add_column("entities", sa.Column("is_financing_subsidiary", sa.Boolean(), nullable=False, server_default=sa.text("false")))
     op.add_column("entities", sa.Column("financing_parent_id", UUID(as_uuid=True), nullable=True))
 
 

@@ -18,6 +18,7 @@ from src.config import settings
 from src.ingestion.base import BaseConnector
 from src.ingestion.rate_limiter import RateLimiter
 from src.models.entity import Entity, EntityIdentifier, EntityName
+from src.temporal.pit import record_entity_history
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +125,16 @@ class EdgarEntityConnector(BaseConnector):
                     # Update existing entity
                     entity = await session.get(Entity, existing_id.entity_id)
                     if entity:
+                        changed = (
+                            entity.legal_name != record["legal_name"]
+                            or entity.status != record["status"]
+                        )
                         entity.legal_name = record["legal_name"]
                         entity.status = record["status"]
+                        # Snapshot the prior/new state into entity history so
+                        # /entities/{id}/history and PIT queries have real rows.
+                        if changed:
+                            await record_entity_history(entity, session)
                         stats["updated"] += 1
                     continue
 

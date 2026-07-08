@@ -24,7 +24,7 @@ def upgrade() -> None:
         sa.Column("relevance_decay_hop1", sa.Numeric(4, 3), server_default=sa.text("0.3")),
         sa.Column("relevance_decay_hop2", sa.Numeric(4, 3), server_default=sa.text("0.1")),
         sa.Column("max_hops", sa.Integer(), server_default=sa.text("2")),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -83,7 +83,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("user_id", sa.String(100), nullable=False),
         sa.Column("propagation_type", sa.String(30), nullable=False),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

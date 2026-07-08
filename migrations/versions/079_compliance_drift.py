@@ -26,7 +26,7 @@ def upgrade() -> None:
         sa.Column("upper_threshold", sa.Numeric(15, 6)),
         sa.Column("comparison", sa.String(10), nullable=False),
         sa.Column("severity", sa.String(10), server_default="WARNING"),
-        sa.Column("is_active", sa.Boolean, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now()),
     )
@@ -57,7 +57,7 @@ def upgrade() -> None:
         sa.Column("drift_classification", sa.String(15)),
         sa.Column("position_drifts", JSONB),
         sa.Column("sector_drifts", JSONB),
-        sa.Column("rebalance_needed", sa.Boolean, server_default=sa.text("0")),
+        sa.Column("rebalance_needed", sa.Boolean, server_default=sa.text("false")),
         sa.Column("target_allocation", JSONB),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now()),

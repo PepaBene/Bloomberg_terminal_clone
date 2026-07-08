@@ -634,7 +634,10 @@ async def bond_analytics(
             status_code=404, detail=f"Bond with CUSIP {cusip} not found"
         )
 
-    coupon = float(bond.coupon_rate) if bond.coupon_rate is not None else 0.0
+    # coupon_rate is stored in percentage convention (e.g. 5.0 == 5%), but the
+    # bond_analytics engine expects a decimal fraction (0.05). Convert here so
+    # YTM/duration/convexity aren't off by ~100x.
+    coupon = (float(bond.coupon_rate) / 100.0) if bond.coupon_rate is not None else 0.0
     freq = bond.coupon_frequency if bond.coupon_frequency is not None else 2
 
     today = date.today()

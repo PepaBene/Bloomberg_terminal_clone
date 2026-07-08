@@ -1,4 +1,4 @@
-"""Claude Sonnet 4.6 client for AI-powered research features."""
+"""Claude Sonnet 5 client for AI-powered research features."""
 from __future__ import annotations
 
 import os
@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-sonnet-5"
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.3
 
 
 class ClaudeClient:
-    """Async client for Claude Sonnet 4.6 structured generation."""
+    """Async client for Claude Sonnet 5 structured generation."""
 
     def __init__(self, api_key: str | None = None):
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")

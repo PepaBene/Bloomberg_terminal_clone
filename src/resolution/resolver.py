@@ -66,12 +66,49 @@ def _classify(match: MatchResult) -> ResolutionResult:
     )
 
 
+async def _enqueue_if_uncertain(
+    result: ResolutionResult,
+    *,
+    source_system: str,
+    source_record: dict,
+    session: AsyncSession,
+    enqueue: bool,
+) -> ResolutionResult:
+    """Park an UNCERTAIN verdict in the human review queue.
+
+    Called on every resolve() exit path. Only UNCERTAIN verdicts (confidence
+    in the 0.70–0.95 review band) are enqueued; MATCHED/NEW pass straight
+    through. This is what makes ``GET /resolution/queue`` surface real items.
+    """
+    if not enqueue or result.status != "UNCERTAIN":
+        return result
+
+    # Imported locally to avoid any import-time coupling with the queue module.
+    from src.resolution.review_queue import add_to_queue
+
+    try:
+        await add_to_queue(
+            source_system=source_system,
+            source_record=source_record,
+            candidate_entity_id=result.entity_id,
+            confidence=result.confidence,
+            match_method=result.match_method,
+            session=session,
+        )
+    except Exception as e:  # non-fatal: a queue failure must not break resolution
+        logger.error("Failed to enqueue uncertain match for review: %s", e)
+
+    return result
+
+
 async def resolve(
     legal_name: str,
     country: str | None = None,
     identifiers: dict[str, str] | None = None,
     address: dict | None = None,
     session: AsyncSession | None = None,
+    source_system: str = "API",
+    enqueue_uncertain: bool = True,
 ) -> ResolutionResult:
     """Run the multi-stage entity resolution pipeline.
 
@@ -99,6 +136,25 @@ async def resolve(
 
     logger.info("Starting resolution for '%s' (country=%s)", legal_name, country)
 
+    # Snapshot of the inbound record, stored verbatim on the review queue so a
+    # human reviewer (or reject() → new-entity path) has the original context.
+    source_record: dict = {
+        "legal_name": legal_name,
+        "country": country,
+        "identifiers": identifiers or {},
+    }
+    if address:
+        source_record["address"] = address
+
+    async def _finish(result: ResolutionResult) -> ResolutionResult:
+        return await _enqueue_if_uncertain(
+            result,
+            source_system=source_system,
+            source_record=source_record,
+            session=session,
+            enqueue=enqueue_uncertain,
+        )
+
     # ------------------------------------------------------------------
     # Stage 1: Exact identifier match (LEI, CIK, DUNS, …)
     # ------------------------------------------------------------------
@@ -116,7 +172,7 @@ async def resolve(
                     match.entity_id,
                     match.confidence,
                 )
-                return _classify(match)
+                return await _finish(_classify(match))
 
         logger.debug("Stage 1: no identifier match found")
 
@@ -131,7 +187,7 @@ async def resolve(
             match.entity_id,
             match.confidence,
         )
-        return _classify(match)
+        return await _finish(_classify(match))
 
     logger.debug("Stage 2: no exact name match found")
 
@@ -156,7 +212,7 @@ async def resolve(
             best.legal_name,
             best.confidence,
         )
-        return _classify(best)
+        return await _finish(_classify(best))
 
     # ------------------------------------------------------------------
     # Stage 4: Address-based matching
@@ -179,7 +235,7 @@ async def resolve(
                 best.legal_name,
                 best.confidence,
             )
-            return _classify(best)
+            return await _finish(_classify(best))
 
         logger.debug("Stage 4: no address match found")
 

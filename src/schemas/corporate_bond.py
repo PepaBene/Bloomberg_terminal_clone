@@ -106,14 +106,17 @@ class BondEODPriceResponse(BaseModel):
     id: uuid.UUID
     bond_id: uuid.UUID
     price_date: date
-    last_trade_price: Decimal | None = None
-    vwap: Decimal | None = None
-    high_price: Decimal | None = None
-    low_price: Decimal | None = None
+    # Numeric market-data fields are typed as float so they serialize as JSON
+    # numbers (pydantic v2 serializes Decimal as a JSON string, which broke
+    # numeric clients/tests).
+    last_trade_price: float | None = None
+    vwap: float | None = None
+    high_price: float | None = None
+    low_price: float | None = None
     trade_count: int | None = None
-    total_volume: Decimal | None = None
-    yield_to_maturity: Decimal | None = None
-    yield_to_worst: Decimal | None = None
+    total_volume: float | None = None
+    yield_to_maturity: float | None = None
+    yield_to_worst: float | None = None
     g_spread_bps: int | None = None
     treasury_benchmark_cusip: str | None = None
     liquidity_score: int | None = None
@@ -129,14 +132,16 @@ class BondAnalyticsResponse(BaseModel):
     """Computed analytics for a bond."""
 
     cusip: str
-    price: Decimal
-    ytm: Decimal
-    ytw: Decimal
-    modified_duration: Decimal
-    macaulay_duration: Decimal
-    convexity: Decimal
+    # Computed analytics are floats (the engine returns floats); typed as float
+    # so they serialize as JSON numbers rather than Decimal-as-string.
+    price: float
+    ytm: float
+    ytw: float
+    modified_duration: float
+    macaulay_duration: float
+    convexity: float
     g_spread_bps: int | None = None
-    years_to_maturity: Decimal
+    years_to_maturity: float
 
 
 class BondScreenRequest(BaseModel):

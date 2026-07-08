@@ -1,0 +1,14 @@
+[
+  {
+    "calendar_code": "XNYS",
+    "name": "New York Stock Exchange",
+    "exchange_mic": "XNYS",
+    "country": "US"
+  },
+  {
+    "calendar_code": "XNAS",
+    "name": "NASDAQ",
+    "exchange_mic": "XNAS",
+    "country": "US"
+  }
+]

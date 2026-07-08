@@ -85,15 +85,15 @@ def upgrade() -> None:
     )
     op.add_column(
         "sentiment_aggregates",
-        sa.Column("volume_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("volume_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
     op.add_column(
         "sentiment_aggregates",
-        sa.Column("sentiment_shift_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("sentiment_shift_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
     op.add_column(
         "sentiment_aggregates",
-        sa.Column("price_divergence_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("price_divergence_anomaly", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
     op.add_column(
         "sentiment_aggregates",

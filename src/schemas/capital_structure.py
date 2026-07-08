@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
 
 from pydantic import BaseModel
 
@@ -14,13 +13,13 @@ class DebtTrancheResponse(BaseModel):
     capital_structure_id: uuid.UUID
     instrument_name: str | None = None
     instrument_type: str | None = None
-    principal_amount: Decimal | None = None
-    original_amount: Decimal | None = None
+    principal_amount: float | None = None
+    original_amount: float | None = None
     currency: str | None = None
-    coupon_rate: Decimal | None = None
+    coupon_rate: float | None = None
     coupon_type: str | None = None
     floating_reference: str | None = None
-    floating_spread: Decimal | None = None
+    floating_spread: float | None = None
     issue_date: date | None = None
     maturity_date: date | None = None
     first_call_date: date | None = None
@@ -43,16 +42,16 @@ class CapitalStructureResponse(BaseModel):
     capital_structure_id: uuid.UUID
     entity_id: uuid.UUID
     as_of_date: date
-    total_debt: Decimal | None = None
-    total_long_term_debt: Decimal | None = None
-    total_short_term_debt: Decimal | None = None
-    total_preferred_stock: Decimal | None = None
-    net_debt: Decimal | None = None
-    total_capitalization: Decimal | None = None
-    debt_to_capitalization: Decimal | None = None
+    total_debt: float | None = None
+    total_long_term_debt: float | None = None
+    total_short_term_debt: float | None = None
+    total_preferred_stock: float | None = None
+    net_debt: float | None = None
+    total_capitalization: float | None = None
+    debt_to_capitalization: float | None = None
     source: str | None = None
     extraction_method: str | None = None
-    confidence_score: Decimal | None = None
+    confidence_score: float | None = None
     tranches: list[DebtTrancheResponse] = []
     created_at: datetime | None = None
 
@@ -63,12 +62,12 @@ class CapitalStructureSummaryResponse(BaseModel):
     """Aggregate metrics only (no tranches)."""
     entity_id: uuid.UUID
     as_of_date: date
-    total_debt: Decimal | None = None
-    net_debt: Decimal | None = None
-    total_capitalization: Decimal | None = None
-    debt_to_capitalization: Decimal | None = None
-    total_long_term_debt: Decimal | None = None
-    total_short_term_debt: Decimal | None = None
-    total_preferred_stock: Decimal | None = None
+    total_debt: float | None = None
+    net_debt: float | None = None
+    total_capitalization: float | None = None
+    debt_to_capitalization: float | None = None
+    total_long_term_debt: float | None = None
+    total_short_term_debt: float | None = None
+    total_preferred_stock: float | None = None
 
     model_config = {"from_attributes": True}

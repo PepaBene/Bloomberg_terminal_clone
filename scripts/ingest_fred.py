@@ -19,6 +19,8 @@ async def main():
     async with get_session_factory()() as session:
         logger.info("Starting FRED macroeconomic data ingestion...")
         stats = await connector.run(session)
+        # BaseConnector.run only flushes — commit or the data is rolled back.
+        await session.commit()
         logger.info(f"FRED ingestion complete: {stats}")
 
 

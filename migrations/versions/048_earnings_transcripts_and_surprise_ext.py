@@ -57,7 +57,7 @@ def upgrade() -> None:
         sa.Column("analyst_concerns", JSONB),
         sa.Column("source_url", sa.String(1000)),
         sa.Column("source_type", sa.String(30)),
-        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -75,7 +75,7 @@ def upgrade() -> None:
     op.add_column("earnings_surprises", sa.Column("ebitda_surprise_pct", sa.Numeric(8, 4), nullable=True))
     op.add_column(
         "earnings_surprises",
-        sa.Column("beat_and_fell", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("beat_and_fell", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
     op.add_column("earnings_surprises", sa.Column("consecutive_beats", sa.Integer(), nullable=True))
     op.add_column("earnings_surprises", sa.Column("consecutive_misses", sa.Integer(), nullable=True))

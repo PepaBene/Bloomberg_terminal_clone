@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("dominant_moat_source", sa.String(30)),
         sa.Column("moat_evidence", JSONB),
         sa.Column("ai_summary", sa.Text()),
-        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.UniqueConstraint("entity_id", "as_of_date", name="uq_ma_entity_date"),

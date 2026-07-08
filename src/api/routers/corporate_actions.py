@@ -160,15 +160,22 @@ async def corporate_actions_calendar(
     action_type: str | None = Query(None, description="Filter by action type"),
 ):
     """Get upcoming corporate actions calendar."""
+    # Many corporate actions (e.g. 8-K announced events) carry no ex_date; their
+    # meaningful date is announcement_date. Coalesce the two so date filtering
+    # and ordering don't silently exclude every row without an ex_date.
+    effective_date = sa_func.coalesce(
+        CorporateAction.ex_date, CorporateAction.announcement_date
+    )
+
     query = select(CorporateAction)
     count_query = select(CorporateAction)
 
     if start_date:
-        query = query.where(CorporateAction.ex_date >= start_date)
-        count_query = count_query.where(CorporateAction.ex_date >= start_date)
+        query = query.where(effective_date >= start_date)
+        count_query = count_query.where(effective_date >= start_date)
     if end_date:
-        query = query.where(CorporateAction.ex_date <= end_date)
-        count_query = count_query.where(CorporateAction.ex_date <= end_date)
+        query = query.where(effective_date <= end_date)
+        count_query = count_query.where(effective_date <= end_date)
     if action_type:
         query = query.where(CorporateAction.action_type == action_type.upper())
         count_query = count_query.where(CorporateAction.action_type == action_type.upper())
@@ -179,7 +186,7 @@ async def corporate_actions_calendar(
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
-    query = query.order_by(CorporateAction.ex_date.asc().nulls_last()).offset(offset).limit(pagination.page_size)
+    query = query.order_by(effective_date.asc().nulls_last()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
     actions = result.scalars().all()
 

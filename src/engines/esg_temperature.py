@@ -11,7 +11,10 @@ version of the TCFD-aligned approach:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
+from typing import Any
 
 
 # Budget parameters (simplified — GtCO2 remaining from 2025 to 2050)
@@ -126,3 +129,99 @@ def score_temperature(
         emissions_trend_pct=round(emissions_trend_pct, 4),
         data_quality_flag=quality,
     )
+
+
+# ---------------------------------------------------------------------------
+# ESGMetric -> temperature score assembly (persistence input builder)
+# ---------------------------------------------------------------------------
+# ESGMetric.metric_type values are matched case-insensitively by substring so
+# the connector naming can vary. A metric is assigned to a scope by whichever
+# scope token it contains.
+
+_SCOPE1_TOKENS = ("scope1", "scope_1", "scope 1")
+_SCOPE2_TOKENS = ("scope2", "scope_2", "scope 2")
+_SCOPE3_TOKENS = ("scope3", "scope_3", "scope 3")
+
+
+def _classify_scope(metric_type: str) -> str | None:
+    """Return 'scope1'/'scope2'/'scope3'/'total' for an emissions metric, else None."""
+    t = (metric_type or "").lower()
+    if "emission" not in t and "ghg" not in t and "carbon" not in t and "co2" not in t:
+        return None
+    if any(tok in t for tok in _SCOPE1_TOKENS):
+        return "scope1"
+    if any(tok in t for tok in _SCOPE2_TOKENS):
+        return "scope2"
+    if any(tok in t for tok in _SCOPE3_TOKENS):
+        return "scope3"
+    return "total"
+
+
+def summarize_entity_emissions(
+    metric_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Build ESGTemperatureScore field values from raw ESGMetric rows.
+
+    Parameters
+    ----------
+    metric_rows:
+        List of dicts with keys ``metric_type``, ``period_end_date`` (date),
+        and ``value`` (float | None).
+
+    Returns
+    -------
+    dict | None
+        Field values for ``ESGTemperatureScore`` (excluding entity_id), or
+        None when no usable emissions metrics are present (clean degrade).
+    """
+    # year -> {scope: value}
+    by_year: dict[int, dict[str, float]] = defaultdict(dict)
+    latest_by_year: dict[int, date] = {}
+
+    for row in metric_rows:
+        period_end = row.get("period_end_date")
+        if period_end is None:
+            continue
+        scope = _classify_scope(row.get("metric_type", ""))
+        if scope is None:
+            continue
+        value = row.get("value")
+        if value is None:
+            continue
+        year = period_end.year
+        # First-seen (or overwrite) per scope per year.
+        by_year[year][scope] = float(value)
+        if year not in latest_by_year or period_end > latest_by_year[year]:
+            latest_by_year[year] = period_end
+
+    if not by_year:
+        return None
+
+    def year_total(scopes: dict[str, float]) -> float:
+        if "total" in scopes:
+            base = scopes["total"]
+        else:
+            base = scopes.get("scope1", 0.0) + scopes.get("scope2", 0.0)
+        return base + scopes.get("scope3", 0.0)
+
+    years = sorted(by_year)
+    series = [year_total(by_year[y]) for y in years]
+    latest_year = years[-1]
+    latest = by_year[latest_year]
+
+    trend = compute_emissions_trend(series)
+    current = series[-1]
+    has_scope3 = "scope3" in latest
+
+    result = score_temperature(current, trend, has_scope3=has_scope3)
+
+    return {
+        "as_of_date": latest_by_year[latest_year],
+        "implied_temperature": result.implied_temperature,
+        "alignment": result.alignment,
+        "scope1_emissions": latest.get("scope1"),
+        "scope2_emissions": latest.get("scope2"),
+        "scope3_emissions": latest.get("scope3"),
+        "emissions_trend_pct": result.emissions_trend_pct,
+        "data_quality_flag": result.data_quality_flag,
+    }
