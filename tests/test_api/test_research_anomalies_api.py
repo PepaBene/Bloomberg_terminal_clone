@@ -379,10 +379,13 @@ async def test_scan_not_found(client: AsyncClient, session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_scan_success(client: AsyncClient, session: AsyncSession):
-    """POST /v4/research/anomalies/scan/{entity_id} initiates scan."""
+    """POST /v4/research/anomalies/scan/{entity_id} runs a real scan and completes."""
     entity = await _seed_entity(session)
     resp = await client.post(f"/v4/research/anomalies/scan/{entity.entity_id}")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["scan_status"] == "INITIATED"
+    # No price history seeded for this entity, so nothing is detected —
+    # but the scan itself must actually run (not just echo "INITIATED").
+    assert data["scan_status"] == "COMPLETED"
+    assert data["anomalies_detected"] == 0
     assert data["entity_id"] == str(entity.entity_id)

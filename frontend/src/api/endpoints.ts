@@ -547,9 +547,13 @@ export const RESEARCH = {
     sources: '/v4/research/qa/sources',
   },
   themes: {
-    list: '/v4/research/themes',
+    // Backend only exposes an aggregate dashboard (all theme scores) plus
+    // per-entity exposure routes — there is no per-theme "catalog" resource
+    // with its own id, so `detail`/`create`/`update`/`securities` below have
+    // no live backend counterpart yet (also unused by any page today).
+    list: '/v4/research/themes/dashboard',
     detail: (themeId: string) => `/v4/research/themes/${themeId}`,
-    scenarios: '/v4/research/themes/scenarios',
+    scenarios: '/v4/research/scenarios',
     screen: '/v4/research/themes/screen',
     create: '/v4/research/themes',
     update: (themeId: string) => `/v4/research/themes/${themeId}`,

@@ -39,6 +39,26 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     return entity
 
 
+def _parse_llm_sentiment(raw: str | None):
+    """Parse the "LABEL|SCORE|CONFIDENCE" line the sentiment prompt asks
+    for. Returns None (triggering the keyword fallback) on any mismatch."""
+    if not raw:
+        return None
+    parts = raw.strip().splitlines()[0].split("|")
+    if len(parts) != 3:
+        return None
+    label, score_str, confidence_str = (p.strip() for p in parts)
+    if label.upper() not in ("POSITIVE", "NEGATIVE", "NEUTRAL"):
+        return None
+    try:
+        score = max(-1.0, min(1.0, float(score_str)))
+        confidence = max(0.0, min(1.0, float(confidence_str)))
+    except ValueError:
+        return None
+    from src.engines.sentiment_analysis import SentimentResult
+    return SentimentResult(sentiment=label.upper(), score=round(score, 4), confidence=round(confidence, 4))
+
+
 # NOTE: /score and /anomalies are static paths — define BEFORE /{entity_id}
 @router.post(
     "/analytics/sentiment/score",
@@ -47,15 +67,36 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
 async def score_text(
     body: ScoreTextRequest,
 ):
-    """Score arbitrary text for sentiment (no DB needed)."""
+    """Score arbitrary text for sentiment (no DB needed).
+
+    Uses the real LLM client for classification when configured; otherwise
+    falls back to the keyword-based heuristic (also used as a safety net
+    if the LLM response can't be parsed).
+    """
     llm = get_llm_client()
     result = keyword_sentiment(body.text)
+    ai_enabled = False
+
+    if llm.enabled:
+        raw = await llm.generate(
+            system_prompt=(
+                "You are a financial sentiment classifier. Respond with exactly one "
+                "line: LABEL|SCORE|CONFIDENCE where LABEL is POSITIVE, NEGATIVE, or "
+                "NEUTRAL, SCORE is a float from -1.0 to 1.0, and CONFIDENCE is a float "
+                "from 0.0 to 1.0. No other text."
+            ),
+            user_prompt=body.text,
+        )
+        parsed = _parse_llm_sentiment(raw)
+        if parsed is not None:
+            result = parsed
+            ai_enabled = True
 
     return SentimentScoreResponse(
         sentiment=result.sentiment,
         sentiment_score=result.score,
         confidence=result.confidence,
-        ai_enabled=False,
+        ai_enabled=ai_enabled,
     )
 
 
@@ -123,12 +164,13 @@ async def get_sentiment_aggregate(
             anomaly_flag=existing.anomaly_flag,
         )
 
-    # No aggregate exists — return empty
+    # No aggregate exists — avg_sentiment stays None so this is
+    # distinguishable from a real neutral (0.0) score.
     return SentimentAggregateResponse(
         entity_id=entity_id,
         as_of_date=date.today(),
         timeframe=timeframe,
-        avg_sentiment=0.0,
+        avg_sentiment=None,
         article_count=0,
     )
 

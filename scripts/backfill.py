@@ -75,7 +75,7 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
         "xbrl", EdgarXBRLConnector, "ciks", "financial_periods", "entity_id"
     ),
     "corporate_actions": EntityCikType(
-        "corporate_actions", Edgar8KConnector, "ciks", "corporate_actions", "entity_id"
+        "corporate_actions", Edgar8KConnector, "ciks", "eight_k_events", "entity_id"
     ),
     "esg": EntityCikType(
         "esg", EdgarESGConnector, "cik_list", "esg_scores", "entity_id"

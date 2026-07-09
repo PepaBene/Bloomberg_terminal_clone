@@ -56,7 +56,9 @@ async def test_get_aggregate_empty(client: AsyncClient, session: AsyncSession):
     assert resp.status_code == 200
     data = resp.json()
     assert data["entity_id"] == str(eid)
-    assert data["avg_sentiment"] == 0.0
+    # No aggregate exists yet — avg_sentiment must be None, distinguishable
+    # from a real neutral (0.0) score.
+    assert data["avg_sentiment"] is None
     assert data["article_count"] == 0
 
 

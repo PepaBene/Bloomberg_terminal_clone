@@ -8,8 +8,12 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import macro_scenario_engine
+from src.models.entity import Entity
+from src.models.fundamentals import FinancialPeriod  # noqa: F401 — relationships load IncomeStatement etc.
 from src.models.macro_themes import MacroThemeScore, MacroScenario
 from src.models.scenario_impact import ScenarioCompanyImpact
+from src.models.security import EODPrice, Security
 from src.schemas.macro_themes_schema import (
     ScenarioCreateRequest,
     ScenarioImpactResponse,
@@ -20,6 +24,17 @@ from src.schemas.macro_themes_schema import (
 )
 
 router = APIRouter(tags=["Research - Macro Themes & Scenarios"])
+
+# Standard GICS sector code -> name, matching the keys macro_scenario_engine's
+# SECTOR_SENSITIVITIES table is written against.
+_GICS_SECTOR_NAMES = {
+    "10": "Energy", "15": "Materials", "20": "Industrials",
+    "25": "Consumer Discretionary", "30": "Consumer Staples",
+    "35": "Health Care", "40": "Financials",
+    "45": "Information Technology", "50": "Communication Services",
+    "55": "Utilities", "60": "Real Estate",
+}
+_SCENARIO_MAX_ENTITIES = 50
 
 
 def _float(val):
@@ -254,16 +269,79 @@ async def get_scenario_detail(
     return _scenario_response(row)
 
 
+async def _load_scenario_company(session: AsyncSession, entity_id: uuid.UUID, gics_sector: str | None) -> dict | None:
+    """Assemble the {base_eps, sector, current_price, ...} inputs
+    macro_scenario_engine.run_company_scenario() needs, from real Pillar 1/2
+    data. Returns None when there isn't enough data to compute a scenario.
+    """
+    fp = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity_id)
+            .order_by(FinancialPeriod.period_end_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not fp or not fp.income_statement or fp.income_statement.diluted_eps is None:
+        return None
+    base_eps = float(fp.income_statement.diluted_eps)
+
+    base_margin_bps = None
+    inc = fp.income_statement
+    if inc.operating_income is not None and inc.total_revenue:
+        base_margin_bps = float(inc.operating_income) / float(inc.total_revenue) * 10000
+
+    sec_row = (
+        await session.execute(
+            select(Security.security_id, Security.security_type, Security.status)
+            .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+        )
+    ).all()
+    if not sec_row:
+        return None
+    sec_row.sort(key=lambda r: (r[2] != "ACTIVE", r[1] != "COMMON_STOCK"))
+    security_id = sec_row[0][0]
+
+    price_row = (
+        await session.execute(
+            select(EODPrice.close)
+            .where(EODPrice.security_id == security_id, EODPrice.close.isnot(None))
+            .order_by(EODPrice.price_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if price_row is None:
+        return None
+
+    return {
+        "entity_id": entity_id,
+        "sector": _GICS_SECTOR_NAMES.get(gics_sector, ""),
+        "base_eps": base_eps,
+        "current_price": float(price_row),
+        "base_margin_bps": base_margin_bps if base_margin_bps is not None else 1500.0,
+    }
+
+
 @router.post(
     "/research/scenarios/{scenario_id}/run",
     response_model=list[ScenarioImpactResponse],
 )
 async def run_scenario(
     scenario_id: uuid.UUID,
+    entity_ids: str | None = Query(
+        default=None,
+        description="Comma-separated entity UUIDs to run the scenario for. "
+        "If omitted, runs for up to 50 entities with sufficient data.",
+    ),
     session: AsyncSession = Depends(get_session),
 ):
-    """Run a macro scenario and return company impacts."""
-    # Verify scenario exists
+    """Run a macro scenario and return company impacts.
+
+    Actually computes EPS/margin/rating/price-target impact via
+    macro_scenario_engine.run_company_scenario() (a real, unit-tested engine
+    that previously had no production caller) and persists the results —
+    this endpoint used to just echo back whatever was already cached.
+    """
     sc_result = await session.execute(
         select(MacroScenario).where(MacroScenario.id == scenario_id)
     )
@@ -271,14 +349,78 @@ async def run_scenario(
     if not sc:
         raise HTTPException(status_code=404, detail="Scenario not found")
 
-    # Return any cached impacts (in production this would trigger computation)
-    result = await session.execute(
-        select(ScenarioCompanyImpact)
-        .where(ScenarioCompanyImpact.scenario_id == scenario_id)
-        .order_by(ScenarioCompanyImpact.created_at.desc().nulls_last())
-    )
-    rows = result.scalars().all()
-    return [_impact_response(r) for r in rows]
+    scenario_dict = {
+        "scenario_name": sc.scenario_name,
+        "assumptions": sc.assumptions or {},
+    }
+
+    entity_stmt = select(Entity.entity_id, Entity.gics_sector)
+    if entity_ids:
+        ids = [uuid.UUID(s.strip()) for s in entity_ids.split(",") if s.strip()]
+        entity_stmt = entity_stmt.where(Entity.entity_id.in_(ids))
+    else:
+        entity_stmt = entity_stmt.where(Entity.gics_sector.isnot(None)).limit(_SCENARIO_MAX_ENTITIES)
+
+    entities = (await session.execute(entity_stmt)).all()
+
+    computed: list[ScenarioCompanyImpact] = []
+    for entity_id, gics_sector in entities:
+        company = await _load_scenario_company(session, entity_id, gics_sector)
+        if company is None:
+            continue
+
+        impact = macro_scenario_engine.run_company_scenario(company, scenario_dict)
+        narrative = macro_scenario_engine.generate_scenario_narrative_template(impact)
+
+        existing = (
+            await session.execute(
+                select(ScenarioCompanyImpact).where(
+                    ScenarioCompanyImpact.scenario_id == scenario_id,
+                    ScenarioCompanyImpact.entity_id == entity_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            existing.base_eps = impact["base_eps"]
+            existing.scenario_eps = impact["scenario_eps"]
+            existing.eps_change_pct = impact["eps_change_pct"]
+            existing.margin_impact_bps = impact["margin_impact_bps"]
+            existing.rating_implication = impact["rating_implication"]
+            existing.price_target_scenario = impact["price_target_scenario"]
+            existing.narrative = narrative
+            computed.append(existing)
+        else:
+            row = ScenarioCompanyImpact(
+                id=uuid.uuid4(),
+                scenario_id=scenario_id,
+                entity_id=entity_id,
+                base_eps=impact["base_eps"],
+                scenario_eps=impact["scenario_eps"],
+                eps_change_pct=impact["eps_change_pct"],
+                margin_impact_bps=impact["margin_impact_bps"],
+                rating_implication=impact["rating_implication"],
+                price_target_scenario=impact["price_target_scenario"],
+                narrative=narrative,
+            )
+            session.add(row)
+            computed.append(row)
+
+    if computed:
+        await session.commit()
+
+    # Entities we couldn't (re)compute this pass (missing sector/EPS/price
+    # data) keep whatever was already cached, rather than losing previously
+    # computed impacts just because live data wasn't available this time.
+    already_covered = {r.entity_id for r in computed}
+    stale_stmt = select(ScenarioCompanyImpact).where(ScenarioCompanyImpact.scenario_id == scenario_id)
+    if already_covered:
+        stale_stmt = stale_stmt.where(ScenarioCompanyImpact.entity_id.notin_(already_covered))
+    stale_result = await session.execute(stale_stmt)
+    all_impacts = computed + list(stale_result.scalars().all())
+
+    all_impacts.sort(key=lambda r: r.eps_change_pct if r.eps_change_pct is not None else 0)
+    return [_impact_response(r) for r in all_impacts]
 
 
 @router.get(

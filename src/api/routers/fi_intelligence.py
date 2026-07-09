@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.llm_client import get_llm_client
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.fi_intelligence import (
@@ -25,6 +26,47 @@ from src.schemas.fi_intelligence import (
 )
 
 router = APIRouter(tags=["Fixed Income Intelligence"])
+
+# Unified best-to-worst ordinal so rating trend can be compared regardless
+# of whether individual issuances were rated on the S&P/Fitch or Moody's scale.
+_RATING_ORDER = {
+    "AAA": 21, "Aaa": 21, "AA+": 20, "Aa1": 20, "AA": 19, "Aa2": 19,
+    "AA-": 18, "Aa3": 18, "A+": 17, "A1": 17, "A": 16, "A2": 16,
+    "A-": 15, "A3": 15, "BBB+": 14, "Baa1": 14, "BBB": 13, "Baa2": 13,
+    "BBB-": 12, "Baa3": 12, "BB+": 11, "Ba1": 11, "BB": 10, "Ba2": 10,
+    "BB-": 9, "Ba3": 9, "B+": 8, "B1": 8, "B": 7, "B2": 7,
+    "B-": 6, "B3": 6, "CCC+": 5, "Caa1": 5, "CCC": 4, "Caa2": 4,
+    "CCC-": 3, "Caa3": 3, "CC": 2, "Ca": 2, "C": 1, "D": 0,
+}
+
+
+def _build_rating_narrative(entity_name: str | None, issuances: list[NewIssuanceEvent]) -> str:
+    """Build a rating narrative from real issuance-rating history (oldest ->
+    newest), instead of a single hardcoded template line."""
+    rated = [i for i in issuances if i.rating]
+    if not rated:
+        return "No rating history available"
+
+    latest, oldest = rated[-1], rated[0]
+    if len(rated) == 1 or latest.rating == oldest.rating:
+        return (
+            f"{entity_name or 'This issuer'} carries a current issuance rating of "
+            f"{latest.rating} across {len(rated)} tracked issuance(s)."
+        )
+
+    latest_order = _RATING_ORDER.get(latest.rating)
+    oldest_order = _RATING_ORDER.get(oldest.rating)
+    if latest_order is not None and oldest_order is not None and latest_order != oldest_order:
+        trend = "upgraded" if latest_order > oldest_order else "downgraded"
+    else:
+        trend = "changed"
+
+    return (
+        f"{entity_name or 'This issuer'} carries a current issuance rating of "
+        f"{latest.rating} (as of {latest.issue_date}), {trend} from {oldest.rating} "
+        f"as of its earliest tracked issuance ({oldest.issue_date}) across "
+        f"{len(rated)} tracked issuances."
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -641,23 +683,35 @@ async def get_issuer_rating_narrative(
     """Get rating history and narrative for an issuer."""
     entity = await _get_entity(session, entity_id)
 
-    # Build a narrative from the most recent issuance rating
+    # Build a narrative from the issuer's full rating history (oldest -> newest)
     issuance_result = await session.execute(
         select(NewIssuanceEvent)
         .where(NewIssuanceEvent.entity_id == entity_id)
-        .order_by(NewIssuanceEvent.issue_date.desc())
-        .limit(1)
+        .order_by(NewIssuanceEvent.issue_date.asc())
     )
-    latest_issuance = issuance_result.scalar_one_or_none()
+    issuances = list(issuance_result.scalars().all())
+    latest_issuance = issuances[-1] if issuances else None
+
+    rating_narrative = _build_rating_narrative(entity.legal_name, issuances)
+
+    llm = get_llm_client()
+    if llm.enabled and issuances:
+        polished = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg fixed-income research AI assistant. Rewrite the "
+                "given rating summary as a single polished sentence, without adding "
+                "any facts not present in it."
+            ),
+            user_prompt=rating_narrative,
+        )
+        if polished:
+            rating_narrative = polished
 
     return IssuerCreditProfileResponse(
         entity_id=entity.entity_id,
         legal_name=entity.legal_name,
         current_rating=latest_issuance.rating if latest_issuance else None,
-        # R-015: Rating narrative is a hardcoded f-string template. A proper
-        # implementation would pull from a real rating agency feed or an
-        # AI-generated narrative engine with historical rating transitions.
-        rating_narrative=f"Latest issuance rated {latest_issuance.rating}" if latest_issuance and latest_issuance.rating else "No rating history available",
+        rating_narrative=rating_narrative,
     )
 
 

@@ -1,7 +1,8 @@
 """Research Anomaly Detection API endpoints (Pillar 3 Phase 4A)."""
 
+import statistics
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.anomaly_detection import DetectedAnomaly, AnomalyRule
+from src.models.security import EODPrice, Security
 from src.schemas.anomaly_detection_schema import (
     AnomalyListResponse,
     AnomalyResponse,
@@ -18,6 +20,10 @@ from src.schemas.anomaly_detection_schema import (
 )
 
 router = APIRouter(tags=["Research - Anomaly Detection"])
+
+_SCAN_LOOKBACK_DAYS = 120
+_DEFAULT_Z_THRESHOLD = 2.5
+_MIN_OBSERVATIONS = 20
 
 
 async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
@@ -321,6 +327,112 @@ async def update_anomaly_rule(
     return _rule_response(rule)
 
 
+async def _z_threshold(session: AsyncSession, anomaly_type: str) -> float:
+    """Look up the configured z-score threshold for an anomaly type, if any."""
+    rule = (
+        await session.execute(
+            select(AnomalyRule)
+            .where(AnomalyRule.anomaly_type == anomaly_type, AnomalyRule.is_enabled == True)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if rule and rule.threshold_config:
+        threshold = rule.threshold_config.get("z_score_threshold")
+        if threshold is not None:
+            return float(threshold)
+    return _DEFAULT_Z_THRESHOLD
+
+
+def _severity_from_z(z: float, threshold: float) -> float:
+    """Map a z-score (relative to its trigger threshold) onto a 0-100 severity scale."""
+    ratio = min(abs(z) / threshold, 3.0) if threshold else 1.0
+    return round(min(50.0 + ratio * 25.0, 100.0), 2)
+
+
+async def _detect_price_volume_anomalies(
+    session: AsyncSession, entity_id: uuid.UUID
+) -> list[DetectedAnomaly]:
+    """Real statistical scan: flag today's return/volume as anomalous if it's
+    an outlier (z-score) versus its own trailing distribution."""
+    sec_row = (
+        await session.execute(
+            select(Security.security_id, Security.security_type, Security.status)
+            .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+        )
+    ).all()
+    if not sec_row:
+        return []
+    sec_row.sort(key=lambda r: (r[2] != "ACTIVE", r[1] != "COMMON_STOCK"))
+    security_id = sec_row[0][0]
+
+    cutoff = date.today() - timedelta(days=_SCAN_LOOKBACK_DAYS)
+    rows = (
+        await session.execute(
+            select(EODPrice.price_date, EODPrice.close, EODPrice.volume)
+            .where(EODPrice.security_id == security_id, EODPrice.price_date >= cutoff)
+            .order_by(EODPrice.price_date.asc())
+        )
+    ).all()
+    if len(rows) < _MIN_OBSERVATIONS:
+        return []
+
+    detected: list[DetectedAnomaly] = []
+    latest_date = rows[-1][0]
+
+    closes = [float(r[1]) for r in rows if r[1] is not None]
+    if len(closes) >= _MIN_OBSERVATIONS + 1:
+        returns = [
+            (closes[i] - closes[i - 1]) / closes[i - 1]
+            for i in range(1, len(closes))
+            if closes[i - 1] > 0
+        ]
+        history, latest_return = returns[:-1], returns[-1]
+        mean_r, std_r = statistics.mean(history), statistics.pstdev(history)
+        if std_r > 0:
+            z = (latest_return - mean_r) / std_r
+            threshold = await _z_threshold(session, "PRICE_MOVE")
+            if abs(z) >= threshold:
+                detected.append(DetectedAnomaly(
+                    id=uuid.uuid4(),
+                    entity_id=entity_id,
+                    anomaly_type="PRICE_MOVE",
+                    severity_score=_severity_from_z(z, threshold),
+                    anomaly_window_start=latest_date,
+                    anomaly_window_end=latest_date,
+                    lookback_period=f"{len(history)}D",
+                    observed_value=round(latest_return * 100, 4),
+                    expected_value=round(mean_r * 100, 4),
+                    z_score=round(z, 4),
+                    related_data={"security_id": str(security_id), "metric": "daily_return_pct"},
+                    confidence_level=min(abs(z) / (threshold * 2), 1.0),
+                ))
+
+    volumes = [int(r[2]) for r in rows if r[2] is not None]
+    if len(volumes) >= _MIN_OBSERVATIONS + 1:
+        history, latest_volume = volumes[:-1], volumes[-1]
+        mean_v, std_v = statistics.mean(history), statistics.pstdev(history)
+        if std_v > 0:
+            z = (latest_volume - mean_v) / std_v
+            threshold = await _z_threshold(session, "VOLUME_SPIKE")
+            if abs(z) >= threshold:
+                detected.append(DetectedAnomaly(
+                    id=uuid.uuid4(),
+                    entity_id=entity_id,
+                    anomaly_type="VOLUME_SPIKE",
+                    severity_score=_severity_from_z(z, threshold),
+                    anomaly_window_start=latest_date,
+                    anomaly_window_end=latest_date,
+                    lookback_period=f"{len(history)}D",
+                    observed_value=latest_volume,
+                    expected_value=round(mean_v, 2),
+                    z_score=round(z, 4),
+                    related_data={"security_id": str(security_id), "metric": "volume"},
+                    confidence_level=min(abs(z) / (threshold * 2), 1.0),
+                ))
+
+    return detected
+
+
 @router.post(
     "/research/anomalies/scan/{entity_id}",
     response_model=dict,
@@ -329,11 +441,37 @@ async def trigger_anomaly_scan(
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Trigger a manual anomaly scan for an entity."""
+    """Run a real anomaly scan for an entity against price/volume history.
+
+    Persists any newly detected anomalies (skipping ones already recorded
+    for the same window) and reports what was actually found — this used
+    to be a pure no-op that always replied "INITIATED" without scanning
+    anything.
+    """
     await _get_entity(session, entity_id)
+
+    candidates = await _detect_price_volume_anomalies(session, entity_id)
+
+    inserted = []
+    for candidate in candidates:
+        existing = await session.execute(
+            select(DetectedAnomaly).where(
+                DetectedAnomaly.entity_id == entity_id,
+                DetectedAnomaly.anomaly_type == candidate.anomaly_type,
+                DetectedAnomaly.anomaly_window_start == candidate.anomaly_window_start,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            continue
+        session.add(candidate)
+        inserted.append(candidate)
+
+    if inserted:
+        await session.commit()
 
     return {
         "entity_id": str(entity_id),
-        "scan_status": "INITIATED",
-        "message": "Anomaly scan queued for processing.",
+        "scan_status": "COMPLETED",
+        "anomalies_detected": len(inserted),
+        "anomaly_types": [a.anomaly_type for a in inserted],
     }

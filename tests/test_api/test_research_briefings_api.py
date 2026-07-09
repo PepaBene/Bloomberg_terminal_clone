@@ -237,7 +237,10 @@ async def test_generate_briefing(client: AsyncClient, session: AsyncSession):
     assert resp.status_code == 200
     data = resp.json()
     assert data["user_id"] == "gen_user"
-    assert data["executive_summary"] == "On-demand briefing generated."
+    # No ANTHROPIC_API_KEY in the test environment — executive_summary must
+    # be None (honest "AI unavailable"), not a fabricated placeholder string.
+    assert data["executive_summary"] is None
+    assert data["ai_enabled"] is False
     assert data["briefing_date"] == str(date.today())
 
 

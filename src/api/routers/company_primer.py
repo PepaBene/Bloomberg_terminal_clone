@@ -119,6 +119,38 @@ async def get_company_primer(
     # securities could be added later.
     ownership_data: dict = {}
 
+    ai_description = None
+    ai_competitive = None
+    if llm.enabled:
+        ai_description = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg financial research AI assistant. Write a concise, "
+                "factual business description for a company primer. 2-4 sentences, no "
+                "speculation beyond the provided data."
+            ),
+            user_prompt=(
+                f"Company: {entity.legal_name}\n"
+                f"Financial data: {financial_data}\n"
+                f"Valuation data: {valuation_data}\n"
+                "Write a brief business description summarizing the company's financial "
+                "and valuation profile."
+            ),
+        )
+        ai_competitive = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg financial research AI assistant. Write a concise "
+                "competitive-position assessment. 2-3 sentences, grounded only in the "
+                "provided data."
+            ),
+            user_prompt=(
+                f"Company: {entity.legal_name}\n"
+                f"Financial data: {financial_data}\n"
+                f"Valuation data: {valuation_data}\n"
+                f"Key risks: {risk_data}\n"
+                "Assess the company's competitive position based on this data."
+            ),
+        )
+
     primer = generate_primer(
         entity_id=str(entity_id),
         entity_name=entity.legal_name,
@@ -126,8 +158,8 @@ async def get_company_primer(
         valuation_data=valuation_data,
         ownership_data=ownership_data,
         risk_data=risk_data,
-        ai_description=None,
-        ai_competitive=None,
+        ai_description=ai_description,
+        ai_competitive=ai_competitive,
     )
 
     db_primer = CompanyPrimer(
