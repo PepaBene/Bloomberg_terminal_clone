@@ -14,6 +14,7 @@ from src.models.fi_intelligence import (
     NewIssuanceEvent,
 )
 from src.models.alert_expansion import FIAlertConfig
+from src.models.governance_intelligence import GovernanceAssessment
 from src.schemas.alert_expansion import (
     FallenAngelResponse,
     FIAlertConfigCreateRequest,
@@ -213,6 +214,20 @@ async def get_divergence_alerts(
     ]
 
 
+def _scope_uuid(scope: dict | None) -> uuid.UUID | None:
+    """Return the configured entity UUID or None — never a random UUID
+    that would appear to point at a real but non-existent entity."""
+    if not scope:
+        return None
+    raw = scope.get("entity_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get(
     "/alerts/quality-scores",
     response_model=list[QualityAlertResponse],
@@ -220,38 +235,67 @@ async def get_divergence_alerts(
 async def get_quality_score_alerts(
     session: AsyncSession = Depends(get_session),
 ):
-    """Get quality score change alert events."""
-    # Quality alerts are derived from alert configs with quality type
-    result = await session.execute(
-        select(FIAlertConfig)
-        .where(FIAlertConfig.alert_type == "QUALITY_SCORE")
-        .limit(20)
-    )
-    rows = result.scalars().all()
+    """Get fired quality-score alert events.
 
-    # R-017: Use None instead of random uuid4() when entity_id is missing or invalid.
-    def _scope_uuid(scope: dict | None) -> uuid.UUID | None:
-        """Return the configured entity UUID or None — never a random UUID
-        that would appear to point at a real but non-existent entity."""
-        if not scope:
-            return None
-        raw = scope.get("entity_id")
-        if not raw:
-            return None
-        try:
-            return uuid.UUID(raw)
-        except (ValueError, TypeError):
-            return None
-
-    return [
-        QualityAlertResponse(
-            entity_id=_scope_uuid(row.entity_scope),
-            alert_type=row.alert_type,
-            severity="MEDIUM",
-            current_score=float(row.threshold_value) if row.threshold_value is not None else None,
+    Evaluates each enabled QUALITY_SCORE alert config against the entity's
+    actual latest governance (composite quality) score and emits an alert
+    ONLY when the real score has fallen below the configured threshold.
+    Previously this repackaged every config as a fired alert with a
+    hardcoded MEDIUM severity and current_score set to the *trigger
+    threshold* rather than any measured score.
+    """
+    configs = (
+        await session.execute(
+            select(FIAlertConfig)
+            .where(
+                FIAlertConfig.alert_type == "QUALITY_SCORE",
+                FIAlertConfig.is_enabled == True,  # noqa: E712
+            )
+            .limit(200)
         )
-        for row in rows
-    ]
+    ).scalars().all()
+
+    alerts: list[QualityAlertResponse] = []
+    for cfg in configs:
+        entity_id = _scope_uuid(cfg.entity_scope)
+        if entity_id is None or cfg.threshold_value is None:
+            continue
+        threshold = float(cfg.threshold_value)
+
+        assessment = (
+            await session.execute(
+                select(GovernanceAssessment)
+                .where(GovernanceAssessment.entity_id == entity_id)
+                .order_by(GovernanceAssessment.assessment_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if assessment is None or assessment.governance_score is None:
+            # No measured score to evaluate — do not fabricate a breach.
+            continue
+
+        current = float(assessment.governance_score)
+        if current >= threshold:
+            continue  # not breached
+
+        shortfall = threshold - current
+        if shortfall >= 20:
+            severity = "HIGH"
+        elif shortfall >= 10:
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
+
+        alerts.append(QualityAlertResponse(
+            entity_id=entity_id,
+            alert_type=cfg.alert_type,
+            severity=severity,
+            current_score=round(current, 2),
+            change=round(current - threshold, 2),
+            triggered_at=datetime.combine(assessment.assessment_date, datetime.min.time()).replace(tzinfo=timezone.utc),
+        ))
+
+    return alerts
 
 
 @router.get(
@@ -261,49 +305,51 @@ async def get_quality_score_alerts(
 async def get_institutional_flow_alerts(
     session: AsyncSession = Depends(get_session),
 ):
-    """Get institutional flow alert events."""
-    result = await session.execute(
-        select(FIAlertConfig)
-        .where(FIAlertConfig.alert_type == "INSTITUTIONAL_FLOW")
-        .limit(20)
-    )
-    rows = result.scalars().all()
+    """Get fired institutional-flow alert events.
 
-    # R-017: Use None instead of random uuid4() when entity_id is missing or invalid.
-    def _scope_uuid(scope: dict | None) -> uuid.UUID | None:
-        if not scope:
-            return None
-        raw = scope.get("entity_id")
-        if not raw:
-            return None
-        try:
-            return uuid.UUID(raw)
-        except (ValueError, TypeError):
-            return None
+    Evaluates each enabled INSTITUTIONAL_FLOW config against a *measured*
+    net flow (recorded on the config's ``entity_scope`` as ``net_flow_mm``
+    by the flow-signal pipeline) and emits an alert ONLY when the observed
+    absolute flow meets/exceeds the configured threshold. Previously it
+    repackaged every config as a fired alert with ``volume_mm`` set to the
+    *trigger threshold* rather than any observed volume.
 
-    # R-018: Derive flow direction from actual flow data in entity_scope,
-    # not from the threshold value (which is the alert trigger limit).
-    def _direction(scope: dict | None) -> str:
-        # Prefer an explicit direction/flow_direction field recorded on the
-        # scope dict; fall back to the sign of net_flow; otherwise UNKNOWN
-        # rather than inferring from the alert's threshold value.
-        if scope and isinstance(scope, dict):
-            d = (scope.get("direction") or scope.get("flow_direction") or "").upper()
-            if d in ("INFLOW", "OUTFLOW"):
-                return d
-            if scope.get("net_flow") is not None:
-                try:
-                    return "INFLOW" if float(scope["net_flow"]) > 0 else "OUTFLOW"
-                except (TypeError, ValueError):
-                    return "UNKNOWN"
-        return "UNKNOWN"
-
-    return [
-        FlowAlertResponse(
-            entity_id=_scope_uuid(row.entity_scope),
-            alert_type=row.alert_type,
-            direction=_direction(row.entity_scope),
-            volume_mm=float(row.threshold_value) if row.threshold_value is not None else None,
+    NOTE: production institutional-flow signals (the never-batchable E6
+    engine, see the analytics audit) don't populate a flow table in a fresh
+    deployment, so with no measured ``net_flow_mm`` on scope this correctly
+    returns empty instead of inventing volumes from thresholds.
+    """
+    configs = (
+        await session.execute(
+            select(FIAlertConfig)
+            .where(
+                FIAlertConfig.alert_type == "INSTITUTIONAL_FLOW",
+                FIAlertConfig.is_enabled == True,  # noqa: E712
+            )
+            .limit(200)
         )
-        for row in rows
-    ]
+    ).scalars().all()
+
+    alerts: list[FlowAlertResponse] = []
+    for cfg in configs:
+        scope = cfg.entity_scope or {}
+        measured = scope.get("net_flow_mm", scope.get("net_flow"))
+        if measured is None or cfg.threshold_value is None:
+            continue
+        try:
+            net_flow = float(measured)
+        except (TypeError, ValueError):
+            continue
+
+        threshold = float(cfg.threshold_value)
+        if abs(net_flow) < threshold:
+            continue  # observed flow doesn't breach the configured limit
+
+        alerts.append(FlowAlertResponse(
+            entity_id=_scope_uuid(scope),
+            alert_type=cfg.alert_type,
+            direction="INFLOW" if net_flow > 0 else "OUTFLOW",
+            volume_mm=round(net_flow, 2),
+        ))
+
+    return alerts

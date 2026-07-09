@@ -8,6 +8,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import commodity_intelligence
+from src.models.entity import Entity
 from src.models.country_risk import (
     CompanyCountryExposure,
     CountryProfile,
@@ -907,22 +909,71 @@ async def run_commodity_scenario(
     body: CommodityScenarioRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Run a price scenario impact analysis for a commodity."""
+    """Run a price scenario impact analysis for a commodity.
+
+    Delegates to commodity_intelligence.run_commodity_scenario (a real,
+    unit-tested engine with no prior production caller) so that PRODUCER vs
+    CONSUMER exposure flips the impact direction and revenue exposure is
+    weighted in — rather than the previous flat `price_change × score`
+    linear product that ignored exposure direction entirely.
+    """
     result = await session.execute(
         select(CommodityCompanyExposure)
         .where(CommodityCompanyExposure.commodity_code == code.upper())
         .order_by(CommodityCompanyExposure.sensitivity_score.desc().nulls_last())
     )
     rows = result.scalars().all()
-    affected = []
-    for r in rows:
-        score = float(r.sensitivity_score) if r.sensitivity_score is not None else 0
-        affected.append({
+
+    # Resolve entity names for the engine's most-impacted list.
+    entity_ids = [r.entity_id for r in rows]
+    names: dict = {}
+    if entity_ids:
+        name_rows = (
+            await session.execute(
+                select(Entity.entity_id, Entity.legal_name).where(Entity.entity_id.in_(entity_ids))
+            )
+        ).all()
+        names = {eid: nm for eid, nm in name_rows}
+
+    exposed_companies = [
+        {
             "entity_id": str(r.entity_id),
-            "exposure_type": r.exposure_type,
-            "sensitivity_score": score,
-            "estimated_impact_pct": round(body.price_change_pct * score / 100, 4),
-        })
+            "entity_name": names.get(r.entity_id) or str(r.entity_id),
+            "exposure_type": r.exposure_type or "INDIRECT",
+            "sensitivity_score": float(r.sensitivity_score) if r.sensitivity_score is not None else 0.0,
+            # revenue_exposure_pct isn't stored on this model; historical
+            # correlation is the closest available proxy for how much of the
+            # sensitivity translates to revenue.
+            "revenue_exposure_pct": (
+                abs(float(r.historical_correlation)) * 100
+                if r.historical_correlation is not None
+                else None
+            ),
+            "commodity_code": code.upper(),
+        }
+        for r in rows
+    ]
+
+    # The request carries a percentage change, not absolute prices — anchor
+    # to a nominal 100 so the engine's price_change_pct matches the input.
+    current_price = 100.0
+    scenario_price = current_price * (1.0 + body.price_change_pct / 100.0)
+    scenario = commodity_intelligence.run_commodity_scenario(
+        current_price=current_price,
+        scenario_price=scenario_price,
+        exposed_companies=exposed_companies,
+    )
+
+    affected = [
+        {
+            "entity_id": imp.entity_id,
+            "exposure_type": imp.exposure_type,
+            "sensitivity_score": imp.sensitivity_score,
+            "direction": imp.direction,
+            "estimated_impact_pct": imp.estimated_revenue_impact_pct,
+        }
+        for imp in scenario.affected_companies
+    ]
     return CommodityScenarioResponse(
         commodity_code=code.upper(),
         scenario_price_change_pct=body.price_change_pct,

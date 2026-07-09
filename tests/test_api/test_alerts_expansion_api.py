@@ -15,6 +15,7 @@ from src.models.fi_intelligence import (
     NewIssuanceEvent,
 )
 from src.models.alert_expansion import FIAlertConfig
+from src.models.governance_intelligence import GovernanceAssessment
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -110,13 +111,22 @@ async def _seed_divergence_signal(session: AsyncSession) -> CrossAssetSignal:
 
 
 async def _seed_quality_alert_config(session: AsyncSession) -> FIAlertConfig:
-    aid = uuid.uuid4()
+    """Config scoped to a real entity whose latest governance score (60) is
+    below the 75 threshold — i.e. a genuine breach the endpoint should fire."""
+    entity = await _seed_entity(session)
+    session.add(GovernanceAssessment(
+        id=uuid.uuid4(),
+        entity_id=entity.entity_id,
+        assessment_date=date(2025, 6, 30),
+        governance_score=60,
+        classification="CONCERNS",
+    ))
     config = FIAlertConfig(
-        id=aid,
+        id=uuid.uuid4(),
         user_id="test-user",
         alert_type="QUALITY_SCORE",
         threshold_value=Decimal("75.00"),
-        entity_scope={"entity_id": str(uuid.uuid4())},
+        entity_scope={"entity_id": str(entity.entity_id)},
     )
     session.add(config)
     await session.flush()
@@ -124,13 +134,15 @@ async def _seed_quality_alert_config(session: AsyncSession) -> FIAlertConfig:
 
 
 async def _seed_flow_alert_config(session: AsyncSession) -> FIAlertConfig:
-    aid = uuid.uuid4()
+    """Config carrying a measured net flow (150mm) that exceeds the 100mm
+    threshold — a genuine breach the endpoint should fire, with volume read
+    from the measured flow rather than the threshold."""
     config = FIAlertConfig(
-        id=aid,
+        id=uuid.uuid4(),
         user_id="test-user",
         alert_type="INSTITUTIONAL_FLOW",
         threshold_value=Decimal("100.00"),
-        entity_scope={"entity_id": str(uuid.uuid4())},
+        entity_scope={"entity_id": str(uuid.uuid4()), "net_flow_mm": 150.0},
     )
     session.add(config)
     await session.flush()
@@ -297,6 +309,11 @@ async def test_quality_score_alerts_seeded(client: AsyncClient, session: AsyncSe
     data = resp.json()
     assert len(data) >= 1
     assert data[0]["alert_type"] == "QUALITY_SCORE"
+    # current_score is the real measured governance score (60), NOT the
+    # trigger threshold (75) as the old repackaging bug returned.
+    assert data[0]["current_score"] == 60.0
+    assert data[0]["change"] == -15.0
+    assert data[0]["severity"] == "MEDIUM"
 
 
 @pytest.mark.asyncio
@@ -316,3 +333,7 @@ async def test_institutional_flow_alerts_seeded(client: AsyncClient, session: As
     data = resp.json()
     assert len(data) >= 1
     assert data[0]["alert_type"] == "INSTITUTIONAL_FLOW"
+    # volume_mm is the real measured flow (150), NOT the threshold (100),
+    # and direction reflects the flow sign.
+    assert data[0]["volume_mm"] == 150.0
+    assert data[0]["direction"] == "INFLOW"
