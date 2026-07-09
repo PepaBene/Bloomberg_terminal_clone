@@ -378,3 +378,75 @@ async def test_get_value_chain_with_data(client: AsyncClient, session: AsyncSess
     data = resp.json()
     assert data["value_chain_position"] == "PLATFORM"
     assert data["gics_code"] == "45102010"
+
+
+# ── Computed-from-fundamentals test (on-demand producer) ─────────────
+
+
+async def _seed_competitive_universe(session: AsyncSession, gics="45102010", n=3):
+    from src.models.fundamentals import (
+        BalanceSheet, CashFlowStatement, FinancialPeriod, IncomeStatement,
+    )
+    from src.models.relationships import BusinessRelationship
+    entities = []
+    for i in range(n):
+        e = Entity(
+            entity_id=uuid.uuid4(), entity_type="PUBLIC_COMPANY",
+            legal_name=f"Compete Co {i}", status="ACTIVE", source="TEST",
+            gics_sub_industry=gics, gics_industry=gics[:6],
+            gics_industry_group=gics[:4], gics_sector=gics[:2],
+        )
+        session.add(e)
+        await session.flush()
+        entities.append(e)
+        for year, rev in [(2022, 100e6 * (i + 1)), (2023, 125e6 * (i + 1)), (2024, 150e6 * (i + 1))]:
+            fp = FinancialPeriod(
+                period_id=uuid.uuid4(), entity_id=e.entity_id,
+                period_end_date=date(year, 12, 31), period_type="ANNUAL", fiscal_year=year,
+            )
+            session.add(fp)
+            await session.flush()
+            session.add(IncomeStatement(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                total_revenue=rev, cost_of_revenue=rev * 0.5, gross_profit=rev * 0.5,
+                operating_income=rev * 0.22, net_income=rev * 0.15, ebitda=rev * 0.3,
+            ))
+            session.add(BalanceSheet(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                total_assets=rev * 1.4, total_debt=rev * 0.25, cash_and_equivalents=rev * 0.12,
+                total_equity=rev * 0.9,
+            ))
+            session.add(CashFlowStatement(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                capital_expenditures=-rev * 0.05, free_cash_flow=rev * 0.17,
+            ))
+            await session.flush()
+    # A customer concentration relationship for the first entity.
+    session.add(BusinessRelationship(
+        relationship_id=uuid.uuid4(), source_entity_id=entities[0].entity_id,
+        target_entity_id=entities[1].entity_id, relationship_type="CUSTOMER",
+        direction="OUTBOUND", revenue_percentage=35.0, is_single_source=False, is_active=True,
+    ))
+    await session.commit()
+    return entities
+
+
+@pytest.mark.asyncio
+async def test_competitive_computed_from_fundamentals(client: AsyncClient, session: AsyncSession):
+    """moat / landscape / concentration compute on-demand from fundamentals +
+    industry aggregates + business relationships (were 404 forever)."""
+    entities = await _seed_competitive_universe(session, n=3)
+    eid = entities[0].entity_id
+
+    moat = await client.get(f"/v3/competitive/{eid}/moat")
+    assert moat.status_code == 200
+    assert moat.json()["moat_score"] is not None
+
+    land = await client.get(f"/v3/competitive/{eid}/landscape")
+    assert land.status_code == 200
+    assert land.json()["market_share_est_pct"] is not None
+
+    conc = await client.get(f"/v3/competitive/{eid}/concentration")
+    assert conc.status_code == 200
+    # The seeded 35% customer relationship is reflected.
+    assert conc.json()["customer_top1_pct"] == 35.0
