@@ -1,7 +1,7 @@
 """Sentiment Analysis API endpoints (Pillar 2 Supplement – Part 8)."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from src.engines.sentiment_analysis import (
     analyze_earnings_call,
 )
 from src.models.entity import Entity
+from src.models.news_article import ArticleEntityLink, NewsArticle
 from src.models.sentiment import SentimentScore, SentimentAggregate, EarningsCallSentiment
 from src.schemas.sentiment import (
     EarningsCallSentimentResponse,
@@ -27,6 +28,8 @@ from src.schemas.sentiment import (
 )
 
 router = APIRouter(tags=["Sentiment Analysis"])
+
+_TIMEFRAME_DAYS = {"ROLLING_7D": 7, "ROLLING_30D": 30, "ROLLING_90D": 90}
 
 
 async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
@@ -57,6 +60,129 @@ def _parse_llm_sentiment(raw: str | None):
         return None
     from src.engines.sentiment_analysis import SentimentResult
     return SentimentResult(sentiment=label.upper(), score=round(score, 4), confidence=round(confidence, 4))
+
+
+async def _score_entity_news(session: AsyncSession, entity_id: uuid.UUID) -> int:
+    """Score any of the entity's linked news articles that don't yet have a
+    SentimentScore row, using the keyword sentiment engine. Returns the
+    number of newly-scored articles.
+
+    This is the missing link that turns ingested news_articles (Finnhub)
+    into sentiment_scores — the table the whole sentiment surface reads.
+    """
+    article_rows = (
+        await session.execute(
+            select(NewsArticle)
+            .join(ArticleEntityLink, ArticleEntityLink.article_id == NewsArticle.id)
+            .where(ArticleEntityLink.entity_id == entity_id)
+            .order_by(NewsArticle.publish_date.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+    if not article_rows:
+        return 0
+
+    already = (
+        await session.execute(
+            select(SentimentScore.source_reference).where(
+                SentimentScore.entity_id == entity_id,
+                SentimentScore.source_type == "NEWS",
+            )
+        )
+    ).scalars().all()
+    scored_refs = {r for r in already if r}
+
+    created = 0
+    for art in article_rows:
+        ref = str(art.id)
+        if ref in scored_refs:
+            continue
+        text = f"{art.title or ''}. {art.summary or ''}".strip()
+        result = keyword_sentiment(text)
+        session.add(SentimentScore(
+            score_id=uuid.uuid4(),
+            entity_id=entity_id,
+            source_type="NEWS",
+            source_reference=ref,
+            source_date=(
+                datetime.combine(art.publish_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                if art.publish_date else None
+            ),
+            sentiment=result.sentiment,
+            sentiment_score=result.score,
+            confidence=result.confidence,
+            ai_enabled=False,
+        ))
+        created += 1
+
+    if created:
+        await session.commit()
+    return created
+
+
+async def _rebuild_aggregate(
+    session: AsyncSession, entity_id: uuid.UUID, timeframe: str
+) -> SentimentAggregate | None:
+    """Roll the entity's sentiment_scores in the timeframe window into a
+    persisted SentimentAggregate via compute_aggregate_sentiment. Returns the
+    upserted row, or None when there are no scores to aggregate."""
+    days = _TIMEFRAME_DAYS.get(timeframe, 30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    score_rows = (
+        await session.execute(
+            select(SentimentScore)
+            .where(
+                SentimentScore.entity_id == entity_id,
+                (SentimentScore.source_date.is_(None)) | (SentimentScore.source_date >= cutoff),
+            )
+        )
+    ).scalars().all()
+    if not score_rows:
+        return None
+
+    scores = [
+        {"sentiment_score": float(s.sentiment_score), "sentiment": s.sentiment}
+        for s in score_rows
+    ]
+
+    # Prior-period average for momentum.
+    prior_row = (
+        await session.execute(
+            select(SentimentAggregate)
+            .where(SentimentAggregate.entity_id == entity_id, SentimentAggregate.timeframe == timeframe)
+            .order_by(SentimentAggregate.as_of_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    prior_avg = float(prior_row.avg_sentiment) if prior_row and prior_row.avg_sentiment is not None else None
+
+    agg = compute_aggregate_sentiment(scores, prior_avg=prior_avg)
+
+    today = date.today()
+    existing_today = (
+        await session.execute(
+            select(SentimentAggregate).where(
+                SentimentAggregate.entity_id == entity_id,
+                SentimentAggregate.timeframe == timeframe,
+                SentimentAggregate.as_of_date == today,
+            )
+        )
+    ).scalar_one_or_none()
+
+    target = existing_today or SentimentAggregate(
+        id=uuid.uuid4(), entity_id=entity_id, timeframe=timeframe, as_of_date=today,
+    )
+    target.avg_sentiment = agg.avg_sentiment
+    target.sentiment_momentum = agg.sentiment_momentum
+    target.article_count = agg.article_count
+    target.positive_pct = agg.positive_pct
+    target.negative_pct = agg.negative_pct
+    target.anomaly_flag = agg.anomaly_flag
+    if existing_today is None:
+        session.add(target)
+    await session.commit()
+    await session.refresh(target)
+    return target
 
 
 # NOTE: /score and /anomalies are static paths — define BEFORE /{entity_id}
@@ -127,6 +253,48 @@ async def get_sentiment_anomalies(
         )
         for row in rows
     ]
+
+
+@router.post(
+    "/analytics/sentiment/{entity_id}/refresh",
+    response_model=SentimentAggregateResponse,
+)
+async def refresh_sentiment(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    timeframe: str = Query("ROLLING_30D"),
+):
+    """Score the entity's ingested news into sentiment_scores and rebuild the
+    rolling SentimentAggregate.
+
+    This is the producer the sentiment surface was missing: news_articles
+    (Finnhub-ingested) are scored via the keyword engine into
+    sentiment_scores, then compute_aggregate_sentiment rolls them into a
+    persisted sentiment_aggregates row that every /sentiment read consumes.
+    """
+    await _get_entity(session, entity_id)
+    await _score_entity_news(session, entity_id)
+    agg = await _rebuild_aggregate(session, entity_id, timeframe)
+    if agg is None:
+        # No news/scores available to aggregate — honest empty result.
+        return SentimentAggregateResponse(
+            entity_id=entity_id,
+            as_of_date=date.today(),
+            timeframe=timeframe,
+            avg_sentiment=None,
+            article_count=0,
+        )
+    return SentimentAggregateResponse(
+        entity_id=agg.entity_id,
+        as_of_date=agg.as_of_date,
+        timeframe=agg.timeframe,
+        avg_sentiment=float(agg.avg_sentiment),
+        sentiment_momentum=float(agg.sentiment_momentum) if agg.sentiment_momentum is not None else None,
+        article_count=agg.article_count,
+        positive_pct=float(agg.positive_pct) if agg.positive_pct is not None else 0.0,
+        negative_pct=float(agg.negative_pct) if agg.negative_pct is not None else 0.0,
+        anomaly_flag=agg.anomaly_flag,
+    )
 
 
 @router.get(

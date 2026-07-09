@@ -63,6 +63,43 @@ async def test_get_aggregate_empty(client: AsyncClient, session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_refresh_scores_news_into_aggregate(client: AsyncClient, session: AsyncSession):
+    """POST /v1/analytics/sentiment/{id}/refresh scores linked news articles
+    into sentiment_scores and rolls them into a real aggregate."""
+    from src.models.news_article import ArticleEntityLink, NewsArticle
+
+    eid = await _seed_entity(session)
+    # Two ingested articles linked to the entity — one clearly positive.
+    for i, (title, summary) in enumerate([
+        ("Company beats estimates with strong growth", "Record profit and upbeat guidance drove the stock higher."),
+        ("Company expands into new markets", "Management remains confident and committed to the strategy."),
+    ]):
+        art_id = uuid.uuid4()
+        session.add(NewsArticle(
+            id=art_id, source_url=f"https://news.example.com/sent-{i}",
+            title=title, summary=summary, source_name="Reuters",
+            publish_date=date.today(), ingest_date=date.today(),
+        ))
+        session.add(ArticleEntityLink(id=uuid.uuid4(), article_id=art_id, entity_id=eid))
+    await session.commit()
+
+    resp = await client.post(f"/v1/analytics/sentiment/{eid}/refresh")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["article_count"] == 2
+    assert data["avg_sentiment"] is not None and data["avg_sentiment"] > 0
+
+    # The aggregate is now persisted and returned by the GET endpoint.
+    getr = await client.get(f"/v1/analytics/sentiment/{eid}")
+    assert getr.status_code == 200
+    assert getr.json()["article_count"] == 2
+
+    # Idempotent: re-refresh doesn't double-count already-scored articles.
+    resp2 = await client.post(f"/v1/analytics/sentiment/{eid}/refresh")
+    assert resp2.json()["article_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_get_aggregate_with_data(client: AsyncClient, session: AsyncSession):
     eid = await _seed_entity(session)
     agg = SentimentAggregate(
