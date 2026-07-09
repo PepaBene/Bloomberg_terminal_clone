@@ -56,6 +56,15 @@ class PortfolioDurationResponse(BaseModel):
     position_count: int
 
 
+class KeyRateDurationResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    cusip: str
+    curve_date: date | None = None
+    key_rate_durations: dict[str, float]
+    total_key_rate_duration: float
+
+
 class RateSensitivityItem(BaseModel):
     shift_bps: int
     price_change_pct: float

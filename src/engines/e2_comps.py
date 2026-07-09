@@ -55,8 +55,8 @@ _MULTIPLE_DENOM_MAP: dict[str, tuple[str, bool]] = {
     "pe_trailing": ("ttm_diluted_eps", False),
     "ev_ebitda": ("ttm_ebitda", True),
     "ev_sales": ("ttm_total_revenue", True),
-    "pb": ("ttm_bvps", False),
-    "dividend_yield": ("ttm_dividends_per_share", False),
+    "pb": ("bvps", False),
+    "dividend_yield": ("dps", False),
 }
 
 
@@ -241,7 +241,11 @@ class CompsEngine(BaseEngine):
             # Percentile rank
             pct: int | None = None
             if subj_val is not None:
-                pct = _percentile_rank(subj_val, peer_vals + [subj_val])
+                # [Bug fix] Exclude the subject from its own peer set so the
+                # percentile rank is measured against peers only. Including the
+                # subject (peer_vals + [subj_val]) inflated its rank toward the
+                # median.
+                pct = _percentile_rank(subj_val, peer_vals)
 
             # Premium / discount
             prem_disc: float | None = None

@@ -24,7 +24,6 @@ from src.models.analytics import (
     CompositeScore,
     CompsResult,
     DCFResult,
-    DuPontDecomposition,
     MultipleTimeSeries,
     WACCResult,
 )
@@ -307,6 +306,62 @@ async def get_bulk_ratios(
 # DuPont (E1)
 # ---------------------------------------------------------------------------
 
+# Metric names emitted by the DuPont engine (E1) into AnalyticsResult with
+# metric_category == "DUPONT".  The dedicated ``dupont_decompositions`` table
+# is never populated by the batch pipeline, so these endpoints assemble the
+# decomposition view directly from the generic AnalyticsResult rows — matching
+# how the other E1 (ratios/TTM) endpoints read their data.
+_DUPONT_ROE = {"THREE_FACTOR": "dupont_roe_3f", "FIVE_FACTOR": "dupont_roe_5f"}
+
+
+def _build_dupont_response(
+    *,
+    entity_id: uuid.UUID,
+    security_id: uuid.UUID,
+    period: str,
+    model_type: str,
+    metrics: dict[str, float | None],
+    qualities: dict[str, str],
+) -> DuPontResponse:
+    """Assemble a single DuPontResponse for one period + model type."""
+    roe_metric = _DUPONT_ROE[model_type]
+    resp = DuPontResponse(
+        entity_id=entity_id,
+        security_id=security_id,
+        period=period,
+        model_type=model_type,
+        roe=metrics.get(roe_metric),
+        net_profit_margin=metrics.get("dupont_net_profit_margin"),
+        asset_turnover=metrics.get("dupont_asset_turnover"),
+        equity_multiplier=metrics.get("dupont_equity_multiplier"),
+        data_quality=qualities.get(roe_metric, "COMPLETE"),
+    )
+    if model_type == "FIVE_FACTOR":
+        resp.tax_burden = metrics.get("dupont_tax_burden")
+        resp.interest_burden = metrics.get("dupont_interest_burden")
+        resp.operating_margin = metrics.get("dupont_operating_margin")
+    return resp
+
+
+async def _load_dupont_rows(
+    session: AsyncSession, security_id: uuid.UUID
+) -> list[AnalyticsResult]:
+    """Fetch all DuPont metric rows for a security, most recent period first."""
+    result = await session.execute(
+        select(AnalyticsResult)
+        .where(
+            AnalyticsResult.security_id == security_id,
+            AnalyticsResult.engine_id == "E1",
+            AnalyticsResult.metric_category == "DUPONT",
+        )
+        .order_by(
+            AnalyticsResult.as_of_date.desc(),
+            AnalyticsResult.period_end_date.desc(),
+        )
+    )
+    return list(result.scalars().all())
+
+
 @router.get("/dupont/{security_id}", response_model=list[DuPontResponse])
 async def get_dupont(
     security_id: uuid.UUID,
@@ -315,19 +370,39 @@ async def get_dupont(
     """Latest DuPont decomposition (both 3-factor and 5-factor)."""
     sec = await _resolve_security(session, security_id)
 
-    result = await session.execute(
-        select(DuPontDecomposition)
-        .where(
-            DuPontDecomposition.entity_id == sec.issuer_entity_id,
-            DuPontDecomposition.security_id == security_id,
-        )
-        .order_by(DuPontDecomposition.period.desc())
-        .limit(2)  # latest 3-factor + 5-factor
-    )
-    rows = result.scalars().all()
+    rows = await _load_dupont_rows(session, security_id)
     if not rows:
         raise HTTPException(status_code=404, detail="No DuPont data available")
-    return [DuPontResponse.model_validate(r) for r in rows]
+
+    # Rows are ordered newest-first; the latest period is that of the first row.
+    latest_period = rows[0].period
+    period_rows = [r for r in rows if r.period == latest_period]
+    metrics = {r.metric_name: (float(r.value) if r.value is not None else None) for r in period_rows}
+    qualities = {r.metric_name: r.data_quality for r in period_rows}
+
+    responses = [
+        _build_dupont_response(
+            entity_id=sec.issuer_entity_id,
+            security_id=security_id,
+            period=latest_period,
+            model_type="THREE_FACTOR",
+            metrics=metrics,
+            qualities=qualities,
+        )
+    ]
+    # Only emit the 5-factor view when the engine produced 5-factor metrics.
+    if "dupont_roe_5f" in metrics or "dupont_tax_burden" in metrics:
+        responses.append(
+            _build_dupont_response(
+                entity_id=sec.issuer_entity_id,
+                security_id=security_id,
+                period=latest_period,
+                model_type="FIVE_FACTOR",
+                metrics=metrics,
+                qualities=qualities,
+            )
+        )
+    return responses
 
 
 @router.get("/dupont/{security_id}/history", response_model=DuPontHistoryResponse)
@@ -340,20 +415,36 @@ async def get_dupont_history(
     """DuPont decomposition history."""
     sec = await _resolve_security(session, security_id)
 
-    result = await session.execute(
-        select(DuPontDecomposition)
-        .where(
-            DuPontDecomposition.entity_id == sec.issuer_entity_id,
-            DuPontDecomposition.model_type == model_type.upper(),
+    mt = model_type.upper()
+    if mt not in _DUPONT_ROE:
+        mt = "THREE_FACTOR"
+
+    rows = await _load_dupont_rows(session, security_id)
+
+    # Group rows by period, preserving newest-first ordering.
+    grouped: dict[str, list[AnalyticsResult]] = {}
+    for r in rows:
+        grouped.setdefault(r.period, []).append(r)
+
+    decompositions: list[DuPontResponse] = []
+    for period, period_rows in list(grouped.items())[:periods]:
+        metrics = {r.metric_name: (float(r.value) if r.value is not None else None) for r in period_rows}
+        qualities = {r.metric_name: r.data_quality for r in period_rows}
+        decompositions.append(
+            _build_dupont_response(
+                entity_id=sec.issuer_entity_id,
+                security_id=security_id,
+                period=period,
+                model_type=mt,
+                metrics=metrics,
+                qualities=qualities,
+            )
         )
-        .order_by(DuPontDecomposition.period.desc())
-        .limit(periods)
-    )
-    rows = result.scalars().all()
+
     return DuPontHistoryResponse(
         security_id=security_id,
         entity_id=sec.issuer_entity_id,
-        decompositions=[DuPontResponse.model_validate(r) for r in rows],
+        decompositions=decompositions,
     )
 
 
@@ -1111,10 +1202,38 @@ async def run_dcf(
         from src.engines.e2_dcf import DCFEngine
         engine = DCFEngine()
         kwargs: dict[str, Any] = {"method": request.method if request else "FCFF"}
-        if request and request.wacc_override is not None:
-            kwargs["wacc_override"] = request.wacc_override
         if request:
-            kwargs["assumptions"] = request.model_dump(exclude_none=True, exclude={"method", "wacc_override"})
+            # Translate the request schema's field names to the override keys
+            # that DCFEngine._build_assumptions actually reads. Without this
+            # mapping the user's custom assumptions are silently dropped and
+            # the DCF always runs with engine-computed defaults.
+            dumped = request.model_dump(exclude_none=True, exclude={"method"})
+            assumptions: dict[str, Any] = {}
+            # Same-name passthroughs (schema key == engine override key)
+            for key in ("tax_rate", "terminal_method", "terminal_exit_multiple", "projection_years"):
+                if key in dumped:
+                    assumptions[key] = dumped[key]
+            # Renamed scalar/list keys (schema key -> engine key)
+            _rename = {
+                "revenue_growth_rates": "revenue_growth_path",
+                "capex_pct_revenue": "capex_to_revenue",
+                "wc_pct_revenue": "wc_to_revenue",
+                "terminal_growth_rate": "terminal_growth",
+            }
+            for src_key, dst_key in _rename.items():
+                if src_key in dumped:
+                    assumptions[dst_key] = dumped[src_key]
+            # ebit_margins is a per-year list in the schema but the engine holds
+            # a single constant margin; collapse to the mean so it still flows through.
+            margins = dumped.get("ebit_margins")
+            if margins:
+                assumptions["ebit_margin"] = sum(margins) / len(margins)
+            # wacc_override maps onto the discount rate (the engine reads
+            # "discount_rate", not a "wacc_override" kwarg).
+            if dumped.get("wacc_override") is not None:
+                assumptions["discount_rate"] = dumped["wacc_override"]
+            if assumptions:
+                kwargs["assumptions"] = assumptions
         results = await engine.compute(session, security_id=security_id, **kwargs)
     except Exception as exc:
         logger.error("DCF computation failed: %s", exc)
@@ -1250,7 +1369,10 @@ async def get_football_field(
         if r.metric_name == "football_current_price":
             current_price = r.value
         elif r.metric_name == "football_consensus_view":
-            consensus = r.data_quality
+            # The engine stores the classification (UNDERVALUED / FAIRLY_VALUED /
+            # OVERVALUED / INSUFFICIENT_DATA) in `value`; data_quality only carries
+            # COMPLETE / INSUFFICIENT_DATA.
+            consensus = r.value
         elif r.metric_name.startswith("football_"):
             # Parse: football_{method}_{low|mid|high}
             parts = r.metric_name.replace("football_", "").rsplit("_", 1)

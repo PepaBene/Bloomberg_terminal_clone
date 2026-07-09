@@ -41,6 +41,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session_factory
+from src.ingestion.edgar_13f import Edgar13FConnector
 from src.ingestion.edgar_8k import Edgar8KConnector
 from src.ingestion.edgar_esg import EdgarESGConnector
 from src.ingestion.edgar_xbrl import EdgarXBRLConnector
@@ -78,6 +79,13 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     ),
     "esg": EntityCikType(
         "esg", EdgarESGConnector, "cik_list", "esg_scores", "entity_id"
+    ),
+    # 13F institutional ownership snapshots. institutional_holdings has no
+    # entity_id column (it is keyed by institution_id + security_id), so the
+    # per-subject "has data" / reconcile check keys on security_id — the FK
+    # that E6 reads by and the presence marker for ownership data.
+    "ownership": EntityCikType(
+        "ownership", Edgar13FConnector, "ciks", "institutional_holdings", "security_id"
     ),
 }
 DATE_TYPES = {"prices"}

@@ -143,34 +143,14 @@ BATCH_JOBS: list[BatchJob] = [
         description="Compute Piotroski F-Score, Altman Z-Score, Beneish M-Score for all securities.",
         depends_on=("analytics_ratios",),
     ),
-    # ── E5 Risk Analytics ─────────────────────────────────────────────
-    BatchJob(
-        name="analytics_risk_var",
-        cron="0 22 * * 1-5",  # 10 PM ET weekdays
-        script="scripts/run_analytics_batch.py --engine e5",
-        sla_minutes=60,
-        domain="ANALYTICS",
-        description="Compute VaR and volatility metrics for all securities.",
-        depends_on=("analytics_ratios",),
-    ),
-    # ── E7 Quantitative (weekly) ──────────────────────────────────────
-    BatchJob(
-        name="analytics_quant_weekly",
-        cron="0 0 * * 0",  # Sunday midnight
-        script="scripts/run_analytics_batch.py --engine e7",
-        sla_minutes=120,
-        domain="ANALYTICS",
-        description="Compute correlation matrices and factor definitions.",
-    ),
-    # ── E6 Institutional Flows (daily check for quarterly filings) ────
-    BatchJob(
-        name="analytics_institutional_flows",
-        cron="0 6 * * 1-5",  # 6 AM ET weekdays (check for new filings)
-        script="scripts/run_analytics_batch.py --engine e6",
-        sla_minutes=90,
-        domain="ANALYTICS",
-        description="Process 13F filings and compute institutional flow analytics.",
-    ),
+    # ── NOTE: E5 (risk/VaR), E6 (institutional flows) and E7 (quant) are
+    #    NOT scheduled here. ``run_analytics_batch.py`` only accepts the
+    #    --engine choices: e1, e1_trends, e1_kpis, e2_multiples, e2_wacc,
+    #    e3, all. e5/e6/e7 are not wired into the batch runner (see
+    #    DATA_WIRING_AUDIT.md §5.1) and only ever run live, on-demand, per
+    #    API request. Scheduling them with an invalid --engine choice made
+    #    argparse exit non-zero, so those jobs failed on every fire. They
+    #    have been removed; re-add them only once the runner supports them.
     # ── Quality ───────────────────────────────────────────────────────
     BatchJob(
         name="quality_check",

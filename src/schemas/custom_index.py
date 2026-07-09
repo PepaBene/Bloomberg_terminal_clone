@@ -17,6 +17,19 @@ class CreateIndexRequest(BaseModel):
     security_ids: list[uuid.UUID] = []
 
 
+class SetConstituentsRequest(BaseModel):
+    """Set (replace) the constituents of a custom index.
+
+    Weights are computed by the custom-index engine from ``weighting_method``
+    (falling back to the index's configured method). ``market_caps`` /
+    ``scores`` are positionally aligned with ``security_ids``.
+    """
+    security_ids: list[uuid.UUID]
+    weighting_method: str | None = None
+    market_caps: list[float] | None = None
+    scores: list[float] | None = None
+
+
 class CustomIndexResponse(BaseModel):
     """Custom index response."""
 

@@ -12,11 +12,14 @@ from src.api.deps import get_session
 from src.engines.bond_analytics import compute_modified_duration, compute_ytm
 from src.engines.e11_spread_analytics import (
     compute_breakeven_spread,
+    compute_g_spread_interpolated,
     compute_oas_simplified,
     compute_relative_value,
     compute_spread_duration,
+    compute_z_spread,
 )
 from src.models.corporate_bond import BondEODPrice, CorporateBond
+from src.models.yield_curve import YieldCurveSnapshot
 from src.schemas.fi_spread_analytics import (
     BreakevenResponse,
     RelativeValueResponse,
@@ -42,6 +45,79 @@ async def _get_bond(session: AsyncSession, cusip: str) -> CorporateBond:
     if bond is None:
         raise HTTPException(status_code=404, detail=f"Bond with CUSIP {cusip} not found")
     return bond
+
+
+# Standard curve tenor columns: (par_rate_col, zero_rate_col, tenor_years)
+_CURVE_TENORS = [
+    ("rate_1m", "zero_1m", 0.0833),
+    ("rate_3m", "zero_3m", 0.25),
+    ("rate_6m", "zero_6m", 0.5),
+    ("rate_1y", "zero_1y", 1.0),
+    ("rate_2y", "zero_2y", 2.0),
+    ("rate_3y", "zero_3y", 3.0),
+    ("rate_5y", "zero_5y", 5.0),
+    ("rate_7y", "zero_7y", 7.0),
+    ("rate_10y", "zero_10y", 10.0),
+    ("rate_20y", "zero_20y", 20.0),
+    ("rate_30y", "zero_30y", 30.0),
+]
+
+
+async def _get_latest_treasury_curve(
+    session: AsyncSession,
+) -> tuple[list[dict] | None, list[dict] | None]:
+    """Fetch the latest TREASURY_NOMINAL snapshot as (par_curve, zero_curve).
+
+    par_curve items:  {tenor_years, yield_rate}  (decimal, e.g. 0.045)
+    zero_curve items: {tenor_years, zero_rate}   (decimal)
+    Returns (None, None) if no snapshot exists.
+    """
+    query = (
+        select(YieldCurveSnapshot)
+        .where(YieldCurveSnapshot.curve_type == "TREASURY_NOMINAL")
+        .order_by(YieldCurveSnapshot.curve_date.desc())
+        .limit(1)
+    )
+    snapshot = (await session.execute(query)).scalar_one_or_none()
+    if snapshot is None:
+        return None, None
+
+    par: list[dict] = []
+    zero: list[dict] = []
+    for rate_col, zero_col, tenor_years in _CURVE_TENORS:
+        rate_val = getattr(snapshot, rate_col, None)
+        if rate_val is not None:
+            par.append({"tenor_years": tenor_years, "yield_rate": float(rate_val)})
+        zero_val = getattr(snapshot, zero_col, None)
+        if zero_val is not None:
+            zero.append({"tenor_years": tenor_years, "zero_rate": float(zero_val)})
+
+    return (par or None), (zero or None)
+
+
+def _bond_cashflows(
+    coupon_rate: float,
+    frequency: int,
+    years_to_maturity: float,
+    face_value: float = 100.0,
+) -> list[dict]:
+    """Generate a bullet bond's cash flows as [{years, amount}].
+
+    Coupons of coupon_rate*face/frequency at each period, plus face at maturity.
+    """
+    if frequency <= 0 or years_to_maturity <= 0:
+        return [{"years": max(years_to_maturity, 0.0), "amount": face_value}]
+
+    coupon = coupon_rate * face_value / frequency
+    n_periods = int(round(years_to_maturity * frequency))
+    if n_periods < 1:
+        n_periods = 1
+
+    cash_flows: list[dict] = []
+    for k in range(1, n_periods + 1):
+        amount = coupon + (face_value if k == n_periods else 0.0)
+        cash_flows.append({"years": k / frequency, "amount": amount})
+    return cash_flows
 
 
 async def _get_eod_prices(
@@ -88,6 +164,7 @@ async def get_spreads(
     treasury_benchmark_maturity: float | None = None
 
     if latest_price is not None:
+        # Fall back to the stored G-spread if we cannot compute one below.
         g_spread_bps = latest_price.g_spread_bps
 
         # Compute modified duration for spread duration
@@ -103,9 +180,29 @@ async def get_spreads(
             mod_dur = compute_modified_duration(ytm, coupon, years_to_maturity, freq)
             spread_dur = round(compute_spread_duration(mod_dur), 4)
 
-        # Simplified: Z-spread and OAS not computed unless zero curve is present.
-        # For now, if g_spread_bps is available, use it as a proxy for Z-spread
-        # (they are close for bullet bonds).
+            # Fetch the latest treasury curve to compute real spreads.
+            par_curve, zero_curve = await _get_latest_treasury_curve(session)
+
+            # G-spread = bond YTM - interpolated treasury par yield at the bond's
+            # exact maturity. Computed from the curve rather than passed through.
+            if par_curve:
+                g_spread_bps = compute_g_spread_interpolated(
+                    ytm, years_to_maturity, par_curve
+                )
+
+            # Z-spread = constant spread over the zero curve that reprices the
+            # bond's cash flows to its market price (Newton-Raphson).
+            if zero_curve:
+                cash_flows = _bond_cashflows(coupon, freq, years_to_maturity)
+                z_spread_bps = compute_z_spread(cash_flows, price_val, zero_curve)
+
+                # OAS: for bonds with NO embedded optionality, the option cost is
+                # zero, so OAS == Z-spread (an exact identity, not an estimate).
+                # For callable/puttable bonds a real option-adjusted computation
+                # requires a short-rate/option model, which does not exist in this
+                # codebase, so OAS is left null rather than fabricated.
+                if not bond.is_callable and not bond.is_puttable:
+                    oas_bps = compute_oas_simplified(z_spread_bps, option_cost_bps=0)
 
     return SpreadAnalyticsResponse(
         cusip=cusip,

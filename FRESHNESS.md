@@ -89,10 +89,43 @@ schtasks /create /tn "bdf-refresh" ^
 Runs every 20 minutes: fills any remaining companies, then rolls through the ones
 that have aged past 7 days. Check status any time with `make backfill-status`.
 
-Recompute analytics on a nightly task after data lands:
-```powershell
-schtasks /create /tn "bdf-analytics" /tr "\"...\.venv\Scripts\python.exe\" -m scripts.run_analytics_batch --engine all" /sc daily /st 02:00
+---
+
+## 3. Analytics auto-update (ratios, valuations, scores)
+
+Analytics are computed *from* the ingested fundamentals + prices by 10 engines
+(E1 ttm/ratios/dupont/trends/kpis, E2 multiples/wacc, E3 piotroski/altman/
+beneish). They **auto-update with new data** via an invalidate-and-recompute
+pattern — new data clears a security's analytics so it gets recomputed:
+
+- **On-demand**: when a company's fundamentals are refreshed (viewing it), the
+  freshness service recomputes that company's securities immediately, so the
+  ratios/valuations shown reflect the new data. (`_recompute_entity_analytics`
+  in `freshness.py` calls `recompute_security` — idempotent: it clears the
+  security's old results first, so re-runs never duplicate.)
+- **Scheduled backstop**: `run_analytics_batch --engine all --refresh-days 7`
+  invalidates any security whose analytics is older than 7 days and recomputes
+  it — catching new data even for companies nobody viewed.
+
+The runner is **chunked, resumable, idempotent, and time-bounded** (like the
+backfill): commits every 200 securities, records per-(engine, security) progress
+in `ingestion_progress`, skips done pairs, honors `--max-minutes`.
+
+```bash
+make analytics-status        # per-engine coverage
+make analytics-loop          # run continuously until all engines complete
+make analytics-refresh       # recompute securities stale >7 days
+python -m scripts.run_analytics_batch --engine all --reset   # clean rebuild
 ```
+
+### Unattended analytics (Windows Task Scheduler)
+```powershell
+schtasks /create /tn "bdf-analytics" ^
+  /tr "\"C:\Users\pepab\Documents\Bloomberg\bloomberg-data-fabric\.venv\Scripts\python.exe\" -m scripts.run_analytics_batch --engine all --refresh-days 7 --max-minutes 20" ^
+  /sc hourly /rl highest
+```
+Each run recomputes anything invalidated (by new data or the 7-day staleness
+sweep) and is cheap when nothing changed (all done → exits fast).
 
 ---
 

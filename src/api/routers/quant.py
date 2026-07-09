@@ -11,12 +11,13 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.config import settings
+from src.engines.e2_wacc import _find_benchmark_security_id
 from src.engines.e7_quant import QuantEngine, _load_price_series, _prices_to_returns
-from src.models.analytics import AnalyticsResult
 from src.models.security import Security
 from src.schemas.quant import (
     AutocorrelationRequest,
@@ -59,22 +60,6 @@ async def _resolve_security(session: AsyncSession, security_id: uuid.UUID) -> Se
     return sec
 
 
-async def _get_metric_value(
-    session: AsyncSession, security_id: uuid.UUID, metric_name: str
-) -> float | None:
-    result = await session.execute(
-        select(AnalyticsResult.value)
-        .where(
-            AnalyticsResult.security_id == security_id,
-            AnalyticsResult.metric_name == metric_name,
-        )
-        .order_by(desc(AnalyticsResult.as_of_date))
-        .limit(1)
-    )
-    val = result.scalar_one_or_none()
-    return float(val) if val is not None else None
-
-
 async def _load_security_returns(
     session: AsyncSession, security_id: uuid.UUID, period_days: int = 756,
 ) -> list[float]:
@@ -82,6 +67,43 @@ async def _load_security_returns(
     await _resolve_security(session, security_id)
     _, prices = await _load_price_series(session, security_id, period_days)
     return _prices_to_returns(prices)
+
+
+async def _resolve_independent_series(
+    session: AsyncSession,
+    independent_var: str,
+    y_returns: list[float],
+    period_days: int,
+) -> tuple[list[float], list[float]]:
+    """Resolve the regression independent variable to a real return series.
+
+    Precedence:
+      1. If ``independent_var`` is a security UUID, regress against that
+         security's returns.
+      2. If it names the market (``market_return``/``market``/``benchmark``),
+         regress against the configured market benchmark's returns.
+      3. Otherwise (or when the resolved series has too little overlapping
+         data / the benchmark is not loaded) fall back to a plain time-index
+         (0,1,2,...) trend regression — the original backward-compatible
+         behaviour.
+
+    Returns ``(x_returns, y_returns)`` trimmed to a common length.
+    """
+    x_source_id: uuid.UUID | None = None
+    try:
+        x_source_id = uuid.UUID(str(independent_var))
+    except (ValueError, TypeError):
+        if independent_var.lower() in ("market_return", "market", "benchmark"):
+            x_source_id = await _find_benchmark_security_id(session)
+
+    if x_source_id is not None:
+        x_all = await _load_security_returns(session, x_source_id, period_days)
+        min_len = min(len(x_all), len(y_returns))
+        if min_len >= 30:
+            return x_all[-min_len:], y_returns[-min_len:]
+
+    # Fallback: plain time-index trend regression.
+    return [float(i) for i in range(len(y_returns))], y_returns
 
 
 # ---------------------------------------------------------------------------
@@ -101,16 +123,19 @@ async def run_regression(
     if len(y_returns) < 30:
         raise HTTPException(status_code=400, detail="Insufficient price data")
 
-    # For now, use the return series itself as both x and y (self-regression)
-    # In production, x would come from independent_vars source
-    x_returns = list(range(len(y_returns)))
-    x_returns_f = [float(i) for i in x_returns]
+    # Resolve a real independent variable (benchmark or another security's
+    # returns) when the caller provides one; fall back to a time-index trend
+    # only when no meaningful independent series is available.
+    indep_label = body.independent_vars[0] if body.independent_vars else "market_return"
+    x_returns_f, y_returns = await _resolve_independent_series(
+        session, indep_label, y_returns, body.period_days
+    )
 
     result = await _engine.run_regression(
         session, body.security_id, x_returns_f, y_returns,
         method=body.method,
         dependent_var=body.dependent_var,
-        independent_var=body.independent_vars[0] if body.independent_vars else "x",
+        independent_var=indep_label,
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -137,10 +162,12 @@ async def run_rolling_regression(
 ):
     """Run rolling regression on a security."""
     y_returns = await _load_security_returns(session, body.security_id, body.period_days)
+    x_returns, y_returns = await _resolve_independent_series(
+        session, body.independent_var, y_returns, body.period_days
+    )
     if len(y_returns) < body.window:
         raise HTTPException(status_code=400, detail="Insufficient data for window size")
 
-    x_returns = [float(i) for i in range(len(y_returns))]
     points = await _engine.run_rolling_regression(x_returns, y_returns, window=body.window)
 
     return RollingRegressionResponse(
@@ -349,34 +376,29 @@ async def get_quant_summary(
     security_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """All default quant metrics for a security."""
-    sec = await _resolve_security(session, security_id)
+    """All default quant metrics for a security, computed live on demand."""
+    await _resolve_security(session, security_id)
 
-    # Try to get pre-computed metrics from AnalyticsResult
-    metric_names = [
-        "beta_market", "beta_blume_adjusted", "beta_rolling_60d",
-        "correlation_market_pearson", "correlation_market_spearman",
-        "autocorrelation_lag1", "adf_test_statistic", "adf_p_value",
-        "is_stationary",
-    ]
-    values: dict[str, float | None] = {}
-    for mn in metric_names:
-        values[mn] = await _get_metric_value(session, security_id, mn)
+    # Compute live (like the risk endpoints) rather than reading AnalyticsResult
+    # rows that no batch job ever writes. Beta/correlation require a market
+    # benchmark, resolved from the configured benchmark ticker.
+    benchmark_id = await _find_benchmark_security_id(session)
+    outputs = await _engine.compute(session, security_id, benchmark_id=benchmark_id)
+    out_map = {o.metric_name: o.value for o in outputs}
 
-    is_stat = None
-    if values["is_stationary"] is not None:
-        is_stat = bool(values["is_stationary"])
+    is_stat_val = out_map.get("is_stationary")
+    is_stat = bool(is_stat_val) if is_stat_val is not None else None
 
     return QuantSummaryResponse(
         security_id=security_id,
-        beta_market=values.get("beta_market"),
-        beta_blume_adjusted=values.get("beta_blume_adjusted"),
-        beta_rolling_60d=values.get("beta_rolling_60d"),
-        correlation_market_pearson=values.get("correlation_market_pearson"),
-        correlation_market_spearman=values.get("correlation_market_spearman"),
-        autocorrelation_lag1=values.get("autocorrelation_lag1"),
-        adf_test_statistic=values.get("adf_test_statistic"),
-        adf_p_value=values.get("adf_p_value"),
+        beta_market=out_map.get("beta_market"),
+        beta_blume_adjusted=out_map.get("beta_blume_adjusted"),
+        beta_rolling_60d=out_map.get("beta_rolling_60d"),
+        correlation_market_pearson=out_map.get("correlation_market_pearson"),
+        correlation_market_spearman=out_map.get("correlation_market_spearman"),
+        autocorrelation_lag1=out_map.get("autocorrelation_lag1"),
+        adf_test_statistic=out_map.get("adf_test_statistic"),
+        adf_p_value=out_map.get("adf_p_value"),
         is_stationary=is_stat,
     )
 
@@ -386,17 +408,17 @@ async def get_quant_beta(
     security_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Quick beta lookup from pre-computed metrics."""
-    sec = await _resolve_security(session, security_id)
+    """Beta computed live from EOD prices vs the market benchmark."""
+    await _resolve_security(session, security_id)
 
-    beta = await _get_metric_value(session, security_id, "beta_market")
-    blume = await _get_metric_value(session, security_id, "beta_blume_adjusted")
-    r_sq = await _get_metric_value(session, security_id, "beta_r_squared")
+    benchmark_id = await _find_benchmark_security_id(session)
+    outputs = await _engine.compute(session, security_id, benchmark_id=benchmark_id)
+    out_map = {o.metric_name: o.value for o in outputs}
 
     return BetaResponse(
         security_id=security_id,
-        beta=beta,
-        beta_blume_adjusted=blume,
-        r_squared=r_sq,
-        benchmark="SPY",
+        beta=out_map.get("beta_market"),
+        beta_blume_adjusted=out_map.get("beta_blume_adjusted"),
+        r_squared=out_map.get("beta_r_squared"),
+        benchmark=settings.ANALYTICS_MARKET_BENCHMARK_TICKER,
     )

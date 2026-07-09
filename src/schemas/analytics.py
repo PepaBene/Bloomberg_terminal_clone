@@ -101,7 +101,7 @@ class RatioHistoryResponse(BaseModel):
 class DuPontResponse(BaseModel):
     model_config = {"from_attributes": True}
 
-    decomposition_id: uuid.UUID
+    decomposition_id: uuid.UUID | None = None
     entity_id: uuid.UUID
     security_id: uuid.UUID | None = None
     period: str

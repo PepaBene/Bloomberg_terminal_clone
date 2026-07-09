@@ -17,14 +17,17 @@ from src.engines.e10_duration import (
     compute_dv01,
     compute_effective_convexity,
     compute_effective_duration,
+    compute_key_rate_durations,
     compute_portfolio_duration,
     generate_rate_sensitivity_table,
 )
 from src.models.corporate_bond import BondEODPrice, CorporateBond
+from src.models.yield_curve import YieldCurveSnapshot
 from src.schemas.fi_duration import (
     DurationHistoryItem,
     DurationHistoryResponse,
     DurationResponse,
+    KeyRateDurationResponse,
     PortfolioDurationRequest,
     PortfolioDurationResponse,
     RateSensitivityItem,
@@ -32,6 +35,48 @@ from src.schemas.fi_duration import (
 )
 
 router = APIRouter(prefix="/v2/analytics", tags=["Fixed Income - Duration Analytics"])
+
+
+# Standard zero-curve tenor columns: (zero_rate_col, tenor_years)
+_ZERO_TENORS = [
+    ("zero_1m", 0.0833),
+    ("zero_3m", 0.25),
+    ("zero_6m", 0.5),
+    ("zero_1y", 1.0),
+    ("zero_2y", 2.0),
+    ("zero_3y", 3.0),
+    ("zero_5y", 5.0),
+    ("zero_7y", 7.0),
+    ("zero_10y", 10.0),
+    ("zero_20y", 20.0),
+    ("zero_30y", 30.0),
+]
+
+
+async def _get_latest_zero_curve(
+    session: AsyncSession,
+) -> tuple[list[dict] | None, date | None]:
+    """Fetch the latest TREASURY_NOMINAL zero curve as [{tenor_years, zero_rate}].
+
+    Returns (None, None) if no snapshot with zero rates exists.
+    """
+    query = (
+        select(YieldCurveSnapshot)
+        .where(YieldCurveSnapshot.curve_type == "TREASURY_NOMINAL")
+        .order_by(YieldCurveSnapshot.curve_date.desc())
+        .limit(1)
+    )
+    snapshot = (await session.execute(query)).scalar_one_or_none()
+    if snapshot is None:
+        return None, None
+
+    zero: list[dict] = []
+    for zero_col, tenor_years in _ZERO_TENORS:
+        zero_val = getattr(snapshot, zero_col, None)
+        if zero_val is not None:
+            zero.append({"tenor_years": tenor_years, "zero_rate": float(zero_val)})
+
+    return (zero or None), snapshot.curve_date
 
 
 # ── 1. GET /v2/analytics/bonds/{cusip}/duration ──────────────────────
@@ -105,6 +150,22 @@ async def get_duration(
         eff_dur = compute_effective_duration(p_up, p_down, bond_price, shock)
         eff_conv = compute_effective_convexity(p_up, p_down, bond_price, shock)
 
+    # Key rate durations: partial durations at 8 standard tenors, computed by
+    # bumping each point of the treasury zero curve. Only available when a zero
+    # curve snapshot exists.
+    key_rate_durations = None
+    if years_to_maturity > 0:
+        zero_curve, _ = await _get_latest_zero_curve(session)
+        if zero_curve:
+            key_rate_durations = compute_key_rate_durations(
+                price=bond_price,
+                coupon_rate=coupon,
+                face_value=100.0,
+                years_to_maturity=years_to_maturity,
+                frequency=freq,
+                zero_curve=zero_curve,
+            )
+
     return DurationResponse(
         cusip=cusip,
         macaulay_duration=round(mac_dur, 6),
@@ -113,6 +174,82 @@ async def get_duration(
         convexity=round(conv, 6),
         effective_duration=round(eff_dur, 6) if eff_dur is not None else None,
         effective_convexity=round(eff_conv, 6) if eff_conv is not None else None,
+        key_rate_durations=key_rate_durations,
+    )
+
+
+# ── 1b. GET /v2/analytics/bonds/{cusip}/key-rate-durations ───────────
+
+
+@router.get(
+    "/bonds/{cusip}/key-rate-durations",
+    response_model=KeyRateDurationResponse,
+)
+async def get_key_rate_durations(
+    cusip: str,
+    price: float | None = Query(None, description="Override market price (% of par)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Compute Key Rate Durations (KRD) for a bond at 8 standard tenors.
+
+    Each KRD measures the bond's price sensitivity to a 1bp bump at a single
+    point on the treasury zero curve (holding all other points fixed). Requires
+    a TREASURY_NOMINAL zero-coupon curve snapshot.
+    """
+    query = select(CorporateBond).where(CorporateBond.cusip == cusip)
+    result = await session.execute(query)
+    bond = result.scalars().unique().one_or_none()
+    if bond is None:
+        raise HTTPException(
+            status_code=404, detail=f"Bond with CUSIP {cusip} not found"
+        )
+
+    # Resolve price (latest EOD, else par) — mirrors the duration endpoint.
+    bond_price = price
+    if bond_price is None:
+        eod_query = (
+            select(BondEODPrice)
+            .where(BondEODPrice.bond_id == bond.bond_id)
+            .order_by(BondEODPrice.price_date.desc())
+            .limit(1)
+        )
+        eod = (await session.execute(eod_query)).scalars().first()
+        if eod and eod.last_trade_price is not None:
+            bond_price = float(eod.last_trade_price)
+        else:
+            bond_price = 100.0
+
+    coupon = float(bond.coupon_rate) if bond.coupon_rate is not None else 0.0
+    freq = bond.coupon_frequency if bond.coupon_frequency is not None else 2
+    today = date.today()
+    years_to_maturity = (bond.maturity_date - today).days / 365.25
+    if years_to_maturity <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot compute key rate durations for matured bond {cusip}",
+        )
+
+    zero_curve, curve_date = await _get_latest_zero_curve(session)
+    if not zero_curve:
+        raise HTTPException(
+            status_code=404,
+            detail="No treasury zero-coupon curve available to compute key rate durations",
+        )
+
+    krd = compute_key_rate_durations(
+        price=bond_price,
+        coupon_rate=coupon,
+        face_value=100.0,
+        years_to_maturity=years_to_maturity,
+        frequency=freq,
+        zero_curve=zero_curve,
+    )
+
+    return KeyRateDurationResponse(
+        cusip=cusip,
+        curve_date=curve_date,
+        key_rate_durations=krd,
+        total_key_rate_duration=round(sum(krd.values()), 6),
     )
 
 

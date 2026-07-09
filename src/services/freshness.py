@@ -201,7 +201,29 @@ async def refresh_entity(session: AsyncSession, entity_id: uuid.UUID,
         except Exception as e:  # never let a refresh break the request path
             await session.rollback()
             logger.warning("freshness: %s refresh failed for %s: %s", dt, entity_id, e)
+
+    # New fundamentals mean the computed analytics (ratios, valuations, scores)
+    # are now stale — recompute this company's securities so the view reflects
+    # the fresh data. Recompute for one company is only a second or two.
+    if "xbrl" in refreshed:
+        try:
+            await _recompute_entity_analytics(session, entity_id)
+        except Exception as e:
+            await session.rollback()
+            logger.warning("freshness: analytics recompute failed for %s: %s", entity_id, e)
     return refreshed
+
+
+async def _recompute_entity_analytics(session: AsyncSession, entity_id: uuid.UUID) -> None:
+    """Recompute analytics for every security issued by this entity."""
+    from scripts.run_analytics_batch import recompute_security
+
+    rows = await session.execute(
+        text("SELECT security_id FROM securities WHERE issuer_entity_id = :e"),
+        {"e": entity_id},
+    )
+    for (security_id,) in rows.all():
+        await recompute_security(session, security_id)
 
 
 # Major US companies used to keep the global news feed fresh and recognizable.

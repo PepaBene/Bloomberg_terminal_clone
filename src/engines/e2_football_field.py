@@ -314,21 +314,38 @@ class FootballFieldEngine(BaseEngine):
 
     @staticmethod
     def _extract_grid_values(grid: dict) -> list[float]:
-        """Pull numeric values from a sensitivity grid (nested dict or list)."""
+        """Pull numeric implied-price values from a DCF sensitivity grid.
+
+        DCFEngine._build_sensitivity_grid stores the grid as::
+
+            {"wacc_values": [...], "growth_values": [...],
+             "implied_prices": [[float | None, ...], ...]}  # rows=wacc, cols=growth
+
+        i.e. ``implied_prices`` is a *nested* list whose cells are per-(WACC,
+        growth) implied prices (or ``None`` where growth >= WACC). The previous
+        implementation treated it as a flat list, so every element was a row
+        (a list) rather than a number and nothing was collected — silently
+        forcing the flat ±15% fallback. Recurse so both nested and flat shapes
+        (and legacy "values" grids) yield the real per-cell prices.
+        """
         values: list[float] = []
-        if "values" in grid and isinstance(grid["values"], list):
-            for row in grid["values"]:
-                if isinstance(row, list):
-                    for cell in row:
-                        if isinstance(cell, (int, float)) and cell > 0:
-                            values.append(float(cell))
-                elif isinstance(row, (int, float)) and row > 0:
-                    values.append(float(row))
-        # Also try flat "implied_prices" key
-        if "implied_prices" in grid and isinstance(grid["implied_prices"], list):
-            for v in grid["implied_prices"]:
-                if isinstance(v, (int, float)) and v > 0:
-                    values.append(float(v))
+
+        def _collect(container: Any) -> None:
+            if isinstance(container, list):
+                for item in container:
+                    _collect(item)
+            elif (
+                isinstance(container, (int, float))
+                and not isinstance(container, bool)
+                and container > 0
+            ):
+                values.append(float(container))
+
+        if isinstance(grid.get("implied_prices"), list):
+            _collect(grid["implied_prices"])
+        # Backwards-compat: some older grids stored a nested "values" list.
+        if not values and isinstance(grid.get("values"), list):
+            _collect(grid["values"])
         return values
 
     async def _load_comps(

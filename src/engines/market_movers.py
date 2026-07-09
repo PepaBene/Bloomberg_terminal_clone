@@ -8,6 +8,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# --- Data-quality sanity bounds ---------------------------------------------
+# Daily EOD close-to-close moves are computed from consecutive trading days.
+# Unadjusted split prices, feed glitches, and penny-stock ticks can produce
+# absurd percentages (e.g. +593%). These bounds exclude such artifacts so the
+# movers list reflects real market activity.
+#
+# MAX_DAILY_CHANGE_PCT: A single-session move of +/-50% comfortably captures
+#   every legitimate large mover (limit-up/down halts, earnings gaps, biotech
+#   binary events rarely exceed this on liquid names). Anything larger is far
+#   more likely to be a stock split not yet adjusted or a bad price pair.
+# MIN_PRIOR_PRICE: Sub-$1 prior prices are dominated by penny-stock tick noise
+#   where a one-cent move is a huge percentage; requiring >= $1 filters this
+#   out while keeping all normally-priced securities.
+# MIN_VOLUME: A modest volume floor drops securities with no real liquidity
+#   (stale/illiquid quotes). Kept conservative so genuine movers aren't lost;
+#   None volume is tolerated (not all feeds populate it).
+MAX_DAILY_CHANGE_PCT = 50.0
+MIN_PRIOR_PRICE = 1.0
+MIN_VOLUME = 1000.0
+
 
 @dataclass
 class MoverEntry:
@@ -24,6 +44,9 @@ class MoverEntry:
 def compute_daily_movers(
     securities: list[dict],
     top_n: int = 10,
+    max_change_pct: float = MAX_DAILY_CHANGE_PCT,
+    min_prior_price: float = MIN_PRIOR_PRICE,
+    min_volume: float = MIN_VOLUME,
 ) -> dict[str, list[MoverEntry]]:
     """Compute top gainers, losers, and most active from EOD data.
 
@@ -32,6 +55,14 @@ def compute_daily_movers(
     securities : list of dicts with keys:
         security_id, name, ticker, price, prior_price, volume
     top_n : Number of top entries per category.
+    max_change_pct : Exclude any security whose |change_pct| exceeds this
+        bound. Defaults to ``MAX_DAILY_CHANGE_PCT`` (50%) to drop data-quality
+        artifacts (unadjusted splits, bad price pairs).
+    min_prior_price : Minimum prior close required; drops penny-stock tick
+        noise. Defaults to ``MIN_PRIOR_PRICE`` ($1).
+    min_volume : Minimum volume required when volume is known; excludes
+        illiquid noise. ``None`` volume is tolerated. Defaults to
+        ``MIN_VOLUME``.
 
     Returns
     -------
@@ -41,10 +72,22 @@ def compute_daily_movers(
     for sec in securities:
         price = sec.get("price")
         prior = sec.get("prior_price")
+        volume = sec.get("volume")
+        # Guard against missing / non-positive / near-zero prior prices that
+        # make the percentage explode or be undefined.
         if price is None or prior is None or prior <= 0:
+            continue
+        if prior < min_prior_price:
+            continue
+        # Drop illiquid securities only when volume is actually reported.
+        if volume is not None and volume < min_volume:
             continue
 
         pct_change = (price - prior) / prior * 100
+
+        # Sanity bound: reject absurd single-day moves that indicate bad data.
+        if abs(pct_change) > max_change_pct:
+            continue
 
         entries.append({
             "security_id": str(sec.get("security_id", "")),

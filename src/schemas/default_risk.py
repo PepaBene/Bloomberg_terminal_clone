@@ -85,3 +85,37 @@ class CreditRiskAlertResponse(BaseModel):
     trend: str | None = None
     implied_rating: str | None = None
     credit_zone: str | None = None
+
+
+class MertonComputeRequest(BaseModel):
+    """Inputs for an on-demand Merton distance-to-default computation.
+
+    ``equity_value``, ``equity_volatility`` and ``total_debt`` may all be
+    omitted when ``entity_id`` is supplied — they are then auto-sourced from
+    real DB data (latest EOD close x shares_outstanding for market cap, and
+    annualized daily-log-return volatility over the trailing year).
+    """
+    equity_value: float | None = None  # market cap; auto-sourced from entity_id if omitted
+    equity_volatility: float | None = None  # annualized equity vol; auto-sourced if omitted
+    total_debt: float | None = None  # if omitted, resolved from entity_id
+    entity_id: uuid.UUID | None = None
+    risk_free_rate: float = 0.045
+    horizon: float = 1.0
+    # Optional extra drivers folded into the composite score
+    altman_z: float | None = None
+    leverage_ratio: float | None = None
+    interest_coverage: float | None = None
+    cash_ratio: float | None = None
+
+
+class MertonComputeResponse(BaseModel):
+    """Result of an on-demand Merton + composite credit-risk computation."""
+    entity_id: uuid.UUID | None = None
+    calculation_date: date
+    merton: MertonModelResponse
+    composite_score: float | None = None
+    implied_rating: str | None = None
+    credit_zone: str | None = None
+    key_drivers: list[KeyDriverResponse] = []
+    total_debt_used: float | None = None
+    risk_free_rate_used: float

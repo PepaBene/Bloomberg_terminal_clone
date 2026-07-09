@@ -25,7 +25,7 @@ from src.engines.e5_stress_scenarios import (
 )
 from src.models.analytics import AnalyticsResult
 from src.models.risk import FactorExposure, StressTestResult, VaRResult
-from src.models.security import EODPrice, Security
+from src.models.security import EODPrice, EquityDetails, Security
 
 logger = logging.getLogger(__name__)
 
@@ -453,17 +453,15 @@ class RiskEngine(BaseEngine):
                     inputs=[make_input(ar_metric, "AnalyticsResult", float(val))],
                 ))
 
-        # Size factor: log(market_cap) — need to compute from price × shares
+        # Size factor: log(market_cap) = log(price × shares_outstanding).
+        # Shares outstanding is read from EquityDetails (populated by the EDGAR
+        # DEI cover-page ingestion in `edgar_securities.py`), the real source —
+        # not the `shares_outstanding` AnalyticsResult row, which has no writer.
         if closes:
             last_price = closes[-1]
-            # Try to get shares outstanding from AnalyticsResult
             shares_result = await session.execute(
-                select(AnalyticsResult.value)
-                .where(
-                    AnalyticsResult.security_id == security_id,
-                    AnalyticsResult.metric_name == "shares_outstanding",
-                )
-                .order_by(desc(AnalyticsResult.as_of_date))
+                select(EquityDetails.shares_outstanding)
+                .where(EquityDetails.security_id == security_id)
                 .limit(1)
             )
             shares = shares_result.scalar_one_or_none()
@@ -475,6 +473,7 @@ class RiskEngine(BaseEngine):
                         security_id=security_id, entity_id=entity_id,
                         engine_id=self.engine_id, metric_name="factor_size",
                         metric_category="FACTOR", value=log_mcap, unit="RATIO",
+                        inputs=[make_input("shares_outstanding", "EquityDetails", float(shares))],
                     ))
 
         return outputs

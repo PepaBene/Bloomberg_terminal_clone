@@ -9,7 +9,8 @@
 	ingest-esg-controversies \
 	compute-debt-maturity compute-ownership-summary compute-esg-temperature \
 	compute-technicals \
-	backfill backfill-status backfill-reconcile backfill-loop backfill-refresh
+	backfill backfill-status backfill-reconcile backfill-loop backfill-refresh \
+	analytics analytics-status analytics-loop analytics-refresh
 
 up:
 	docker compose up -d
@@ -133,6 +134,19 @@ backfill-refresh:     ## One pass: fill gaps AND re-fetch companies stale >7 day
 
 backfill-loop:        ## Run continuously until every company is complete
 	python -m scripts.run_backfill_loop
+
+# --- Resumable analytics (see FRESHNESS.md) ---
+analytics-status:     ## Per-engine analytics coverage
+	python -m scripts.run_analytics_batch --status
+
+analytics:            ## One bounded analytics pass across all engines
+	python -m scripts.run_analytics_batch --engine all --max-minutes 12
+
+analytics-loop:       ## Run analytics continuously until every engine is complete
+	python -m scripts.run_analytics_loop
+
+analytics-refresh:    ## Recompute analytics for securities stale >7 days
+	python -m scripts.run_analytics_batch --engine all --refresh-days 7 --max-minutes 12
 
 test:
 	pytest -v

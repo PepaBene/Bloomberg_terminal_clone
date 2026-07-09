@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.analytics import (
     AnalyticsResult,
     CalculationLineage,
-    DuPontDecomposition,
     MultipleTimeSeries,
     WACCResult,
 )
@@ -102,19 +101,27 @@ async def seeded_analytics(session: AsyncSession):
             as_of_date=today,
         ))
 
-    # DuPont decomposition
-    session.add(DuPontDecomposition(
-        decomposition_id=uuid.uuid4(),
-        entity_id=entity.entity_id,
-        security_id=security.security_id,
-        period="TTM",
-        period_end_date=today,
-        model_type="THREE_FACTOR",
-        roe=0.18,
-        net_profit_margin=0.15,
-        asset_turnover=0.80,
-        equity_multiplier=1.50,
-    ))
+    # DuPont decomposition — written by the E1 engine as generic AnalyticsResult
+    # rows in the DUPONT category (the dedicated dupont_decompositions table is
+    # never populated by the batch pipeline).
+    for name, val in [
+        ("dupont_roe_3f", 0.18),
+        ("dupont_net_profit_margin", 0.15),
+        ("dupont_asset_turnover", 0.80),
+        ("dupont_equity_multiplier", 1.50),
+    ]:
+        session.add(AnalyticsResult(
+            result_id=uuid.uuid4(),
+            security_id=security.security_id,
+            entity_id=entity.entity_id,
+            engine_id="E1",
+            metric_name=name,
+            metric_category="DUPONT",
+            value=val,
+            period="TTM",
+            period_end_date=today,
+            as_of_date=today,
+        ))
 
     # WACC result
     session.add(WACCResult(

@@ -1,7 +1,7 @@
 """Pillar 2 FI Supplement — Part 7: Issuer FI Profile API endpoints."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -15,8 +15,10 @@ from src.engines.e14_issuer_profile import (
     compute_maturity_wall,
     compute_weighted_avg_cost_of_debt,
 )
-from src.models.corporate_bond import CorporateBond
+from src.models.corporate_bond import BondEODPrice, CorporateBond
+from src.models.credit_rating import CreditRatingEvent
 from src.models.entity import Entity
+from src.models.fundamentals import FinancialPeriod
 from src.schemas.fi_issuer_profile import (
     DebtStackItem,
     DebtStackResponse,
@@ -53,6 +55,86 @@ async def _get_bonds_for_entity(
     )
     result = await session.execute(query)
     return list(result.scalars().unique().all())
+
+
+async def _entity_current_spread_bps(
+    session: AsyncSession, bonds: list[CorporateBond]
+) -> float | None:
+    """Average of each bond's most recent G-spread across the issuer's bonds."""
+    spreads: list[float] = []
+    for bond in bonds:
+        query = (
+            select(BondEODPrice.g_spread_bps)
+            .where(
+                BondEODPrice.bond_id == bond.bond_id,
+                BondEODPrice.g_spread_bps.isnot(None),
+            )
+            .order_by(BondEODPrice.price_date.desc())
+            .limit(1)
+        )
+        latest = (await session.execute(query)).scalar_one_or_none()
+        if latest is not None:
+            spreads.append(float(latest))
+    if not spreads:
+        return None
+    return sum(spreads) / len(spreads)
+
+
+async def _entity_fcf_to_debt(
+    session: AsyncSession, entity_id: uuid.UUID
+) -> float | None:
+    """FCF / total debt from the issuer's latest ANNUAL financial period."""
+    query = (
+        select(FinancialPeriod)
+        .where(
+            FinancialPeriod.entity_id == entity_id,
+            FinancialPeriod.period_type == "ANNUAL",
+        )
+        .order_by(FinancialPeriod.period_end_date.desc())
+        .limit(4)
+    )
+    periods = (await session.execute(query)).scalars().all()
+    for period in periods:
+        bs = period.balance_sheet
+        cf = period.cash_flow
+        if bs is None or cf is None:
+            continue
+        total_debt = float(bs.total_debt) if bs.total_debt is not None else None
+        fcf = float(cf.free_cash_flow) if cf.free_cash_flow is not None else None
+        if total_debt and total_debt > 0 and fcf is not None:
+            return fcf / total_debt
+    return None
+
+
+async def _entity_credit_direction(
+    session: AsyncSession, entity_id: uuid.UUID, lookback_days: int = 730
+) -> float | None:
+    """Net rating change over the lookback, normalized to [-1, +1].
+
+    Positive = net upgrades (improving); saturates at +/-1 for >= 3 notches.
+    """
+    cutoff = date.today() - timedelta(days=lookback_days)
+    query = select(CreditRatingEvent).where(
+        CreditRatingEvent.entity_id == entity_id,
+        CreditRatingEvent.event_date >= cutoff,
+    )
+    events = (await session.execute(query)).scalars().all()
+    if not events:
+        return None
+
+    net_notches = 0.0
+    for e in events:
+        if e.new_rating_numeric is not None and e.old_rating_numeric is not None:
+            net_notches += e.old_rating_numeric - e.new_rating_numeric
+        elif e.notches_changed is not None and e.direction:
+            mag = abs(e.notches_changed)
+            direction = e.direction.upper()
+            if direction in ("UPGRADE", "POSITIVE", "RAISED"):
+                net_notches += mag
+            elif direction in ("DOWNGRADE", "NEGATIVE", "LOWERED"):
+                net_notches -= mag
+
+    return max(-1.0, min(1.0, net_notches / 3.0))
 
 
 def _bond_to_dict(bond: CorporateBond) -> dict:
@@ -103,12 +185,18 @@ async def get_issuer_fi_profile(
     mat_2y_amount = sum(item["amount_maturing"] for item in two_year_wall)
     mat_2y_pct = (mat_2y_amount / total_outstanding * 100.0) if total_outstanding > 0 else 0.0
 
-    # Simple refinancing risk assessment (without full E13 inputs)
+    # Refinancing-risk inputs derived from the issuer's real data. Maturity-wall
+    # concentration is fully real; spread, leverage (FCF/debt) and credit
+    # direction are pulled from real tables and only fall back to conservative
+    # constants when no source row exists for this issuer.
+    real_spread = await _entity_current_spread_bps(session, bonds)
+    real_fcf_to_debt = await _entity_fcf_to_debt(session, entity_id)
+    real_direction = await _entity_credit_direction(session, entity_id)
     refi_result = compute_refinancing_risk(
         maturity_wall_pct=mat_2y_pct,
-        current_spread_bps=200.0,  # default assumption
-        fcf_to_debt=0.10,          # default assumption
-        credit_direction=0.0,      # neutral
+        current_spread_bps=real_spread if real_spread is not None else 200.0,
+        fcf_to_debt=real_fcf_to_debt if real_fcf_to_debt is not None else 0.10,
+        credit_direction=real_direction if real_direction is not None else 0.0,
     )
 
     return IssuerFIProfileResponse(
@@ -219,11 +307,23 @@ async def get_debt_stack(
 async def get_refinancing_risk(
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    current_spread_bps: float = Query(200.0, description="Current credit spread in bps"),
-    fcf_to_debt: float = Query(0.10, description="FCF / total debt ratio"),
-    credit_direction: float = Query(0.0, ge=-1.0, le=1.0, description="Credit direction (-1 to +1)"),
+    current_spread_bps: float | None = Query(
+        None, description="Override credit spread in bps (defaults to issuer's real latest spread)"
+    ),
+    fcf_to_debt: float | None = Query(
+        None, description="Override FCF / total debt ratio (defaults to issuer's real ratio)"
+    ),
+    credit_direction: float | None = Query(
+        None, ge=-1.0, le=1.0, description="Override credit direction (defaults to real rating trend)"
+    ),
 ):
-    """Get refinancing risk score for an issuer."""
+    """Get refinancing risk score for an issuer.
+
+    All four inputs are derived from the issuer's real data by default:
+    maturity-wall concentration from the debt schedule, credit spread from bond
+    EOD prices, FCF/debt from the latest annual financials, and credit direction
+    from recent rating actions. Query params override any of these.
+    """
     await _get_entity(session, entity_id)
     bonds = await _get_bonds_for_entity(session, entity_id)
 
@@ -241,6 +341,17 @@ async def get_refinancing_risk(
     two_year_wall = compute_maturity_wall(bond_dicts, reference_date=today, years_forward=2)
     mat_2y_amount = sum(item["amount_maturing"] for item in two_year_wall)
     mat_2y_pct = (mat_2y_amount / total_outstanding * 100.0) if total_outstanding > 0 else 0.0
+
+    # Resolve each input: caller override -> real data -> conservative fallback.
+    if current_spread_bps is None:
+        real_spread = await _entity_current_spread_bps(session, bonds)
+        current_spread_bps = real_spread if real_spread is not None else 200.0
+    if fcf_to_debt is None:
+        real_fcf_to_debt = await _entity_fcf_to_debt(session, entity_id)
+        fcf_to_debt = real_fcf_to_debt if real_fcf_to_debt is not None else 0.10
+    if credit_direction is None:
+        real_direction = await _entity_credit_direction(session, entity_id)
+        credit_direction = real_direction if real_direction is not None else 0.0
 
     result = compute_refinancing_risk(
         maturity_wall_pct=mat_2y_pct,
