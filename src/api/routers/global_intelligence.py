@@ -8,8 +8,9 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines import commodity_intelligence
+from src.engines import commodity_intelligence, global_macro as global_macro_engine
 from src.models.entity import Entity
+from src.models.macro import MacroIndicator, MacroValue
 from src.models.country_risk import (
     CompanyCountryExposure,
     CountryProfile,
@@ -60,6 +61,83 @@ from src.schemas.political_intelligence import (
 )
 
 router = APIRouter(tags=["Global Intelligence"])
+
+
+async def _latest_macro(session: AsyncSession, code: str) -> MacroValue | None:
+    """Latest FRED observation for a series code."""
+    ind = (
+        await session.execute(select(MacroIndicator).where(MacroIndicator.indicator_code == code))
+    ).scalar_one_or_none()
+    if ind is None:
+        return None
+    return (
+        await session.execute(
+            select(MacroValue)
+            .where(MacroValue.indicator_id == ind.indicator_id)
+            .order_by(MacroValue.observation_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _ensure_us_macro_indicators(session: AsyncSession) -> bool:
+    """Populate US GlobalMacroIndicator rows for today from real FRED data
+    (macro_values), computing recession probability via the global_macro
+    engine. Returns True if any rows now exist. This is the producer the
+    /global/macro/* endpoints were missing — global_macro_indicators had no
+    writer, and the compute engines had no caller. US-only (FRED)."""
+    today = date.today()
+    have = (
+        await session.execute(
+            select(func.count()).select_from(GlobalMacroIndicator)
+            .where(GlobalMacroIndicator.country_code == "US",
+                   GlobalMacroIndicator.release_date == today)
+        )
+    ).scalar() or 0
+    if have:
+        return True
+
+    rows_written = 0
+
+    async def _put(indicator_type: str, value, prior=None, period="LATEST"):
+        nonlocal rows_written
+        if value is None:
+            return
+        session.add(GlobalMacroIndicator(
+            id=uuid.uuid4(), country_code="US", indicator_type=indicator_type,
+            period_label=period, value=value,
+            prior_value=prior, source="FRED", release_date=today,
+        ))
+        rows_written += 1
+
+    # Inflation (CPI YoY %).
+    cpi = await _latest_macro(session, "CPIAUCSL")
+    if cpi is not None and cpi.value_yoy_percent is not None:
+        await _put("CPI", float(cpi.value_yoy_percent))
+
+    # Real GDP growth (annualized QoQ, fall back to YoY).
+    gdp = await _latest_macro(session, "GDPC1")
+    if gdp is not None:
+        g = gdp.value_qoq_annualized if gdp.value_qoq_annualized is not None else gdp.value_yoy_percent
+        if g is not None:
+            await _put("GDP_GROWTH", float(g))
+
+    # Recession probability via the engine (yield-curve spread + unemployment).
+    t10y2y = await _latest_macro(session, "T10Y2Y")
+    unrate = await _latest_macro(session, "UNRATE")
+    if t10y2y is not None and t10y2y.value is not None:
+        unemp_change = float(unrate.value_yoy) if unrate is not None and unrate.value_yoy is not None else None
+        rec = global_macro_engine.compute_recession_probability(
+            yield_curve_spread=float(t10y2y.value),
+            pmi=50.0,  # No PMI series in the FRED seed set — neutral placeholder.
+            credit_spreads_bps=400.0,
+            unemployment_change=unemp_change,
+        )
+        await _put("RECESSION_PROB", round(rec.probability, 2))
+
+    if rows_written:
+        await session.commit()
+    return rows_written > 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -440,6 +518,7 @@ async def get_macro_dashboard(
     session: AsyncSession = Depends(get_session),
 ):
     """G20 macro overview dashboard — latest indicator per country."""
+    await _ensure_us_macro_indicators(session)
     # Get the latest indicator per country
     latest_sub = (
         select(
@@ -510,6 +589,7 @@ async def get_inflation_comparison(
     session: AsyncSession = Depends(get_session),
 ):
     """Global inflation comparison across countries."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "CPI")
@@ -541,6 +621,7 @@ async def get_growth_ranking(
     session: AsyncSession = Depends(get_session),
 ):
     """Global growth ranking by country (GDP growth)."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "GDP_GROWTH")
@@ -579,6 +660,7 @@ async def get_recession_probability(
     session: AsyncSession = Depends(get_session),
 ):
     """Recession probability indicators by country."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "RECESSION_PROB")
