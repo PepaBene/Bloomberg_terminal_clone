@@ -265,3 +265,65 @@ async def test_rankings_different_metrics(client: AsyncClient, session: AsyncSes
         assert resp.status_code == 200
         data = resp.json()
         assert data["metric"] == metric
+
+
+# ── Computed-from-fundamentals tests (on-demand producer) ────────────
+
+
+async def _seed_gics_companies(session: AsyncSession, gics="45102010", n=4):
+    from src.models.entity import Entity
+    from src.models.fundamentals import (
+        BalanceSheet, CashFlowStatement, FinancialPeriod, IncomeStatement,
+    )
+    for i in range(n):
+        e = Entity(
+            entity_id=uuid.uuid4(), entity_type="PUBLIC_COMPANY",
+            legal_name=f"GICS Co {i}", status="ACTIVE", source="TEST",
+            gics_sub_industry=gics, gics_industry=gics[:6],
+            gics_industry_group=gics[:4], gics_sector=gics[:2],
+        )
+        session.add(e)
+        await session.flush()
+        for year, rev in [(2022, 100e6 * (i + 1)), (2023, 120e6 * (i + 1)), (2024, 150e6 * (i + 1))]:
+            fp = FinancialPeriod(
+                period_id=uuid.uuid4(), entity_id=e.entity_id,
+                period_end_date=date(year, 12, 31), period_type="ANNUAL", fiscal_year=year,
+            )
+            session.add(fp)
+            await session.flush()
+            session.add(IncomeStatement(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                total_revenue=rev, cost_of_revenue=rev * 0.55, gross_profit=rev * 0.45,
+                operating_income=rev * 0.2, net_income=rev * 0.14, ebitda=rev * 0.28,
+            ))
+            session.add(BalanceSheet(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                total_assets=rev * 1.5, total_debt=rev * 0.3, cash_and_equivalents=rev * 0.1,
+                total_equity=rev * 0.9,
+            ))
+            session.add(CashFlowStatement(
+                statement_id=uuid.uuid4(), period_id=fp.period_id,
+                capital_expenditures=-rev * 0.06, free_cash_flow=rev * 0.15,
+            ))
+            await session.flush()
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_industry_overview_computed(client: AsyncClient, session: AsyncSession):
+    """GET /v3/industry/{gics}/overview computes a profile on-demand from the
+    GICS member companies' fundamentals (was 404 forever, no writer)."""
+    await _seed_gics_companies(session, gics="45102010", n=4)
+    resp = await client.get("/v3/industry/45102010/overview")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["company_count"] == 4
+    assert data["median_operating_margin"] is not None
+
+    # Structure + cycle now compute too.
+    struct = await client.get("/v3/industry/45102010/structure")
+    assert struct.status_code == 200
+    assert struct.json()["hhi_index"] is not None
+    cycle = await client.get("/v3/industry/45102010/cycle")
+    assert cycle.status_code == 200
+    assert cycle.json()["cycle_position"] is not None

@@ -1,18 +1,24 @@
 """Industry Intelligence API endpoints (Pillar 3 Phase 3A)."""
 
+import statistics
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import industry_cycle, industry_economics
+from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
+from src.models.fundamentals import BalanceSheet, FinancialPeriod, IncomeStatement
 from src.models.industry_intelligence import (
     IndustryCompetitiveStructure,
     IndustryCyclePosition,
     IndustryProfile,
 )
+from src.models.security import EODPrice, EquityDetails, Security
 from src.schemas.industry_intelligence import (
     IndustryCompareResponse,
     IndustryCycleResponse,
@@ -23,6 +29,203 @@ from src.schemas.industry_intelligence import (
 )
 
 router = APIRouter(tags=["Industry Intelligence"])
+
+_GICS_COL_BY_LEN = {2: "gics_sector", 4: "gics_industry_group", 6: "gics_industry", 8: "gics_sub_industry"}
+_GICS_LEVEL_BY_LEN = {2: "SECTOR", 4: "INDUSTRY_GROUP", 6: "INDUSTRY", 8: "SUB_INDUSTRY"}
+
+
+def _gics_filter(gics_code: str):
+    col = _GICS_COL_BY_LEN.get(len(gics_code))
+    if col is None:
+        return (Entity.gics_industry == gics_code) | (Entity.gics_sub_industry == gics_code)
+    return getattr(Entity, col) == gics_code
+
+
+async def _compute_industry_intelligence(session: AsyncSession, gics_code: str) -> bool:
+    """Compute and persist the three industry tables (profile / competitive
+    structure / cycle position) for a GICS code by aggregating its member
+    companies' real fundamentals + analytics. Returns False when the GICS
+    has no companies with fundamentals to aggregate.
+
+    This is the missing producer for `industry_profiles` /
+    `industry_competitive_structures` / `industry_cycle_positions` — the
+    engines (`industry_economics`, `industry_cycle`) existed but had no caller.
+    """
+    entities = (
+        await session.execute(
+            select(Entity.entity_id).where(_gics_filter(gics_code), Entity.status != "INACTIVE").limit(500)
+        )
+    ).scalars().all()
+    if not entities:
+        return False
+
+    company_data: list[dict] = []
+    company_revenues: list[dict] = []
+    market_caps: list[float] = []
+    capex_ratios: list[float] = []
+    rd_ratios: list[float] = []
+
+    for eid in entities:
+        periods = (
+            await session.execute(
+                select(FinancialPeriod)
+                .where(FinancialPeriod.entity_id == eid)
+                .order_by(FinancialPeriod.period_end_date.asc())
+                .limit(8)
+            )
+        ).scalars().all()
+        if not periods:
+            continue
+
+        rev_hist, latest = [], periods[-1]
+        for p in periods:
+            if p.income_statement and p.income_statement.total_revenue is not None:
+                rev_hist.append(float(p.income_statement.total_revenue))
+        inc = latest.income_statement
+        if not inc or inc.total_revenue is None or float(inc.total_revenue) <= 0:
+            continue
+        rev = float(inc.total_revenue)
+
+        gm = round(float(inc.gross_profit) / rev * 100, 2) if inc.gross_profit is not None else None
+        om = round(float(inc.operating_income) / rev * 100, 2) if inc.operating_income is not None else None
+        capex_to_rev = None
+        if latest.cash_flow and latest.cash_flow.capital_expenditures is not None:
+            capex_to_rev = round(abs(float(latest.cash_flow.capital_expenditures)) / rev * 100, 2)
+        rd_to_rev = None
+
+        # roic / wacc from analytics.
+        met = {}
+        for name, val in (
+            await session.execute(
+                select(AnalyticsResult.metric_name, AnalyticsResult.value)
+                .where(AnalyticsResult.entity_id == eid,
+                       AnalyticsResult.metric_name.in_(["roic", "wacc"]))
+                .order_by(AnalyticsResult.as_of_date.desc())
+            )
+        ).all():
+            if val is not None and name not in met:
+                met[name] = float(val)
+
+        company_data.append({
+            "revenue_history": rev_hist,
+            "gross_margin": gm,
+            "operating_margin": om,
+            "capex_to_revenue": capex_to_rev,
+            "rd_to_revenue": rd_to_rev,
+            "roic": met.get("roic"),
+            "wacc": met.get("wacc"),
+        })
+        company_revenues.append({"entity_id": str(eid), "revenue": rev})
+        if capex_to_rev is not None:
+            capex_ratios.append(capex_to_rev)
+
+        # Market cap.
+        sec = (
+            await session.execute(
+                select(Security.security_id)
+                .where(Security.issuer_entity_id == eid, Security.asset_class == "EQUITY").limit(1)
+            )
+        ).scalar_one_or_none()
+        if sec is not None:
+            shares = (await session.execute(
+                select(EquityDetails.shares_outstanding).where(EquityDetails.security_id == sec)
+            )).scalar_one_or_none()
+            close = (await session.execute(
+                select(EODPrice.close).where(EODPrice.security_id == sec, EODPrice.close.isnot(None))
+                .order_by(EODPrice.price_date.desc()).limit(1)
+            )).scalar_one_or_none()
+            if shares is not None and close is not None:
+                market_caps.append(float(shares) * float(close))
+
+    if not company_data:
+        return False
+
+    today = date.today()
+    gics_level = _GICS_LEVEL_BY_LEN.get(len(gics_code), "INDUSTRY")
+
+    # ── Profile ───────────────────────────────────────────────────────
+    econ = industry_economics.compute_industry_economics(company_data)
+    total_mcap = sum(market_caps) if market_caps else None
+    median_mcap = statistics.median(market_caps) if market_caps else None
+    await _upsert_industry(session, IndustryProfile, gics_code, today, dict(
+        gics_level=gics_level, gics_name=gics_code,
+        company_count=len(company_data),
+        total_market_cap=total_mcap, median_market_cap=median_mcap,
+        revenue_growth_3y_cagr=econ.revenue_growth_3y_cagr,
+        revenue_growth_5y_cagr=econ.revenue_growth_5y_cagr,
+        revenue_dispersion=econ.revenue_dispersion,
+        median_gross_margin=econ.median_gross_margin,
+        median_operating_margin=econ.median_operating_margin,
+        median_capex_to_revenue=econ.median_capex_to_revenue,
+        median_rd_to_revenue=econ.median_rd_to_revenue,
+        median_roic=econ.median_roic, median_wacc=econ.median_wacc,
+        roic_wacc_spread=econ.roic_wacc_spread, roic_dispersion=econ.roic_dispersion,
+        capital_cycle_indicator=econ.capital_cycle_indicator,
+    ), profile=True)
+
+    # ── Competitive structure ─────────────────────────────────────────
+    gm_hist = [c["gross_margin"] for c in company_data if c.get("gross_margin") is not None]
+    struct = industry_cycle.compute_competitive_structure(
+        company_revenues,
+        gross_margin_history=gm_hist,
+        capex_intensity=(statistics.mean(capex_ratios) if capex_ratios else 0.0),
+        rd_intensity=0.0,
+    )
+    await _upsert_industry(session, IndustryCompetitiveStructure, gics_code, today, dict(
+        hhi_index=struct.hhi_index, hhi_classification=struct.hhi_classification,
+        top3_market_share=struct.top3_market_share, top5_market_share=struct.top5_market_share,
+        top10_market_share=struct.top10_market_share, consolidation_trend=struct.consolidation_trend,
+        barrier_to_entry=struct.barrier_to_entry, pricing_power=struct.pricing_power,
+        competitive_dynamics=struct.competitive_dynamics,
+        market_share_data={"companies": company_revenues},
+    ))
+
+    # ── Cycle position (industry-aggregate per-fiscal-year series) ─────
+    agg = (
+        await session.execute(
+            select(
+                FinancialPeriod.fiscal_year,
+                func.sum(IncomeStatement.total_revenue),
+                func.sum(IncomeStatement.operating_income),
+            )
+            .join(IncomeStatement, IncomeStatement.period_id == FinancialPeriod.period_id)
+            .where(FinancialPeriod.entity_id.in_(entities))
+            .group_by(FinancialPeriod.fiscal_year)
+            .order_by(FinancialPeriod.fiscal_year.asc())
+        )
+    ).all()
+    rev_series = [float(r) for _yr, r, _oi in agg if r is not None]
+    margin_series = [
+        round(float(oi) / float(r) * 100, 2)
+        for _yr, r, oi in agg if r and oi is not None
+    ]
+    cycle = industry_cycle.compute_cycle_position(
+        revenue_history=rev_series or None,
+        margin_history=margin_series or None,
+    )
+    await _upsert_industry(session, IndustryCyclePosition, gics_code, today, dict(
+        revenue_growth_acceleration=cycle.revenue_growth_acceleration,
+        capacity_utilization_proxy=cycle.capacity_utilization_proxy,
+        inventory_dynamics=cycle.inventory_dynamics,
+        margin_cycle_direction=cycle.margin_cycle_direction,
+        cycle_position=cycle.cycle_position, cycle_confidence=cycle.confidence,
+    ))
+
+    await session.commit()
+    return True
+
+
+async def _upsert_industry(session, model, gics_code, as_of, values: dict, profile: bool = False) -> None:
+    existing = (
+        await session.execute(
+            select(model).where(model.gics_code == gics_code, model.as_of_date == as_of)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        for k, v in values.items():
+            setattr(existing, k, v)
+    else:
+        session.add(model(id=uuid.uuid4(), gics_code=gics_code, as_of_date=as_of, **values))
 
 
 # ── Static routes (MUST come before parametric routes) ──────────────
@@ -148,13 +351,14 @@ async def get_industry_overview(
     session: AsyncSession = Depends(get_session),
 ):
     """Full industry profile for a given GICS code."""
-    result = await session.execute(
-        select(IndustryProfile)
-        .where(IndustryProfile.gics_code == gics_code)
-        .order_by(IndustryProfile.as_of_date.desc())
-        .limit(1)
-    )
-    row = result.scalar_one_or_none()
+    async def _q():
+        return (await session.execute(
+            select(IndustryProfile).where(IndustryProfile.gics_code == gics_code)
+            .order_by(IndustryProfile.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+    row = await _q()
+    if not row and await _compute_industry_intelligence(session, gics_code):
+        row = await _q()
     if not row:
         raise HTTPException(status_code=404, detail="Industry profile not found")
 
@@ -256,13 +460,14 @@ async def get_industry_economics(
     session: AsyncSession = Depends(get_session),
 ):
     """Revenue, cost, and return profile for an industry."""
-    result = await session.execute(
-        select(IndustryProfile)
-        .where(IndustryProfile.gics_code == gics_code)
-        .order_by(IndustryProfile.as_of_date.desc())
-        .limit(1)
-    )
-    row = result.scalar_one_or_none()
+    async def _q():
+        return (await session.execute(
+            select(IndustryProfile).where(IndustryProfile.gics_code == gics_code)
+            .order_by(IndustryProfile.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+    row = await _q()
+    if not row and await _compute_industry_intelligence(session, gics_code):
+        row = await _q()
     if not row:
         raise HTTPException(status_code=404, detail="Industry profile not found")
 
@@ -290,13 +495,14 @@ async def get_industry_structure(
     session: AsyncSession = Depends(get_session),
 ):
     """Concentration, barriers, and competitive dynamics for an industry."""
-    result = await session.execute(
-        select(IndustryCompetitiveStructure)
-        .where(IndustryCompetitiveStructure.gics_code == gics_code)
-        .order_by(IndustryCompetitiveStructure.as_of_date.desc())
-        .limit(1)
-    )
-    row = result.scalar_one_or_none()
+    async def _q():
+        return (await session.execute(
+            select(IndustryCompetitiveStructure).where(IndustryCompetitiveStructure.gics_code == gics_code)
+            .order_by(IndustryCompetitiveStructure.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+    row = await _q()
+    if not row and await _compute_industry_intelligence(session, gics_code):
+        row = await _q()
     if not row:
         raise HTTPException(status_code=404, detail="Industry structure not found")
 
@@ -329,13 +535,14 @@ async def get_industry_cycle(
     session: AsyncSession = Depends(get_session),
 ):
     """Cycle positioning for an industry."""
-    result = await session.execute(
-        select(IndustryCyclePosition)
-        .where(IndustryCyclePosition.gics_code == gics_code)
-        .order_by(IndustryCyclePosition.as_of_date.desc())
-        .limit(1)
-    )
-    row = result.scalar_one_or_none()
+    async def _q():
+        return (await session.execute(
+            select(IndustryCyclePosition).where(IndustryCyclePosition.gics_code == gics_code)
+            .order_by(IndustryCyclePosition.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+    row = await _q()
+    if not row and await _compute_industry_intelligence(session, gics_code):
+        row = await _q()
     if not row:
         raise HTTPException(status_code=404, detail="Industry cycle position not found")
 
