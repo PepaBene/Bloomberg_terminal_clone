@@ -1,12 +1,21 @@
 """Company Intelligence P2 API endpoints (Pillar 3 Phase 2)."""
 
 import uuid
+from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import (
+    balance_sheet_risk_engine,
+    business_model_engine,
+    capital_allocation_engine,
+    management_quality_engine,
+)
+from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
 from src.models.company_intelligence import (
     BalanceSheetRiskAssessment,
@@ -14,6 +23,7 @@ from src.models.company_intelligence import (
     CapitalAllocationAssessment,
     ManagementQualityAssessment,
 )
+from src.models.fundamentals import FinancialPeriod, SegmentData  # noqa: F401 — relationships load statements
 from src.schemas.company_intelligence_p2 import (
     BalanceSheetRiskResponse,
     BusinessModelResponse,
@@ -35,6 +45,239 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     return entity
 
 
+def _f(v):
+    return float(v) if v is not None else None
+
+
+async def _assemble_fundamentals(session: AsyncSession, entity_id: uuid.UUID) -> dict | None:
+    """Assemble the financials/history/analytics inputs the four deep-
+    intelligence engines consume, from real Pillar 1/2 data. Returns None
+    when the entity has no fundamentals to analyze.
+
+    The engines read their inputs via ``.get(...)`` and default gracefully,
+    so fields with no ingested source (e.g. recurring_revenue_pct,
+    guidance history, insider ownership) are simply omitted rather than
+    fabricated.
+    """
+    periods = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity_id)
+            .order_by(FinancialPeriod.period_end_date.asc())
+            .limit(8)
+        )
+    ).scalars().all()
+    if not periods:
+        return None
+
+    def _period_dict(p) -> dict:
+        inc, bs, cf = p.income_statement, p.balance_sheet, p.cash_flow
+        rev = float(inc.total_revenue) if inc and inc.total_revenue is not None else None
+        d: dict = {"period_end_date": p.period_end_date.isoformat()}
+        if inc:
+            d["revenue"] = rev
+            d["cogs"] = _f(inc.cost_of_revenue)
+            d["operating_income"] = _f(inc.operating_income)
+            d["net_income"] = _f(inc.net_income)
+            d["ebitda"] = _f(inc.ebitda)
+            d["sga"] = _f(inc.selling_general_admin)
+            d["depreciation"] = _f(inc.depreciation_amortization)
+            d["interest_expense"] = _f(inc.interest_expense)
+            d["eps"] = _f(inc.diluted_eps)
+            d["shares"] = _f(inc.diluted_shares_outstanding)
+            if rev and inc.gross_profit is not None:
+                d["gross_margin"] = round(float(inc.gross_profit) / rev * 100, 2)
+        if bs:
+            d["total_debt"] = _f(bs.total_debt)
+            d["cash"] = _f(bs.cash_and_equivalents)
+            d["total_assets"] = _f(bs.total_assets)
+            d["total_equity"] = _f(bs.total_equity)
+            d["receivables"] = _f(bs.accounts_receivable)
+            d["inventory"] = _f(bs.inventory)
+            d["payables"] = _f(bs.accounts_payable)
+            d["total_current_assets"] = _f(bs.total_current_assets)
+            d["total_current_liabilities"] = _f(bs.total_current_liabilities)
+        if cf:
+            d["capex"] = abs(float(cf.capital_expenditures)) if cf.capital_expenditures is not None else None
+            d["fcf"] = _f(cf.free_cash_flow)
+            d["dividends_paid"] = _f(cf.dividends_paid)
+        # Derived leverage figures the balance-sheet engine reads per period.
+        if d.get("total_debt") is not None and d.get("ebitda"):
+            d["net_debt_ebitda"] = round((d["total_debt"] - (d.get("cash") or 0.0)) / d["ebitda"], 4)
+        if d.get("operating_income") is not None and d.get("interest_expense"):
+            d["interest_coverage"] = round(d["operating_income"] / abs(d["interest_expense"]), 4)
+        return d
+
+    history = [_period_dict(p) for p in periods]
+    financials = dict(history[-1])  # latest period is the "current" snapshot
+
+    # ROIC / WACC from batch analytics (latest values).
+    metrics = {}
+    rows = (
+        await session.execute(
+            select(AnalyticsResult.metric_name, AnalyticsResult.value, AnalyticsResult.as_of_date)
+            .where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_name.in_(
+                    ["roic", "wacc", "beneish_m_score", "altman_z_score"]
+                ),
+            )
+            .order_by(AnalyticsResult.as_of_date.desc())
+        )
+    ).all()
+    for name, value, _asof in rows:
+        if value is not None and name not in metrics:
+            metrics[name] = float(value)
+    if "roic" in metrics:
+        financials["roic"] = metrics["roic"]
+    if "beneish_m_score" in metrics:
+        financials["beneish_m_score"] = metrics["beneish_m_score"]
+    if "altman_z_score" in metrics:
+        financials["z_score"] = metrics["altman_z_score"]
+
+    # Derived history series the engines look for.
+    gross_margin_history = [h["gross_margin"] for h in history if h.get("gross_margin") is not None]
+    margin_history = [
+        round(h["operating_income"] / h["revenue"] * 100, 2)
+        for h in history
+        if h.get("operating_income") is not None and h.get("revenue")
+    ]
+    revenue_history = [h["revenue"] for h in history if h.get("revenue") is not None]
+    financials["gross_margin_history"] = gross_margin_history
+    financials["revenue_history"] = revenue_history
+    financials["roic_history"] = [metrics["roic"]] if "roic" in metrics else []
+
+    # Segment counts / decomposition (business model inputs).
+    seg_rows = (
+        await session.execute(
+            select(SegmentData.segment_name, SegmentData.segment_type, SegmentData.revenue)
+            .where(SegmentData.entity_id == entity_id)
+            .limit(100)
+        )
+    ).all()
+    product_segments = [(n, r) for n, t, r in seg_rows if t == "BUSINESS"]
+    geo_segments = [(n, r) for n, t, r in seg_rows if t == "GEOGRAPHIC"]
+    financials["product_segment_count"] = len({n for n, _ in product_segments})
+    financials["geo_segment_count"] = len({n for n, _ in geo_segments})
+    financials["segments"] = [
+        {"name": n, "revenue": float(r) if r is not None else None} for n, r in product_segments
+    ]
+
+    return {
+        "financials": financials,
+        "history": history,
+        "gross_margin_history": gross_margin_history,
+        "margin_history": margin_history,
+        "roic": metrics.get("roic"),
+        "wacc": metrics.get("wacc"),
+    }
+
+
+async def _compute_and_persist_intelligence(session: AsyncSession, entity_id: uuid.UUID) -> bool:
+    """Compute all four deep-intelligence assessments from real data and
+    upsert today's rows. Returns False when there's no fundamentals to
+    analyze (nothing persisted). This is the missing producer for the four
+    company_intelligence tables — the engines existed but had no caller."""
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        return False
+
+    financials = assembled["financials"]
+    history = assembled["history"]
+    today = date.today()
+
+    # ── Business model ────────────────────────────────────────────────
+    bm = business_model_engine.analyze_business_model(financials, history)
+    ue = asdict(bm.unit_economics)
+    await _upsert(session, BusinessModelAnalysis, entity_id, today, dict(
+        recurring_pct=bm.revenue_quality.recurring_pct,
+        deferred_revenue_trend=bm.revenue_quality.deferred_revenue_trend,
+        customer_concentration=bm.revenue_quality.customer_concentration,
+        diversification_score=bm.revenue_quality.diversification_score,
+        cyclicality_score=bm.revenue_quality.cyclicality_score,
+        revenue_per_employee=bm.unit_economics.revenue_per_employee,
+        unit_economics=ue,
+        operating_leverage=bm.scaling.operating_leverage,
+        incremental_margin=bm.scaling.incremental_margin,
+        sga_scalability=bm.scaling.sga_scalability,
+        switching_cost_score=bm.durability.switching_cost_score,
+        moat_type=bm.durability.moat_type,
+        disruption_vulnerability=bm.durability.disruption_vulnerability,
+        revenue_decomposition={"segments": financials.get("segments", [])},
+        ai_enabled=False,
+    ))
+
+    # ── Capital allocation ────────────────────────────────────────────
+    ca = capital_allocation_engine.analyze_capital_allocation(financials)
+    spread = None
+    if assembled["roic"] is not None and assembled["wacc"] is not None:
+        spread = round(assembled["roic"] - assembled["wacc"], 4)
+    await _upsert(session, CapitalAllocationAssessment, entity_id, today, dict(
+        ebitda_to_fcf_conversion=ca.fcf_conversion.ebitda_to_fcf_ratio,
+        maintenance_capex_pct=ca.capex.maintenance_capex_revenue_pct,
+        growth_capex_pct=ca.capex.growth_capex_revenue_pct,
+        working_capital_discipline=asdict(ca.working_capital),
+        roic_vs_wacc_spread=spread,
+        ma_discipline=asdict(ca.ma_discipline),
+        buyback_effectiveness=asdict(ca.buybacks),
+        dividend_sustainability=asdict(ca.dividends),
+        overall_score=ca.overall_score,
+        ai_enabled=False,
+    ))
+
+    # ── Balance sheet risk ────────────────────────────────────────────
+    bsr = balance_sheet_risk_engine.assess_balance_sheet_risk(financials, history)
+    await _upsert(session, BalanceSheetRiskAssessment, entity_id, today, dict(
+        net_debt_ebitda=bsr.leverage.net_debt_ebitda,
+        net_debt_ebitda_trend=bsr.leverage.net_debt_ebitda_trend,
+        interest_coverage=bsr.leverage.interest_coverage,
+        interest_coverage_trend=bsr.leverage.interest_coverage_trend,
+        liquidity_ratio=bsr.liquidity.liquidity_ratio,
+        cash_burn_rate=bsr.liquidity.cash_burn_rate,
+        refinancing_risk_score=bsr.refinancing_risk.score,
+        maturity_24mo_pct=bsr.refinancing_risk.maturity_24mo_pct,
+        coverage_trend=bsr.refinancing_risk.coverage_trend,
+        z_score=bsr.refinancing_risk.z_score,
+        covenant_analysis=bsr.refinancing_risk.components,
+        fi_profile=asdict(bsr.fi_profile) if bsr.fi_profile else None,
+        ai_enabled=False,
+    ))
+
+    # ── Management quality ────────────────────────────────────────────
+    mq = management_quality_engine.assess_management_quality(
+        financials, margin_history=assembled["margin_history"]
+    )
+    await _upsert(session, ManagementQualityAssessment, entity_id, today, dict(
+        guidance_accuracy_score=mq.execution.guidance_accuracy_score,
+        strategic_consistency_score=mq.execution.strategic_consistency_score,
+        margin_stability_score=mq.execution.margin_stability_score,
+        wc_management_score=mq.execution.wc_management_score,
+        execution_score=mq.execution.composite_execution_score,
+        compensation_alignment=asdict(mq.compensation) if mq.compensation else None,
+        governance_score=mq.governance_score,
+        overall_quality_score=mq.overall_quality_score,
+        red_flags={"flags": [asdict(f) for f in mq.accounting_flags] + list(mq.red_flags or [])},
+        ai_enabled=False,
+    ))
+
+    await session.commit()
+    return True
+
+
+async def _upsert(session, model, entity_id, as_of, values: dict) -> None:
+    """Upsert a per-entity/per-day assessment row."""
+    existing = (
+        await session.execute(
+            select(model).where(model.entity_id == entity_id, model.as_of_date == as_of)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        for k, v in values.items():
+            setattr(existing, k, v)
+    else:
+        session.add(model(id=uuid.uuid4(), entity_id=entity_id, as_of_date=as_of, **values))
+
+
 # ── Full Intelligence Report ──────────────────────────────────────────
 
 
@@ -46,7 +289,12 @@ async def get_company_intelligence(
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get full company intelligence report."""
+    """Get full company intelligence report.
+
+    Computes the four deep-intelligence assessments on-demand from real
+    Pillar 1/2 data when none exist yet, then persists and returns them —
+    the tables previously had no producer, so this always returned all-null.
+    """
     await _get_entity(session, entity_id)
 
     # Fetch latest from each sub-assessment
@@ -57,6 +305,17 @@ async def get_company_intelligence(
         .limit(1)
     )
     bma = bma_result.scalar_one_or_none()
+
+    if bma is None:
+        # No assessment yet — compute from real fundamentals on-demand.
+        if await _compute_and_persist_intelligence(session, entity_id):
+            bma_result = await session.execute(
+                select(BusinessModelAnalysis)
+                .where(BusinessModelAnalysis.entity_id == entity_id)
+                .order_by(BusinessModelAnalysis.as_of_date.desc())
+                .limit(1)
+            )
+            bma = bma_result.scalar_one_or_none()
 
     caa_result = await session.execute(
         select(CapitalAllocationAssessment)
@@ -129,6 +388,26 @@ async def get_company_intelligence_summary(
 ):
     """Get AI-generated intelligence summary for a company."""
     # Delegates to the full report (same data, frontend consumes ai_summary)
+    return await get_company_intelligence(entity_id, session)
+
+
+@router.post(
+    "/company/{entity_id}/intelligence/refresh",
+    response_model=CompanyIntelligenceResponse,
+)
+async def refresh_company_intelligence(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Force-recompute all four deep-intelligence assessments from the latest
+    fundamentals and return the refreshed report."""
+    await _get_entity(session, entity_id)
+    computed = await _compute_and_persist_intelligence(session, entity_id)
+    if not computed:
+        raise HTTPException(
+            status_code=422,
+            detail="No fundamentals available to compute company intelligence for this entity",
+        )
     return await get_company_intelligence(entity_id, session)
 
 
