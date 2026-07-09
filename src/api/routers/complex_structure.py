@@ -76,9 +76,11 @@ async def analyze_entity_structure(
                     if t.principal_amount is not None
                     else 0.0,
                     "seniority_rank": t.seniority_rank,
-                    "is_secured": (t.instrument_type or "").upper().startswith("SECURED")
-                    if t.instrument_type
-                    else False,
+                    # Real values are "SENIOR_SECURED" / "SENIOR_UNSECURED" /
+                    # "SUBORDINATED" / "JUNIOR_SUBORDINATED" on seniority_type
+                    # (src/enums.py) — instrument_type never starts with
+                    # "SECURED", so this was always 0.0/False for every entity.
+                    "is_secured": (t.seniority_type or "").upper() == "SENIOR_SECURED",
                 }
             )
 
