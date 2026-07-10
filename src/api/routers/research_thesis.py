@@ -80,6 +80,149 @@ def _compute_quality_metrics(body: ThesisCreateRequest) -> dict:
     }
 
 
+def _parse_driver_items(key_drivers: dict | None) -> list[dict]:
+    if not isinstance(key_drivers, dict):
+        return []
+    items = key_drivers.get("items")
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("driver")]
+
+
+def _parse_risk_items(primary_risks: dict | None) -> list[dict]:
+    if not isinstance(primary_risks, dict):
+        return []
+    items = primary_risks.get("items")
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("risk")]
+
+
+def _parse_catalyst_items(catalysts: dict | None) -> list[dict]:
+    if not isinstance(catalysts, dict):
+        return []
+    items = catalysts.get("items")
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("description")]
+
+
+def _parse_valuation(valuation_scenarios: dict | None) -> dict | None:
+    """Only returns a value when current_price + all three scenarios' numeric
+    fields are present and parse as floats -- partial valuation data isn't
+    enough to render an honest slide."""
+    if not isinstance(valuation_scenarios, dict):
+        return None
+    try:
+        current_price = float(valuation_scenarios["current_price"])
+        scenarios = {}
+        for key in ("bull", "base", "bear"):
+            s = valuation_scenarios[key]
+            scenarios[key] = {
+                "target_price": float(s["target_price"]),
+                "implied_return": float(s["implied_return"]),
+            }
+        return {"current_price": current_price, **scenarios}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _build_slide_outline(
+    thesis_title: str | None,
+    conviction_level: str | None,
+    investment_horizon: str | None,
+    elevator_pitch: str | None,
+    key_drivers: dict | None,
+    primary_risks: dict | None,
+    valuation_scenarios: dict | None,
+    catalysts: dict | None,
+) -> list[dict] | None:
+    """Best-effort slide outline built from analyst-authored, unconstrained
+    JSON fields.
+
+    ``investment_thesis_engine.generate_slide_outline()`` expects a rigidly
+    -typed dataclass (numeric bull/base/bear price targets, structured
+    driver/risk/catalyst objects), but ``InvestmentThesis.key_drivers`` /
+    ``primary_risks`` / ``valuation_scenarios`` / ``catalysts`` are
+    unconstrained ``dict | None`` with no schema enforced anywhere else in
+    the system. Rather than force that engine call (which would either
+    crash on missing fields or require fabricating a schema), this reads a
+    documented-but-not-enforced convention --
+    ``key_drivers``/``primary_risks``/``catalysts`` as ``{"items": [...]}``,
+    ``valuation_scenarios`` as ``{"current_price", "bull"/"base"/"bear":
+    {"target_price", "implied_return"}}`` -- and builds each slide
+    independently, skipping any section whose data isn't present in that
+    shape instead of fabricating placeholder content. Returns None if the
+    thesis has no title or no section could be built from real data.
+    """
+    if not thesis_title:
+        return None
+
+    drivers = _parse_driver_items(key_drivers)
+    risks = _parse_risk_items(primary_risks)
+    catalyst_items = _parse_catalyst_items(catalysts)
+    valuation = _parse_valuation(valuation_scenarios)
+
+    if not (drivers or risks or catalyst_items or valuation):
+        return None
+
+    slides = [{
+        "slide_number": 1,
+        "title": f"Investment Thesis: {thesis_title}",
+        "bullet_points": [
+            b for b in (
+                f"Conviction: {conviction_level}" if conviction_level else None,
+                f"Horizon: {investment_horizon}" if investment_horizon else None,
+                elevator_pitch[:200] if elevator_pitch else None,
+            ) if b
+        ],
+    }]
+
+    if drivers:
+        slides.append({
+            "slide_number": len(slides) + 1,
+            "title": "Key Investment Drivers",
+            "bullet_points": [
+                f"{d['driver']} ({d['current_impact']})" if d.get("current_impact") else d["driver"]
+                for d in drivers[:4]
+            ],
+        })
+
+    if valuation:
+        slides.append({
+            "slide_number": len(slides) + 1,
+            "title": "Valuation Framework",
+            "bullet_points": [
+                f"Current: ${valuation['current_price']:.0f}",
+                f"Bull: ${valuation['bull']['target_price']:.0f} ({valuation['bull']['implied_return']:+.0f}%)",
+                f"Base: ${valuation['base']['target_price']:.0f} ({valuation['base']['implied_return']:+.0f}%)",
+                f"Bear: ${valuation['bear']['target_price']:.0f} ({valuation['bear']['implied_return']:+.0f}%)",
+            ],
+        })
+
+    if risks:
+        slides.append({
+            "slide_number": len(slides) + 1,
+            "title": "Primary Risks",
+            "bullet_points": [
+                f"{r['risk']} (severity: {r['severity']})" if r.get("severity") else r["risk"]
+                for r in risks[:4]
+            ],
+        })
+
+    if catalyst_items:
+        slides.append({
+            "slide_number": len(slides) + 1,
+            "title": "Catalysts & Timeline",
+            "bullet_points": [
+                f"{c['description']} — {c['timing']}" if c.get("timing") else c["description"]
+                for c in catalyst_items[:4]
+            ],
+        })
+
+    return slides
+
+
 def _thesis_list_response(row: InvestmentThesis) -> ThesisListResponse:
     return ThesisListResponse(
         id=row.id,
@@ -236,6 +379,12 @@ async def generate_thesis(
         if elevator_pitch:
             elevator_pitch = elevator_pitch[:500]
 
+    slide_outline = _build_slide_outline(
+        body.thesis_title, body.conviction_level, body.investment_horizon,
+        elevator_pitch, body.key_drivers, body.primary_risks,
+        body.valuation_scenarios, body.catalysts,
+    )
+
     thesis = InvestmentThesis(
         id=uuid.uuid4(),
         entity_id=entity_id,
@@ -251,6 +400,7 @@ async def generate_thesis(
         catalysts=body.catalysts,
         quality_metrics=_compute_quality_metrics(body),
         elevator_pitch=elevator_pitch,
+        slide_outline=slide_outline,
         ai_enabled=elevator_pitch is not None,
     )
     session.add(thesis)
@@ -378,6 +528,12 @@ async def update_thesis(
     if body.catalysts is not None:
         thesis.catalysts = body.catalysts
 
+    thesis.slide_outline = _build_slide_outline(
+        thesis.thesis_title, thesis.conviction_level, thesis.investment_horizon,
+        thesis.elevator_pitch, thesis.key_drivers, thesis.primary_risks,
+        thesis.valuation_scenarios, thesis.catalysts,
+    )
+
     thesis.version = thesis.version + 1
     await session.commit()
     await session.refresh(thesis)
@@ -436,6 +592,17 @@ async def get_thesis_slides(
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Thesis not found")
+
+    if row.slide_outline is None:
+        # Backfill for theses created/updated before slide_outline was wired.
+        rebuilt = _build_slide_outline(
+            row.thesis_title, row.conviction_level, row.investment_horizon,
+            row.elevator_pitch, row.key_drivers, row.primary_risks,
+            row.valuation_scenarios, row.catalysts,
+        )
+        if rebuilt is not None:
+            row.slide_outline = rebuilt
+            await session.commit()
 
     return ThesisSlideOutlineResponse(
         thesis_id=row.id,

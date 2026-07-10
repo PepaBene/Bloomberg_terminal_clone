@@ -224,6 +224,62 @@ def estimate_margin_impact(
     return {"scenario_margin_bps": scenario_margin, "margin_change_bps": margin_change}
 
 
+# ── Theme Exposure Scoring ─────────────────────────────────────────────────
+
+# Macro "themes" scored against real sector sensitivity: each theme isolates
+# one macro variable as a standardized single-factor deviation from
+# _BASELINE (all else held constant), reusing the exact tested
+# SECTOR_SENSITIVITIES table + estimate_eps_impact() formula that already
+# drives named-scenario EPS impact elsewhere in this engine -- no new
+# sensitivity model invented. Coarse-grained by design: sensitivity is
+# sector-level, matching the granularity SECTOR_SENSITIVITIES was built at,
+# not a further per-company adjustment.
+THEME_SHOCKS: dict[str, dict[str, float]] = {
+    "GDP_GROWTH": {"gdp_growth_pct": _BASELINE["gdp_growth_pct"] + 2.0},
+    "INFLATION": {"inflation_pct": _BASELINE["inflation_pct"] + 2.0},
+    "RATE_HIKES": {"fed_funds_rate_pct": _BASELINE["fed_funds_rate_pct"] + 1.0},
+    "OIL_PRICES": {"oil_price_usd": _BASELINE["oil_price_usd"] * 1.25},
+}
+
+
+def compute_theme_exposures(sector: str, base_eps: float | None = None) -> dict[str, dict]:
+    """Real per-theme exposure scores for a GICS sector.
+
+    Parameters
+    ----------
+    sector : str
+        GICS sector name (key into SECTOR_SENSITIVITIES; unknown sectors
+        fall back to estimate_eps_impact's neutral default).
+    base_eps : float | None
+        Entity's real trailing EPS, if available -- only used to also report
+        a real scenario_eps figure; the exposure_score itself doesn't depend
+        on it (it's a % impact, not an absolute one).
+
+    Returns
+    -------
+    dict[str, dict]
+        {theme: {exposure_score, direction, scenario_eps, shock}} for every
+        theme in THEME_SHOCKS.
+    """
+    out: dict[str, dict] = {}
+    for theme, shock in THEME_SHOCKS.items():
+        impact = estimate_eps_impact(base_eps if base_eps is not None else 1.0, shock, sector)
+        eps_change_pct = impact["eps_change_pct"]
+        if eps_change_pct > 0.5:
+            direction = "POSITIVE"
+        elif eps_change_pct < -0.5:
+            direction = "NEGATIVE"
+        else:
+            direction = "NEUTRAL"
+        out[theme] = {
+            "exposure_score": eps_change_pct,
+            "direction": direction,
+            "scenario_eps": impact["scenario_eps"] if base_eps is not None else None,
+            "shock": shock,
+        }
+    return out
+
+
 def classify_rating_implication(eps_change_pct: float) -> str:
     """Classify rating implication based on EPS change.
 

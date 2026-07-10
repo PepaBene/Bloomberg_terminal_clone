@@ -6,6 +6,22 @@ from datetime import datetime
 
 
 class ThesisCreateRequest(BaseModel):
+    """Thesis content is analyst-authored free-form JSON by design (this is a
+    research-authoring tool, not an auto-writer) -- key_drivers/primary_risks/
+    valuation_scenarios/catalysts have no enforced schema. There is one
+    documented (but not validated) convention that unlocks the auto-generated
+    slide_outline (see research_thesis.py::_build_slide_outline) when followed:
+
+        key_drivers / primary_risks / catalysts:
+            {"items": [{"driver"|"risk"|"description": str, ...}, ...]}
+        valuation_scenarios:
+            {"current_price": float,
+             "bull"/"base"/"bear": {"target_price": float, "implied_return": float}}
+
+    Any section not in this shape is simply omitted from the slide outline
+    rather than rejected -- the CRUD endpoints accept any dict.
+    """
+
     analyst_id: str
     thesis_title: str | None = None
     investment_horizon: str | None = None

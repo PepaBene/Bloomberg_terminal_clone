@@ -179,8 +179,13 @@ python scripts/ingest_eod_prices.py --limit 100
 # 6. Macroeconomic data — FRED (CPI, GDP, yield curves, etc.)
 python scripts/ingest_fred.py
 
-# 7. Treasury yield curve — directly from Treasury.gov (no API key needed)
-python -m src.ingestion.treasury_yield_curve
+# 7. Treasury yield curve + credit spreads — FRED (reuses FRED_API_KEY)
+python scripts/ingest_treasury_curve.py
+python scripts/ingest_credit_spreads.py
+#    • Note: `src.ingestion.treasury_yield_curve` (Treasury.gov direct) is an
+#      older stub that never got a working extract() — the connectors above
+#      (`fred_treasury_curve.py` / `fred_credit_spreads.py`) are the real,
+#      working path and are what the scheduler (batch_config.py) runs.
 
 # 8. Fundamentals — SEC EDGAR XBRL (income statement, balance sheet, cash flow)
 python scripts/ingest_edgar_xbrl.py --limit 100
@@ -203,14 +208,74 @@ python scripts/ingest_relationships.py --limit 100
 
 ### Pillar 3 — Intelligence
 
-Most Pillar 3 connectors run as part of the ingestion + batch flow
-above (8-K extraction, transcript NLP, FinBERT sentiment, governance
-extraction from proxy filings). To populate the governance models
-specifically:
+Company/Industry/Competitive/Sentiment intelligence compute live
+(on-miss) from Pillar 1/2 data once an entity is queried — no separate
+ingestion step needed for those. The connectors below are for the
+qualitative/external-source tables that have no other producer. All are
+CIK-driven (pull real issuer CIKs from `entity_identifiers`, like
+`ingest_edgar_xbrl.py`) and keyless/free except where noted; run any of
+them with `--limit N` for a small test batch first.
 
 ```bash
-python scripts/populate_governance.py
+# Governance — SEC DEF 14A proxy statements (free from EDGAR, but the
+# filings themselves are unstructured HTML — board/comp/proposal parsing
+# is best-effort; proxy_filings itself is reliable)
+python scripts/ingest_proxy.py --limit 20
+
+# Insider transactions (P3) — SEC Form 4, same filings ingest_ownership.py
+# already reads for insider_holdings; this also writes the richer
+# insider_transactions_p3 / insider_signals tables
+python scripts/ingest_form4.py --limit 20
+
+# Economic-release calendar — FRED releases API
+python scripts/ingest_econ_calendar.py
+
+# Commodity prices — FRED (WTI/Brent/gold/etc; a full commodity universe
+# would need a paid data vendor, this covers what FRED tracks)
+python scripts/ingest_commodities.py
+
+# Political intelligence — all free, keyless government sources
+python scripts/ingest_legislative_bills.py      # Congress.gov bills RSS (GovInfo)
+python scripts/ingest_regulatory_actions.py     # Federal Register API
+python scripts/ingest_sanctions.py              # OFAC SDN list (CSV)
+
+# Country risk + non-US global macro — World Bank Indicators API
+python scripts/ingest_country_risk.py
+
+# Geopolitical events — GDELT 2.0 (IP-throttled, be patient / avoid tight loops)
+python scripts/ingest_geopolitical.py
+
+# Filing diffs — section-level 10-K/10-Q diffs from EDGAR
+python scripts/ingest_filing_diff.py --limit 10
+
+# Earnings surprises (actual vs consensus EPS) — Finnhub free tier
+python scripts/ingest_earnings.py --limit 50
+#   NOTE: forward consensus estimates / guidance are NOT covered here —
+#   Finnhub's free tier 403s on /stock/price-target and /stock/eps-estimate.
+#   Those need a premium plan (Finnhub) or another provider (Refinitiv/
+#   FactSet/Zacks); left as an open gap, not fabricated.
+
+# News + sentiment — resumable, safe to run repeatedly or on a loop
+python scripts/backfill_news.py --status              # coverage so far
+python scripts/backfill_news.py --batch-size 20 --max-minutes 8
+python -m scripts.run_news_loop                        # runs backfill_news to completion
+python scripts/compute_sentiment.py --max-minutes 10   # news_articles -> sentiment_scores/aggregates
+
+# Macro theme exposure scores — pure local computation (no external calls),
+# reuses macro_scenario_engine's tested sector-sensitivity formula under 4
+# standardized shocks (GDP growth, inflation, rate hikes, oil prices)
+python -m scripts.compute_theme_scores
 ```
+
+All of the above are also registered in `src/scheduler/batch_config.py`
+(domain `P3`) so a running scheduler keeps them fresh automatically —
+see §10.
+
+`populate_governance.py` is unrelated to any of this despite the name —
+it seeds the internal *data-governance catalog* (`DataCatalogEntry`/
+`SourceConnector` metadata rows), not corporate proxy/board data. Safe
+to run for catalog completeness, but it does not feed
+`/v3/governance/*`.
 
 ---
 
@@ -289,8 +354,10 @@ pip install apscheduler
 python scripts/run_scheduler.py
 ```
 
-This reads `src/scheduler/batch_config.py` (16 jobs covering all of
-Pillar 1 + Pillar 2 daily / weekly cycles) and runs them in-process.
+This reads `src/scheduler/batch_config.py` (31 jobs covering Pillar 1,
+Pillar 2 daily/weekly cycles, the FI yield-curve/credit-spread +
+briefing pipeline, and the Pillar 3 connectors + theme-scoring job from
+§6 above) and runs them in-process.
 
 ### 10.2 — Crontab (any Unix host)
 

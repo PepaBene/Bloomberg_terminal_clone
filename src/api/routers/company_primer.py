@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.llm_client import get_llm_client
@@ -20,6 +20,8 @@ from src.models.company_intelligence import CompanyPrimer
 from src.models.entity import Entity
 from src.models.fundamentals import FinancialPeriod  # noqa: F401 — relationships load IncomeStatement etc.
 from src.models.analytics import AnalyticsResult
+from src.models.ownership import InstitutionalHolding, InstitutionProfile
+from src.models.security import Security
 from src.schemas.company_intelligence import (
     CompanyPrimerResponse,
     FinancialSummaryResponse,
@@ -114,10 +116,57 @@ async def get_company_primer(
         if ar.value is not None and name not in valuation_data:
             valuation_data[name] = float(ar.value)
 
-    # Ownership data -- left empty since OwnershipSummary is keyed by
-    # security_id and we only have entity_id here; a full join through
-    # securities could be added later.
+    # Ownership data -- OwnershipSummary is never populated (no producer
+    # anywhere), so join through the entity's equity security directly to
+    # real 13F institutional_holdings instead. insider_pct is left honestly
+    # omitted: insider_holdings records transactions, not a shares-outstanding
+    # -normalized aggregate, and there's no reliable free source for that yet.
     ownership_data: dict = {}
+    sec_result = await session.execute(
+        select(Security.security_id)
+        .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+        .limit(1)
+    )
+    security_id = sec_result.scalar_one_or_none()
+    if security_id is not None:
+        latest_report_date = (
+            await session.execute(
+                select(func.max(InstitutionalHolding.report_date))
+                .where(InstitutionalHolding.security_id == security_id)
+            )
+        ).scalar_one_or_none()
+        if latest_report_date is not None:
+            holdings_result = await session.execute(
+                select(InstitutionalHolding, InstitutionProfile.institution_name)
+                .join(
+                    InstitutionProfile,
+                    InstitutionProfile.institution_id == InstitutionalHolding.institution_id,
+                )
+                .where(
+                    InstitutionalHolding.security_id == security_id,
+                    InstitutionalHolding.report_date == latest_report_date,
+                )
+                .order_by(InstitutionalHolding.market_value.desc().nulls_last())
+            )
+            holdings = holdings_result.all()
+            if holdings:
+                total_pct = sum(
+                    float(h.percent_of_outstanding) for h, _ in holdings
+                    if h.percent_of_outstanding is not None
+                )
+                ownership_data["institutional_pct"] = min(round(total_pct, 2), 100.0)
+                ownership_data["top_holders"] = [
+                    {
+                        "name": name,
+                        "shares_held": float(h.shares_held) if h.shares_held is not None else None,
+                        "market_value": float(h.market_value) if h.market_value is not None else None,
+                        "percent_of_outstanding": (
+                            float(h.percent_of_outstanding) if h.percent_of_outstanding is not None else None
+                        ),
+                    }
+                    for h, name in holdings[:5]
+                ]
+                ownership_data["as_of"] = latest_report_date.isoformat()
 
     ai_description = None
     ai_competitive = None
