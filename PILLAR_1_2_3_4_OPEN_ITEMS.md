@@ -7,6 +7,8 @@
 
 **Status legend:** 🔴 STILL OPEN · 🟡 PARTIALLY FIXED · ✅ FIXED (listed only where the original doc's premise itself was wrong, or as section totals)
 
+**Adversarial verification pass (2026-07-10, same day):** every "still open" and "partially fixed" item below (~150 items) was independently re-checked by five agents instructed to actively try to refute each claim — find a guard that prevents the crash, an unreachable code path, a misstated file:line, or evidence the claim is simply wrong. Result: **3 confirmed false positives** (all in Pillar 4 engines — struck through and explained inline where they appear) and **~13 items needing a correction** (wrong crash mechanism, an overstated "any model"-style claim, a reachability caveat, a naming nit, etc. — each flagged inline as "⚠️ Correction"). Everything else (135+ items) held up exactly as described, including two claimed frontend "regressions" (Pillar 2 Bugs 79 and 82) that were traced end-to-end from backend schema through to the exact unguarded `.map()` crash site. Treat unmarked items as double-verified; items marked with a correction note as accurate in substance but adjusted in detail.
+
 ---
 
 ## Table of contents
@@ -78,20 +80,20 @@ CIK-list wiring mechanics (5 of 6 scripts) · bond-analytics coupon conversion (
 | P1-R-024 | `fundamentals.py` (5 endpoints) | Count query and data query still built as two independent `select()` statements with filters applied twice in parallel — structural divergence risk unaddressed (currently kept in sync by hand). |
 | P1-R-030 | `filing_intelligence.py` | `desc` still not imported — latent only, not a live bug (file never calls the bare `desc()` function, only `.desc()` as a method). |
 | P1-R-047 | `fi_yield_curve.py:273` | `df_tenor_years` dict still hardcoded inline, duplicates the module-level `_DF_COLS` keys — can silently drift. |
-| P1-R-050 | `fi_bonds.py` (6 endpoints) | Unnecessary `.scalars().unique()` on non-collection queries — cosmetic, not a correctness bug. |
+| P1-R-050 | `fi_bonds.py` (⚠️ correction: 7 endpoints, not 6 — `bond_analytics` was missed in the original count) | Unnecessary `.scalars().unique()` on non-collection queries — cosmetic, not a correctness bug. |
 
 ### 🟡 Partially fixed
 
 | ID | Detail |
 |---|---|
 | P1-R-003 | Real relevance scoring now exists, but there's still no actual Elasticsearch — search still runs ILIKE against Postgres. A real ES indexer (`src/search/indexer.py`) exists but is orphaned, not wired into `entities.py`/`securities.py`/`security_finder.py`. |
-| P1-R-022 | `request_id` now real (`uuid.uuid4()`), but `processing_time_ms` still hardcoded `0` — never computed for `reference.py` list endpoints. |
+| P1-R-022 | `request_id` now real (`uuid.uuid4()`), but `processing_time_ms` still hardcoded `0` — never computed for `reference.py` list endpoints. ⚠️ Correction: the live logic is in `src/api/reference.py` — `src/api/routers/reference.py` is just a re-export barrel. |
 | P1-R-029 | Fixed in `_build_diff_response` (now uses `" /// "`), but `get_filing_diff_summary` still joins AI summaries with the original unescaped `" | "`. |
 | P1-R-038 | `capital_structure.py`'s main endpoint now distinguishes missing-entity vs. missing-data 404s, but `get_capital_structure_summary` still returns one generic message for both cases. |
 | P1-R-065 | `ipo.py` — `.upper()` normalization added, but the underlying `IPO_PIPELINE_STATUSES` constant is still hardcoded magic strings with no enum — the added normalization is a no-op safety net, not the real fix. |
 | P1-R-073 | `market_movers.py`'s main `/movers` endpoint now correctly 404s on no data, but `/movers/summary` still fakes `snapshot_date=date.today()` on empty data — indistinguishable from a genuine zero-mover day. |
 
-**New findings beyond the original 74** (discovered while verifying, not in the original audit): `fi_spreads.py` imports `compute_ig_hy_differential` but never calls it — same dead-import class as the fixed P1-R-056. `market_movers.py` was completely rewritten to compute live from `EODPrice` (a good fix), but **broke 4 of 6 tests** in `tests/test_api/test_market_movers_api.py`, which still target the now-abandoned `MarketMoversSnapshot` model — including a silent contract change (empty case now 404s instead of the old 200/empty-list the tests expect).
+**New findings beyond the original 74** (discovered while verifying, not in the original audit): `fi_spreads.py` imports `compute_ig_hy_differential` but never calls it — same dead-import class as the fixed P1-R-056. `market_movers.py` was completely rewritten to compute live from `EODPrice` (a good fix), but **broke 4 of its 5 tests** (⚠️ correction: confirmed by actually running `pytest tests/test_api/test_market_movers_api.py -v` — the file has 5 tests total, not 6; result was 4 failed / 1 passed) in `tests/test_api/test_market_movers_api.py`, which still target the now-abandoned `MarketMoversSnapshot` model — including a silent contract change (empty case now 404s instead of the old 200/empty-list the tests expect).
 
 All other router items (P1-R-001, 002, 004–021, 023, 025–028, 031–037, 039–046, 048, 049, 051–064, 066–072, 074) are confirmed **FIXED**, including every `.nullslast()` crash (corporate_actions, relationships, capital_structure, ma_deals, ipo, fund_holdings), the `executives.py` invalid SQLAlchemy syntax, and the `resolution.py` auth-bypass-via-failed-import pattern (verified: no try/except around the auth import exists anymore, single authenticated definition per endpoint).
 
@@ -282,17 +284,17 @@ All other items (Bugs 78, 83, 85, 86, 89, 90 [same underlying fix as Pillar 4's 
 
 | ID | File:line | Issue |
 |---|---|---|
-| E-035 | `src/engines/news_entity_linker.py:216,530` | Fuzzy-match threshold (0.85) hardcoded; the pipeline orchestrator calls `fuzzy_match(full_text, names)` with no way to override it — no config/env tunability. |
-| E-036 | `src/engines/earnings_surprise_intelligence.py:343` | `compute_revision_implications()`: `abs(eps_surprise_pct) + abs(revenue_surprise_pct)` — still flat equal-weight, unlike the sibling fix in `earnings_surprise_engine.py` (E-015, which got materiality weights `{eps:0.5, revenue:0.3, ebitda:0.2}`). This file's parallel function was never updated to match. |
+| E-035 | `src/engines/news_entity_linker.py:216,530` | Fuzzy-match threshold (0.85) hardcoded; the pipeline orchestrator calls `fuzzy_match(full_text, names)` with no way to override it — no config/env tunability. Confirmed accurate as a code fact, but note: this whole module also has zero production importers (test-only), same reachability caveat as E-013/E-034 below. |
+| E-036 | `src/engines/earnings_surprise_intelligence.py:343` | `compute_revision_implications()`: `abs(eps_surprise_pct) + abs(revenue_surprise_pct)` — still flat equal-weight, unlike the sibling fix in `earnings_surprise_engine.py` (E-015, which got materiality weights `{eps:0.5, revenue:0.3, ebitda:0.2}`). This file's parallel function was never updated to match. The code-comparison is accurate; both engine files happen to be currently orphaned (no production importers) per the E-013 caveat below. |
 
 ### 🟡 Partially fixed
 
 | ID | File:line | What's fixed / what's not |
 |---|---|---|
-| E-013 | `earnings_surprise_intelligence.py:458-467,524-532` vs. `:343,583-585` | `generate_key_takeaways`/`generate_narrative_template` now guard `None` before `abs()`. But `compute_revision_implications()` (called from `analyze_earnings_event` at 583-585) takes non-Optional params and still crashes with `TypeError` when `eps.surprise_pct`/`revenue.surprise_pct` is `None` (zero-consensus case). |
+| E-013 | `earnings_surprise_intelligence.py:458-467,524-532` vs. `:343,583-585` | `generate_key_takeaways`/`generate_narrative_template` now guard `None` before `abs()`. But `compute_revision_implications()` (called from `analyze_earnings_event` at 583-585) takes non-Optional params and still crashes with `TypeError` when `eps.surprise_pct`/`revenue.surprise_pct` is `None` (zero-consensus case). ⚠️ Correction: the crash is real if this code runs, but `src/engines/earnings_surprise_intelligence.py` (the whole module) has **zero production callers** — only its own unit tests invoke it. The router-level `analyze_earnings_event` in `research_alerts_p4.py:426` is a separate, unrelated reimplementation that already guards `None` via `(eps_surprise_pct or 0.0)`. This is currently dead code, not a live crash risk. |
 | E-017 | `business_model_engine.py:124-130` | Still returns hardcoded `50.0` for <3 data points; now logs a `logger.warning(...)` but the `RevenueQuality` dataclass has no caller-visible flag — downstream consumers can't distinguish "neutral" from "no data." |
 | E-023 | `macro_scenario_engine.py` (wired) vs. `macro_thematic_engine.py` (orphaned) | `macro_scenario_engine.py` is genuinely wired into `research_themes.py` (`_compute_theme_scores_for_entity`, scenario endpoints). But `macro_thematic_engine.py` — a separate file with its own `compute_inflation_exposure`/`score_all_themes`/`screen_by_theme` — has **zero** non-test importers anywhere. Fully orphaned still. |
-| E-034 | `insider_signals.py:89-104,274-278` vs. `:260` | Per-transaction date parsing is now guarded with try/except + fallback formats. But `as_of = date.fromisoformat(as_of_date_str)` at line 260 remains **unguarded** — a malformed `as_of_date_str` argument still crashes. |
+| E-034 | `insider_signals.py:89-104,274-278` vs. `:260` | Per-transaction date parsing is now guarded with try/except + fallback formats. But `as_of = date.fromisoformat(as_of_date_str)` at line 260 remains **unguarded** — a malformed `as_of_date_str` argument still crashes. ⚠️ Correction: same reachability caveat as E-013 — the entire `insider_signals.py` module has zero production callers (the real `/insiders` endpoint in `filing_intelligence.py` imports a different, similarly-named model file, not this engine). Currently dead code, not exercised by any live request path. |
 
 All other 30 engine issues (E-001–E-012, E-014–E-016, E-018–E-022, E-024–E-033) are confirmed **FIXED** with dedicated code changes (e.g. real bounds checks, corrected weight formulas, priority-based tie-breaking, unique-insider counting, CRITICAL-alert rate-limit exemption). Not re-listed here — see prior audit for original descriptions if needed.
 
@@ -333,7 +335,7 @@ All other 32 items (R-001–R-004, R-006–R-022, R-024–R-027, R-029–R-030, 
 | ID | File:line | Issue |
 |---|---|---|
 | M-001 | `src/models/semantic_search.py:39` | `embedding_vector: Mapped[dict \| None] = mapped_column(JSONB)` — still no pgvector `VECTOR` type/extension anywhere in the repo. `embedding_client.py` now produces real embeddings, but they're stored as JSONB and similarity is computed via pure-Python loops (`semantic_search_engine.py:175`, `vector_search.py:15`), not a real vector index. |
-| M-004 | `morning_briefing.py:22,47` | `MorningBriefing`/`BriefingPreference.user_id` still plain `String(100)`, no FK (no users table exists to reference). |
+| M-004 | `morning_briefing.py:22,47` | `MorningBriefing`/`BriefingPreference.user_id` still plain `String(100)`, no FK. ⚠️ Correction: the "no users table exists" reason is wrong — `src/models/auth.py` defines a real `User` model (`users` table, since migration 013, predates Pillar 3). The actual blocker is a **type mismatch**: `User.user_id` is a UUID primary key, while these fields are `String(100)` (likely storing usernames) — a naive FK add would fail without a data/type migration first. Same correction applies to M-005 below. |
 | M-005 | `investment_thesis.py:26` | `InvestmentThesis.analyst_id` still no FK; `# TODO: Add ForeignKey("users.id")...` comment unchanged. |
 | M-012 | `intelligent_alerts.py:57-61` | Only a non-unique dedup index added; comment explicitly states a hard unique constraint was deliberately avoided to not block legitimate retries. Duplicate alerts can still be inserted. |
 
@@ -399,7 +401,7 @@ All other items (F-002 through F-011, F-014) are confirmed **FIXED**, including 
 | P4-R-034 | `portfolio_upload.py:71` | `parsed_holdings` dict-shape silently drops to empty list. |
 | P4-R-037 | `backtesting.py:144-156` | `compare_backtests()` returns 9 fields vs. ~20 in single-result view. |
 | P4-R-040/041 | `quant.py` | Unguarded `uuid.UUID()` parse; silent length-truncation on mismatched series, no warning logged. |
-| P4-R-042 | `risk.py:338,350` | `benchmark` query param accepted but fully ignored — beta always uses the fixed market benchmark (worse than originally reported: not even echoed correctly). |
+| P4-R-042 | `risk.py:338,350,359` | `benchmark` query param accepted but ignored for the actual computation — beta always uses the fixed market benchmark. ⚠️ Correction: it IS echoed back correctly in the response (`benchmark=benchmark` at line 359) — the earlier "not even echoed correctly" addendum was wrong. The real bug is narrower: the response mislabels which benchmark was actually used to compute the number, not a failure to echo the input. |
 | P4-R-043 | `technical_backtest.py:29` | Unused `session` dependency. |
 | P4-R-044 | `fi_risk.py` | 3 of 4 endpoints still have no `session` param — can't look up bond data from DB. |
 | P4-A-004 | `app.py` / `quant.py:44` | No router serves `/v4/quant/*` — quant stuck at its own baked-in `/v2/analytics/quant` prefix. |
@@ -409,7 +411,7 @@ All other items (F-002 through F-011, F-014) are confirmed **FIXED**, including 
 | ID | Detail |
 |---|---|
 | P4-R-009 | Fixed in `add_position()` (real threshold guard). `create_transaction()`'s BUY averaging (line 858) still uses the old weak `if total_shares else Decimal("0")` guard — same rounding-artifact risk. |
-| P4-R-023 | Missing-key case now defaults `drift_pct` to `0.0`. Explicit `null` in JSONB still crashes `abs(pd_entry.drift_pct)` at line 1266. |
+| P4-R-023 | Missing-key case now defaults `drift_pct` to `0.0`. Explicit `null` in JSONB still triggers an unhandled error. ⚠️ Correction: the crash mechanism is misattributed — `PositionDriftEntry.drift_pct` is a non-Optional `float` schema field, so an explicit `null` value causes a Pydantic `ValidationError` inside `_parse_position_drifts` (~line 1148) when constructing the response object, not an `AttributeError`/`TypeError` from `abs()` at line 1266 — execution never reaches that line. Net effect (an unhandled 500) is the same; the "where" was wrong. |
 | P4-R-035 | No longer lies (`PENDING` instead of fake `COMPLETED`), but **no batch worker exists anywhere** — backtests now honestly sit at PENDING forever instead of dishonestly reporting fake zeros. Functionally still non-operational. |
 | P4-A-002 | `risk.py` still mounted at `/v2/analytics/risk`, not `/v4` — but appears to be a deliberate Pillar-2 classification; frontend correctly targets the real `/v4` portfolio-risk router, so no live breakage found. |
 
@@ -419,19 +421,21 @@ All other router/app-registration items (P4-R-001/002/003/004–008/010–012/01
 
 ## Pillar 4 — Engines
 
-*(54 issues — 12 FIXED, 2 PARTIALLY FIXED, 3 confirmed not-bugs-on-recheck, 37 STILL OPEN)*
+*(54 issues — 12 FIXED, 2 PARTIALLY FIXED, 3 confirmed not-bugs-on-recheck, 3 MORE confirmed false positives on adversarial re-check [see below], 34 STILL OPEN)*
 
 > **Verified false positive:** P4-E-030 (MWR/IRR "sign bug") — `compute_mwr()`'s convention (terminal value as positive inflow) is the correct standard XIRR formulation. Confirmed independently by re-deriving the math; matches `DATA_WIRING_AUDIT.md`'s own conclusion. Also not bugs: P4-E-008 (documentation-only), P4-E-020 (operator-precedence claim — code is correct as written).
+
+> **Additional false positives found on adversarial re-check (2026-07-10):**
+> - **P4-E-001** `nav_engine.py` — a negative `cash_balance` is a legitimate real-world state (margin debit/leverage), not invalid input. Traced every use: it only ever gets added into NAV and divided for `cash_weight`, both of which remain mathematically correct (a negative weight correctly represents leverage). There's nothing to validate against — not a bug.
+> - **P4-E-004** `nav_engine.py:63-98` — `cost_basis_per_share` is a pure pass-through field on the output dataclass; `compute_position_valuation` never divides by or otherwise computes with it (only `cost_basis_total` drives the P&L math). No crash or bad-math path exists.
+> - **P4-E-033** `performance_engine.py:438,448` — lexicographic comparison of zero-padded `YYYY-MM-DD` ISO date strings is mathematically equivalent to chronological comparison; this is a legitimate, standard technique, not fragile. The docstring documents the `YYYY-MM-DD` contract, and the only real caller always produces correctly-formatted ISO strings (`snapshot_date.isoformat()`).
 
 ### 🔴 Still open
 
 **Unvalidated inputs / edge cases:**
-- P4-E-001 `nav_engine.py:104-144` — no negative `cash_balance` validation
-- P4-E-002 `nav_engine.py:160-163` — no `nav_yesterday<=0` guard (only zero-check)
-- P4-E-004 `nav_engine.py:63-98` — no `cost_basis_per_share` positivity check
-- P4-E-032 `performance_engine.py:95` — `cf["date_offset"]` KeyError risk, no validation
-- P4-E-033 `performance_engine.py:438,448` — string date comparison fragility
-- P4-E-052 `portfolio_parser.py:25-59` — no try/except around malformed CSV parsing
+- P4-E-002 `nav_engine.py:160-163` — no `nav_yesterday<=0` guard (only zero-check); a negative-but-nonzero prior NAV flips the sign of the computed return, producing an economically backwards result, not just an imprecise one
+- P4-E-032 `performance_engine.py:95` — `cf["date_offset"]` KeyError risk, no validation (real, though the one current caller always supplies the key — a future/test caller without it would still crash)
+- P4-E-052 `portfolio_parser.py:25-59` — no try/except around malformed CSV parsing (reproduced live: `csv.DictReader` raises `_csv.Error` on malformed input; a global exception handler prevents a hard server crash, but turns a plausible user action into an opaque 500 instead of a validation error)
 
 **Math approximations left as documented gaps:**
 - P4-E-005 `attribution_engine.py:335-360` — arithmetic (not geometric/Carino) multi-period attribution linking
@@ -443,7 +447,7 @@ All other router/app-registration items (P4-R-001/002/003/004–008/010–012/01
 - P4-E-015 `e5_risk.py:355` — Amihud `×1e6` magic constant, undocumented
 - P4-E-016 `e5_risk.py:335-342` — bid-ask proxy uses high-low only, misses overnight gaps
 - P4-E-017 `e5_stress_scenarios.py:46-82` — missing `equity_shock`/`spread_shock_bps` fields (note: the portfolio-level `portfolio_risk_engine.py:22-51` already has these — different file, not fixed here)
-- P4-E-019 `backtester.py:26,102-119` — drawdown duration field mislabeled `duration_days`, assumes daily periods
+- P4-E-019 `backtester.py:26,102-119` — drawdown duration field (⚠️ correction: actually named `max_drawdown_duration_days`, not literally `duration_days`) counts return-periods regardless of their length — genuinely mislabeled if ever fed non-daily returns, since `periods_per_year` is caller-configurable elsewhere but this counter doesn't account for it
 - P4-E-026 `e7_quant.py:242` — Blume weight `0.67` hardcoded, undocumented
 - P4-E-031 `performance_engine.py:125` — `r_new` clamped to max 10.0 (1000% return ceiling)
 - P4-E-036 `portfolio_analytics.py:127-133` — HHI assumes weights sum to 1.0
@@ -454,7 +458,7 @@ All other router/app-registration items (P4-R-001/002/003/004–008/010–012/01
 - P4-E-042 `attribution_engine.py:293-295` — factors missing from `factor_returns` silently dropped via set intersection
 
 **Silent degradation:**
-- P4-E-022/023/024 `concentration_risk.py:100-133,260-262` — unknown risk-level strings silently score as low-risk; `geographic_spread=0` doesn't trigger high-risk classification
+- P4-E-022/023/024 `concentration_risk.py:100-133,260-262` — unknown risk-level strings silently score as low-risk; `geographic_spread=0` doesn't trigger high-risk classification. Adversarial re-check found the actual bug is even sharper than described: in `classify_supplier_concentration`, the `if geographic_spread<=2: return "MODERATE" / else: return "MODERATE"` branch (lines 124-128) is dead code — both arms return the identical value, so `geographic_spread` never affects the classification at all, regardless of its value.
 - P4-E-044 `whatif_engine.py:277-278,293,295` — missing weight/beta/volatility silently defaulted (1.0/current_vol)
 - P4-E-046 `whatif_engine.py:142-143` — `simulate_trades()` returns `[]` silently on invalid NAV
 - P4-E-047 `whatif_engine.py:178-179` — `proposed_nav` negative fallback hides the underlying error
@@ -490,17 +494,17 @@ All other engine items (P4-E-010/011/013/018/021/028/029/034/035/043/045/053/054
 | P4-M-013 | `src/models/nav_snapshot.py:44-66` | `CorporateActionQueue` still has zero `relationship()` definitions to `NAVSnapshot`/`Position`. |
 | P4-M-015 | `src/models/attribution.py:19` | Unique constraint covers `(portfolio_id, attribution_type, period_end)`, not `(portfolio_id, period_start, period_end)` as needed. |
 | P4-M-019 | `src/models/portfolio_upload.py` | Still no `user_id` field; the only construction site (`portfolio_upload.py:31-39`) never even sets the existing `created_by` field either. |
-| P4-M-020 | `src/models/portfolio_watchlist.py` | No `UniqueConstraint(user_id, watchlist_name)`. |
+| P4-M-020 | `src/models/portfolio_watchlist.py` | No unique constraint on `(user_id, name)`. ⚠️ Naming correction: the column is actually called `name`, not `watchlist_name` as originally described. |
 | P4-M-021–024 | `nav_snapshot.py`, `performance.py`, `attribution.py`, `backtesting.py` | No `CHECK` constraints for date ordering (`period_start<=period_end`/`start_date<=end_date`) anywhere. |
 | P4-M-025 | `src/models/quant.py:34-35` | No range `CheckConstraint` on `r_squared`/`adj_r_squared`. |
-| P4-M-026 | All models | No `Enum`/`CHECK` constraints on any status/type column. |
+| P4-M-026 | Pillar 4 models specifically | No `Enum`/`CHECK` constraints on any Pillar-4 (portfolio-domain) status/type column. ⚠️ Correction: the original "no model anywhere in the codebase" framing is too broad and false — `src/models/fundamentals.py:98` (Pillar 1) has `CheckConstraint("data_version IN (...)")` on a genuine status-like column. Scope this finding to Pillar 4's own models, where it holds. |
 | P4-M-028 | `src/models/backtesting.py:13-31` | `BacktestRun` still has no `user_id`/`owner_id` — any user can read any backtest by ID. |
 
 ### 🟡 Partially fixed
 
 | ID | Detail |
 |---|---|
-| P4-M-009 | `ON DELETE CASCADE` added only to `Position.portfolio_id`/`Transaction.portfolio_id`. NAV/Performance/Attribution/Risk/Backtesting FKs to `portfolios.id` still plain, no cascade — `session.delete(portfolio)` will still fail against those tables. |
+| P4-M-009 | `ON DELETE CASCADE` added only to `Position.portfolio_id`/`Transaction.portfolio_id`. NAV/Performance/Attribution/Risk FKs to `portfolios.id` still plain, no cascade — `session.delete(portfolio)` will still fail against those tables. ⚠️ Correction: Backtesting was miscategorized here — `BacktestRun`/`BacktestResult` have **no `portfolio_id` FK at all** (they're standalone, unrelated to any portfolio), so there's nothing to cascade for that model, not "plain, no cascade" as originally listed. |
 | P4-M-010 | `Portfolio` now has `positions`/`transactions` relationships, still none to `NAVSnapshot`/`PerformanceSnapshot`/`AttributionResult`. |
 | P4-M-027 | `Transaction.created_by` added; `Position`, `PortfolioWatchlistEntry`, `BacktestRun` still have none. `modified_by` doesn't exist anywhere. |
 | P4-M-029 | `Portfolio.deleted_at` added (no `is_deleted` flag). No other model has any soft-delete field. |
@@ -523,14 +527,14 @@ All other model items (P4-M-011, P4-M-012, P4-M-014, P4-M-016, P4-M-017, P4-M-01
 | P4-F-010 | No `QUANT` endpoint object in `endpoints.ts`; also newly found: `ANALYTICS.factorExposure` matches no real backend route either. |
 | P4-F-011 | No `TECHNICAL_BACKTEST` endpoints defined; zero frontend references to the feature at all. |
 | P4-F-012 | No `FI_RISK` portfolio-level endpoints defined; zero frontend references. |
-| P4-F-022 | `as any` casts remain in 7 of 9 pages (heaviest: `RiskPage.tsx`, 13 instances). |
+| P4-F-022 | `as any` casts remain (confirmed exact count on `RiskPage.tsx`: 13, the heaviest). The "7 of 9" denominator wasn't independently reproducible on re-check — counted `RiskPage` 13, `PortfolioDetail` 5, `QuantDashboard` 3, `CustomIndexBuilder` 2, `WatchlistView` 1, `BacktestDashboard` 1, `PortfolioList`/`PerformancePage` 0 — but the substantive claim (heavy usage persists, RiskPage worst) holds regardless of the exact page count. |
 | P4-F-023 | `PortfolioList.tsx:94-97` — the TODO error-toast is still literally unimplemented, byte-for-byte identical to the original finding. Same `console.warn`-only pattern repeats on CSV preview/commit failures. |
 
 ### 🟡 Partially fixed
 
 | ID | Detail |
 |---|---|
-| P4-F-013 | `PortfolioDetail.tsx` — NAV-history `Math.random()` generator now dead code, hooks now prefer real data via `??`. But hardcoded portfolio identity ("Core Growth", $2,458,320), 10 static holdings, sector allocation, and all 4 KPI metrics (Sharpe/Drawdown/etc.) still have zero hook backing at all. |
+| P4-F-013 | `PortfolioDetail.tsx` — NAV-history `Math.random()` generator now dead code. ⚠️ Correction, scope narrowed: portfolio identity, holdings, and sector allocation are **not** "zero hook backing" as originally claimed — `activePortfolio` (`usePortfolio`), `activeHoldings` (`usePortfolioPositions`), and `activeAllocations` (`usePortfolioAllocationsBySector`) are all genuinely merged with real hook data via `??`, the same pattern credited elsewhere as "fixed." Only the 4 KPI metrics (`perfMetrics`: TWR/Sharpe/Drawdown/Beta) are rendered with zero hook consumption at all — that's the real remaining gap, much narrower than originally described. |
 | P4-F-014 | `PerformancePage.tsx` — all 3 `Math.random()` generators confirmed dead code. KPI/calendar/risk-metrics/attribution table hardcoded fallbacks unchanged. |
 | P4-F-015 | `RiskPage.tsx` — all 8 hooks now genuinely consumed via `??` merge. `api.request()` bypass at line 131 remains (one action), though its error is now surfaced to the user (a genuine improvement). Hardcoded fallback constants remain; heaviest `as any` usage of all 9 pages. |
 | P4-F-017 | `BacktestDashboard.tsx` — hardcoded data removed, error handling added (no longer empty catch). **But** `BACKTESTING` endpoints in `endpoints.ts` (`/v2/analytics/backtest/strategies\|run\|history\|compare`) match **no real backend route** (`backtesting.py` only exposes `/v1/analytics/backtest`, `/{id}/results`, `/holdings`, `/compare`) — page is permanently empty. **New bug introduced**: `dynamicKpis` computes off the permanently-empty results array, producing `"+undefined%"`/`"NaN%"` in the KPI row. |
@@ -552,7 +556,8 @@ Ranked by leverage (impact of fix ÷ effort), not by original severity label:
 6. **Frontend endpoint/backend mismatches with zero backend implementation** (not just wiring bugs, an actual missing feature) cluster around the same few concepts across pillars: **benchmarks** (`/v1/benchmarks` — Pillar 2 Bugs 94/95 and Pillar 4 P4-F-009 are the *same* missing router hit from two different pages), **quant** (`/factor-exposure`, `/technical-signals`, `/correlation`'s zeroed-out metrics — Pillar 2 Bugs 87/93 and Pillar 4 P4-F-010), **technical-backtest** (P4-F-011), **FI-risk** (P4-F-012). These need one scoping decision each (build the backend, or remove the dead frontend code) rather than a wiring fix.
 7. **The "remove hardcoded mock, fall back to real API data" pass introduced real regressions in `ValuationDashboard.tsx` (Pillar 2, Bugs 79/82).** Two of its three still-open frontend bugs are now **worse** than the original static-mock version: unguarded `.map()` calls on API responses that are objects, not arrays, will throw `TypeError` and crash the page the moment a security with real multiples/peer data loads — masked today only because the underlying endpoints' response shape was never checked against what the component expects. Same failure class as `BacktestDashboard.tsx`'s `NaN%` tiles (item 4) — worth a systematic sweep for `(x as any[])` casts with no `Array.isArray` guard across all four pillars' frontends, since this pattern reproduced independently at least 3 times. Pillar 1's frontend pass avoided this specific trap (no regressions found), for comparison — it just left `as any` casts in place rather than introducing new unguarded array assumptions.
 8. **`AnomalyView.tsx` (Pillar 3) is the one page where the original F-001 mock-data bug is fully unfixed** — worth a 10-minute fix to match the pattern already applied to the other 8 pages in the same audit, and to the equivalent 10-page sweep that fully succeeded in Pillar 1.
-9. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unguarded `abs(None)` crash path (E-013) and unweighted surprise sum (E-036), Pillar 2's screener payload wrapper key (Bug 46, one JSON key away from working), Pillar 2's `/screen/fields` E3-field exclusion (Bug 64), Pillar 1's `fi_yield_curve.py` duplicated tenor dict (P1-R-047), and the `market_movers.py` test suite that needs updating to match its own rewritten router (Pillar 1).
+9. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unweighted surprise sum (E-036), Pillar 2's screener payload wrapper key (Bug 46, one JSON key away from working), Pillar 2's `/screen/fields` E3-field exclusion (Bug 64), Pillar 1's `fi_yield_curve.py` duplicated tenor dict (P1-R-047), and the `market_movers.py` test suite that needs updating to match its own rewritten router (Pillar 1).
+10. **A cluster of Pillar 3 "still crashes on bad input" engines turned out to be dead code, not live risk.** The adversarial verification pass found `earnings_surprise_intelligence.py`, `insider_signals.py`, and `news_entity_linker.py` all share a pattern: the described crash/limitation is real if the code runs, but the entire module has **zero production callers** — only unit tests invoke it (E-013, E-034, E-035, E-036). This doesn't make the bugs not-worth-fixing, but it does change the priority: fix them when/if these engines get wired into a router, not before. Worth checking whether any other "confirmed" engine bug in this file has the same orphaned-module characteristic before scheduling work against it.
 
 ---
 
