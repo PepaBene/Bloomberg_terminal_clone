@@ -1,8 +1,9 @@
-# Pillar 2, 3 & Pillar 4 — Open Items Tracker
+# Pillar 1, 2, 3 & 4 — Open Items Tracker
 
 **Date:** 2026-07-10
-**Method:** Every issue in `PILLAR_2_AUDIT_REPORT_v2.md` (98 issues), `PILLAR_3_AUDIT_REPORT_v2.md` (147 issues), and `PILLAR_4_AUDIT_REPORT_v2.md` (157 issues) was re-verified against the **current** codebase — not re-read from the documents, but re-derived from source (file:line citations below). Intervening fix passes are already reflected in the codebase: a data-wiring pass (`DATA_WIRING_AUDIT.md`, 2026-07-09), a further Pillar-2 commit (`29687c2`, 2026-07-08) that postdates `DATA_WIRING_AUDIT.md`, and a separate, undocumented frontend/router/engine remediation pass whose commits weren't captured in any audit doc but are visible as inline code comments citing the original issue IDs (e.g. `# E-019 fix`, `# P4-F-013`, `[Bug 42 fix]`).
-**Purpose:** a single place to see what's genuinely still broken vs. what's been fixed since the v2 audits, so future work isn't wasted re-discovering already-closed issues or, worse, assuming closed issues are still open.
+**Primary source of truth: `DATA_WIRING_AUDIT.md`.** Per explicit direction, the per-pillar `PILLAR_N_AUDIT_REPORT_v2.md` documents are treated as **stale, superseded catalogs** — useful as an exhaustive line-by-line bug list to check off against current code, but not as the authority on what "done" looks like. Where `DATA_WIRING_AUDIT.md` and a `PILLAR_N_AUDIT_REPORT_v2.md` disagree, `DATA_WIRING_AUDIT.md`'s framing (real/wired vs. stubbed/orphaned/fabricated) wins, and the Pillar 1 section below is organized data-wiring-first for that reason — code-level bug status is secondary detail underneath it.
+**Method:** Every issue in `PILLAR_1_AUDIT_REPORT_v2.md` (243 issues), `PILLAR_2_AUDIT_REPORT_v2.md` (98 issues), `PILLAR_3_AUDIT_REPORT_v2.md` (147 issues), and `PILLAR_4_AUDIT_REPORT_v2.md` (157 issues) was re-verified against the **current** codebase — not re-read from the documents, but re-derived from source (file:line citations below). For Pillar 1 specifically, a same-day `PILLAR_1_FIXES.md` claims to have fixed every `DATA_WIRING_AUDIT.md` Pillar-1 finding — that self-report was independently re-verified against actual code (see below); two of its claims don't hold up. Other intervening fix passes already reflected in the codebase: the main `DATA_WIRING_AUDIT.md` pass (2026-07-09), a further Pillar-2 commit (`29687c2`, 2026-07-08) that postdates it, and a separate, undocumented frontend/router/engine remediation pass whose commits weren't captured in any audit doc but are visible as inline code comments citing the original issue IDs (e.g. `# E-019 fix`, `# P4-F-013`, `[Bug 42 fix]`, `[Bug 73 fix]`).
+**Purpose:** a single place to see what's genuinely still broken vs. what's been fixed, so future work isn't wasted re-discovering already-closed issues or, worse, assuming closed issues are still open.
 
 **Status legend:** 🔴 STILL OPEN · 🟡 PARTIALLY FIXED · ✅ FIXED (listed only where the original doc's premise itself was wrong, or as section totals)
 
@@ -10,19 +11,168 @@
 
 ## Table of contents
 
-1. [Pillar 2 — Path mismatch & E1/E2 engines](#pillar-2--path-mismatch--e1e2-engines)
-2. [Pillar 2 — E3/E4 engines & peer service](#pillar-2--e3e4-engines--peer-service)
-3. [Pillar 2 — Routers, models, batch pipeline, app-level](#pillar-2--routers-models-batch-pipeline-app-level)
-4. [Pillar 2 — Frontend](#pillar-2--frontend-includes-genuine-regressions)
-5. [Pillar 3 — Engines](#pillar-3--engines)
-6. [Pillar 3 — Routers & app.py registration](#pillar-3--routers--apppy-registration)
-7. [Pillar 3 — Models & schemas](#pillar-3--models--schemas-important-caveat-below)
-8. [Pillar 3 — Frontend](#pillar-3--frontend)
-9. [Pillar 4 — Routers & app.py registration](#pillar-4--routers--apppy-registration)
-10. [Pillar 4 — Engines](#pillar-4--engines)
-11. [Pillar 4 — Models & schemas](#pillar-4--models--schemas)
-12. [Pillar 4 — Frontend](#pillar-4--frontend)
-13. [Cross-cutting themes / where to start](#cross-cutting-themes--where-to-start)
+1. [Pillar 1 — Data wiring & ingestion (primary lens)](#pillar-1--data-wiring--ingestion-primary-lens)
+2. [Pillar 1 — Routers (code-level)](#pillar-1--routers-code-level)
+3. [Pillar 1 — Engines & app.py](#pillar-1--engines--apppy)
+4. [Pillar 1 — Models & schemas](#pillar-1--models--schemas)
+5. [Pillar 1 — Frontend](#pillar-1--frontend)
+6. [Pillar 2 — Path mismatch & E1/E2 engines](#pillar-2--path-mismatch--e1e2-engines)
+7. [Pillar 2 — E3/E4 engines & peer service](#pillar-2--e3e4-engines--peer-service)
+8. [Pillar 2 — Routers, models, batch pipeline, app-level](#pillar-2--routers-models-batch-pipeline-app-level)
+9. [Pillar 2 — Frontend](#pillar-2--frontend-includes-genuine-regressions)
+10. [Pillar 3 — Engines](#pillar-3--engines)
+11. [Pillar 3 — Routers & app.py registration](#pillar-3--routers--apppy-registration)
+12. [Pillar 3 — Models & schemas](#pillar-3--models--schemas-important-caveat-below)
+13. [Pillar 3 — Frontend](#pillar-3--frontend)
+14. [Pillar 4 — Routers & app.py registration](#pillar-4--routers--apppy-registration)
+15. [Pillar 4 — Engines](#pillar-4--engines)
+16. [Pillar 4 — Models & schemas](#pillar-4--models--schemas)
+17. [Pillar 4 — Frontend](#pillar-4--frontend)
+18. [Cross-cutting themes / where to start](#cross-cutting-themes--where-to-start)
+
+---
+
+## Pillar 1 — Data wiring & ingestion (primary lens)
+
+*(`PILLAR_1_FIXES.md`'s 26 claims re-verified against current code: 15 VERIFIED, 9 PARTIALLY VERIFIED, 2 FALSE/OVERSTATED, plus coverage gaps `PILLAR_1_FIXES.md` never mentions.)*
+
+### 🔴 False / overstated claims — these need real follow-up, not just a re-read
+
+| Claim | Reality |
+|---|---|
+| **"Corporate actions `security_id` fix"** — `src/ingestion/edgar_8k.py` | **Does not do what's claimed.** The connector was actually switched to write `EightKEvent` (a different model with no `security_id` column at all — confirmed `src/models/filing_intelligence.py:91-119`), not `CorporateAction` with `security_id` now populated. `CorporateAction` — the table `GET /securities/{id}/corporate-actions` actually reads — has **zero writers anywhere in the codebase**. The endpoint is now permanently empty, which is *worse* than the original audit's "security_id always null" finding (empty result vs. wrong filter). |
+| **"SegmentData — XBRL segment-fact connector"** — `src/ingestion/edgar_segments.py` + `scripts/ingest_segments.py` | The connector class (`EdgarSegmentsConnector`) is real, but **`scripts/ingest_segments.py` does not exist anywhere in the repo** — confirmed via direct filesystem search. The `Makefile`'s `ingest-segments` target points at this nonexistent module and would fail with `ModuleNotFoundError` if run. This means the geographic-breakdown feature (see Pillar 1 Frontend section — the `/segments?segment_type=GEOGRAPHIC` endpoint plumbing is genuinely fixed) has no way to ever get real data into `SegmentData` — the endpoint will work but stay permanently empty. |
+
+### 🟡 Partially verified — real code, but not scheduled or documented (the "orphaned engine" pattern)
+
+Every item below has genuine, correct transform/load logic and passes its own tests, but is only reachable via a manual `make` target — none are registered in `src/scheduler/batch_config.py` or documented in `CONNECTING_TO_REAL_DATA.md`. This is the exact "real but undiscoverable" failure mode `DATA_WIRING_AUDIT.md` flagged repeatedly for Pillar 3 before that pillar's connectors got scheduled — it has now recurred in Pillar 1's newest work:
+
+- **Tier 3 connectors** (6 of 7): capital structure, credit ratings, treasury securities, executives, FOMC meetings, central-bank policy (ECB/BOE series present but genuinely untested against live payloads, as the fix doc itself discloses). Capital structure and credit ratings additionally lack the unit tests `PILLAR_1_FIXES.md` claims exist.
+- **Only credit spreads (FRED BofA/ICE OAS) is fully wired end-to-end** — scheduled in `batch_config.py` and documented in `CONNECTING_TO_REAL_DATA.md` §6. This is the one Tier-3 connector to actually replicate.
+- **Tier 2 rollup scripts** (all 4): `OwnershipSummary`, `TechnicalStudyValue`, `ESGTemperatureScore`, debt-maturity rollup — all real, all runnable, all have passing tests, none scheduled/documented.
+- **CIK-list wiring** — mechanically correct for 5 of 6 scripts, but `ingest_corporate_actions.py`'s branch feeds the now-dead `Edgar8KConnector→EightKEvent` path (see false-claim row above), undercutting its practical value specifically for corporate actions.
+- **Entity hierarchy/GLEIF parents** — genuinely wired, but GLEIF-only coverage; EDGAR-sourced entities have no comparable parent linkage.
+
+### 🔴 Coverage gaps — `DATA_WIRING_AUDIT.md` Pillar-1 findings that `PILLAR_1_FIXES.md` never addresses at all
+
+- **FRED money-market rates** (`fred_money_market.py` stub `extract()`) — not mentioned, still stubbed.
+- **3 of 4 `expand=` security detail fields** — `FixedIncomeDetails`, security-level `CreditRating`, `CallPutSchedule` all still have zero writers. Only `EquityDetails.shares_outstanding` (the 4th field) was addressed.
+- **`EntityRelationship` vs. `BusinessRelationship` naming collision** — `EntityRelationship` (what `/entities/{id}/relationships` reads) still has zero writers; the real, working data lives in the differently-named `BusinessRelationship` table. Not touched.
+- **Corporate actions calendar dates** (`ex_date`/`record_date`/`payment_date` never set) — moot given `CorporateAction` has zero writers regardless (see false-claim row).
+- Money-market rates, corporate bonds/TRACE, and bond issuances/agency bonds are at least *honestly* flagged as incomplete in the Tier-3 table ("needs a source decision"/"needs FINRA credentials") — better than a silent gap, but still open.
+
+### ✅ Genuinely fixed (verified against code, not just the self-report)
+
+CIK-list wiring mechanics (5 of 6 scripts) · bond-analytics coupon conversion (no double-conversion) · Decimal-serialized-as-JSON-string schema fix · `security_finder` LIKE injection · `/find/suggest` 422 · `debt_maturity` API rewrite (latest-profile-or-404) · real relevance scoring (entities/securities/security_finder, replacing hardcoded `score=1.0`) · resolution queue wired for UNCERTAIN verdicts · entity history recording · `shares_outstanding` real XBRL fetch · `fi_yield_curve` dead import removed · trading calendars (real NYSE holiday engine, wired into `make seed`).
+
+---
+
+## Pillar 1 — Routers (code-level)
+
+*(74 issues across 30 router files — 62 FIXED, 6 PARTIALLY FIXED, 4 STILL OPEN across both halves; the audit's two headline CRITICAL crash-bug claims — `resolution.py`'s auth-bypass and `executives.py`'s invalid `.in_(select())` — are both confirmed fixed, along with every `.nullslast()` crash cluster.)*
+
+### 🔴 Still open
+
+| ID | File:line | Issue |
+|---|---|---|
+| P1-R-024 | `fundamentals.py` (5 endpoints) | Count query and data query still built as two independent `select()` statements with filters applied twice in parallel — structural divergence risk unaddressed (currently kept in sync by hand). |
+| P1-R-030 | `filing_intelligence.py` | `desc` still not imported — latent only, not a live bug (file never calls the bare `desc()` function, only `.desc()` as a method). |
+| P1-R-047 | `fi_yield_curve.py:273` | `df_tenor_years` dict still hardcoded inline, duplicates the module-level `_DF_COLS` keys — can silently drift. |
+| P1-R-050 | `fi_bonds.py` (6 endpoints) | Unnecessary `.scalars().unique()` on non-collection queries — cosmetic, not a correctness bug. |
+
+### 🟡 Partially fixed
+
+| ID | Detail |
+|---|---|
+| P1-R-003 | Real relevance scoring now exists, but there's still no actual Elasticsearch — search still runs ILIKE against Postgres. A real ES indexer (`src/search/indexer.py`) exists but is orphaned, not wired into `entities.py`/`securities.py`/`security_finder.py`. |
+| P1-R-022 | `request_id` now real (`uuid.uuid4()`), but `processing_time_ms` still hardcoded `0` — never computed for `reference.py` list endpoints. |
+| P1-R-029 | Fixed in `_build_diff_response` (now uses `" /// "`), but `get_filing_diff_summary` still joins AI summaries with the original unescaped `" | "`. |
+| P1-R-038 | `capital_structure.py`'s main endpoint now distinguishes missing-entity vs. missing-data 404s, but `get_capital_structure_summary` still returns one generic message for both cases. |
+| P1-R-065 | `ipo.py` — `.upper()` normalization added, but the underlying `IPO_PIPELINE_STATUSES` constant is still hardcoded magic strings with no enum — the added normalization is a no-op safety net, not the real fix. |
+| P1-R-073 | `market_movers.py`'s main `/movers` endpoint now correctly 404s on no data, but `/movers/summary` still fakes `snapshot_date=date.today()` on empty data — indistinguishable from a genuine zero-mover day. |
+
+**New findings beyond the original 74** (discovered while verifying, not in the original audit): `fi_spreads.py` imports `compute_ig_hy_differential` but never calls it — same dead-import class as the fixed P1-R-056. `market_movers.py` was completely rewritten to compute live from `EODPrice` (a good fix), but **broke 4 of 6 tests** in `tests/test_api/test_market_movers_api.py`, which still target the now-abandoned `MarketMoversSnapshot` model — including a silent contract change (empty case now 404s instead of the old 200/empty-list the tests expect).
+
+All other router items (P1-R-001, 002, 004–021, 023, 025–028, 031–037, 039–046, 048, 049, 051–064, 066–072, 074) are confirmed **FIXED**, including every `.nullslast()` crash (corporate_actions, relationships, capital_structure, ma_deals, ipo, fund_holdings), the `executives.py` invalid SQLAlchemy syntax, and the `resolution.py` auth-bypass-via-failed-import pattern (verified: no try/except around the auth import exists anymore, single authenticated definition per endpoint).
+
+---
+
+## Pillar 1 — Engines & app.py
+
+*(22 issues — 15 FIXED, 2 PARTIALLY FIXED, 5 STILL OPEN)*
+
+### 🔴 Still open
+
+| ID | File:line | Issue |
+|---|---|---|
+| P1-E-006 | `corporate_action_engine.py:314-336` | `match_corporate_actions_to_holdings()` fully implemented but still has zero production callers — dead code (only referenced from its own test). |
+| P1-E-008 | `filing_diff.py` `_is_numerical_only_change()` | Still over-strips hyphenated numbers — live-reproduced: `"The 3-month period ended"` → `"The -month period ended"`. |
+| P1-E-014 | `eight_k_engine.py::parse_eight_k_items` | Still returns `[]` with no signal distinguishing genuine no-items from a parse failure. |
+| P1-E-018 | `market_movers.py` engine | Still silently drops null price/prior-close/volume rows with zero logging of how many were excluded. |
+| P1-E-019 | `market_movers.py` engine | `most_active` still silently returns `[]` when all securities have `volume=None`, no "quiet day" vs. "no data" signal. |
+
+### 🟡 Partially fixed
+
+| ID | Detail |
+|---|---|
+| P1-E-009 | A `ChangeClassification` StrEnum was added and used inside `classify_change()`, but the function's return type is still annotated `str`, and sibling fields (`ParagraphAlignment.type`, `SectionDiffResult.classification`) remain raw unconstrained string literals. |
+| P1-E-017 | `resolve_issuer_to_parent()` now has a real `min_confidence=0.5` floor — but the entire `issuer_linkage` module has zero production callers, so the None-handling question this item raised doesn't currently arise anywhere in the running app. |
+
+All other engine items (P1-E-001–005, 007, 010–013, 015, 016) and all 3 app.py items (P1-A-001–003 — CORS, lifespan/startup auto-seed, safe `getattr()` on request-state fields) are confirmed **FIXED**.
+
+---
+
+## Pillar 1 — Models & schemas
+
+*(31 issues — 13 FIXED, 13 PARTIALLY FIXED [model-only, no migration — the same recurring pattern seen in every other pillar], 5 STILL OPEN)*
+
+### 🔴 Still open
+
+| ID | File:line | Issue |
+|---|---|---|
+| P1-M-002 | `src/models/entity.py:86`, `src/resolution/matcher.py` | Audit's original premise (confidence stored 0–100, column caps at 9.99) is factually wrong — confidence is consistently 0–1 scale throughout the codebase. But a **real** bug remains underneath: `matcher.py` computes confidence to 4 decimal places while `Numeric(3,2)` only stores 2 — silent truncation on save (e.g. `0.8534` → `0.85`), untouched in both model and migration. |
+| P1-M-025 | `src/models/ipo.py:49-50,65` | `lead_underwriters`/`co_managers`/`source_filings` still unvalidated JSONB — schema now types `lead_underwriters` for output, but `co_managers`/`source_filings` aren't even exposed, and nothing stops invalid structures on write. |
+| P1-M-026 | `src/models/ma_deals.py` | `acquirer_financial_advisors`/`regulatory_approvals_required` still unvalidated JSONB. (Note: audit's cited `conditions_to_close` field doesn't exist in the model at all — stale reference, but the "no validation" complaint holds for the fields that do exist.) |
+| P1-M-027 | `src/models/relationships.py:64` | `metadata_json` still unvalidated JSONB passthrough. |
+| P1-M-030 | `src/models/yield_curve.py:103` | `tenor_years: Numeric(6,2)` still caps at 9999.99 years, unchanged at both model and migration level. |
+
+### 🟡 Partially fixed (model edited, matching Alembic migration never written — same pattern as Pillar 2/3)
+
+P1-M-005 through P1-M-010 (missing FKs on corporate_bond/capital_structure/debt_maturity/credit_rating — all added to models, none to migrations), P1-M-012 (Security→credit_ratings/call_put_schedule cascade added, but **no relationship at all exists** from `Security` to `EODPrice`/price history — untouched), P1-M-018 through P1-M-021 (composite indexes added to models only), P1-M-028 (`data_version` CHECK constraint model-only), P1-M-029 (`volume` changed to `BigInteger` in the model, but migration still creates `Numeric(20,0)` — a fresh DB from migrations still has the wrong type).
+
+**Cross-cutting note:** `PILLAR_1_FIXES.md`'s Decimal→float schema change (to fix Pydantic's Decimal-as-JSON-string serialization bug) only touches `corporate_bond.py`'s market-data fields and *all* numeric fields in `capital_structure.py` — it doesn't conflict with P1-M-001–004 (different files, already correctly typed `Decimal`), but it does reintroduce float precision loss specifically in `capital_structure.py` (including `confidence_score` there), an issue outside this audit's original 31 items but worth knowing about.
+
+All other model items (P1-M-001, 003, 004, 011, 013–017, 022–024, 031) are confirmed **FIXED** at both model and migration level (or needed no migration — pure ORM relationship declarations).
+
+---
+
+## Pillar 1 — Frontend
+
+*(36 issues — hooks: 10 FIXED/1 PARTIAL/2 OPEN + geographic-breakdown build spec now BUILT; pages: 16 FIXED/2 PARTIAL/5 OPEN, all still-open page items are `as any` casts)*
+
+### 🔴 Still open
+
+| ID | File:line | Issue |
+|---|---|---|
+| P1-F-007 | `frontend/src/api/hooks/useSecurities.ts:88-96` | `useSecurityTranslate()` still a `useMutation` wrapping a POST — named like a read, implemented as a write. |
+| P1-F-013 | `frontend/src/hooks/useFI.ts` (~50 hooks) | Still no explicit per-hook `staleTime` — relies solely on the global 5-minute `QueryClient` default, unlike the sibling `api/hooks/useFiBonds.ts` which sets `STALE_24H`/`STALE_1H` explicitly. |
+| P1-FP-008, 010, 012, 014, 016, 018 | `FinancialStatements.tsx`, `OwnershipDashboard.tsx`, `FilingsView.tsx` (company/), `ESGDashboard.tsx`, `GovernanceDashboard.tsx`, `FIDashboard.tsx` | `as any`/`as any[]` casts on API responses remain on all 6 pages that originally had them — none were cleaned up in the mock-data remediation pass. |
+
+### 🟡 Partially fixed
+
+| ID | Detail |
+|---|---|
+| P1-F-008 | Cache invalidation scoped from the bare `['entities']` root down to `['entities','list']`/`['entities','detail']` — better, but `useUpdateEntity` has the specific `id` available in its mutation variables and still doesn't use it for a precise `['entities','detail',id]` invalidation. |
+| P1-FP-006 | `FinancialStatements.tsx` — Apple hardcode (`'Apple Inc.'/'AAPL'`) removed, but the replacement `const company = {name:'Loading...', ticker:''}` is **still a static constant never wired to any hook** — the header permanently reads "— Loading..." regardless of which entity is selected. No longer deceptive-as-Apple, but still broken. |
+| P1-FP-009 | `OwnershipDashboard.tsx` — mock holder/summary/short-interest/activist objects emptied (no more Vanguard/BlackRock/Elliott names), but two fabricated precise numbers remain hardcoded and unconnected to any API: `insiderPct={0.07}` and `institutionalPct={60.8}`. |
+
+**The headline finding is resolved:** none of the 10 Pillar 1 pages still show Apple/AAPL data as a fallback — every hardcoded mock dataset (CompanyOverview, FinancialStatements, OwnershipDashboard, FilingsView, ESGDashboard, GovernanceDashboard, FIDashboard, BondDetail, IPOMonitor, DealsView) has been emptied, and 4 of the 10 pages (CompanyOverview, BondDetail, IPOMonitor, DealsView) are now fully clean with no remaining issues at all. No "Demo mode" disclosure banner exists on any of them (unlike `ScreenerDashboard.tsx` elsewhere in the app) — the chosen remediation was "show nothing/placeholder" rather than "disclose it's fake," which is honest but less informative to a user than a banner would be.
+
+**Geographic breakdown (Section 7 build spec) — plumbing BUILT, but blocked by the Pillar-1 data-wiring gap above.** Backend `GET /v1/entities/{id}/segments?segment_type=GEOGRAPHIC` now exists exactly per the audit's recommended approach, and `useGeographicBreakdown` correctly points at it. But since `scripts/ingest_segments.py` doesn't exist (see Data Wiring section above), `SegmentData` never gets populated — the endpoint works but will return empty results forever until that connector gap is closed.
+
+All other frontend items (P1-F-001–006, 009–012, P1-FP-001–005, 007, 011, 013, 015, 017, 019–023) are confirmed **FIXED**, including the duplicate-hook-definitions cleanup (one file is now a re-export barrel), all 4 non-null-assertion URL bugs, both barrel `index.ts` files, and every one of the 10 hardcoded Apple mock datasets.
+
+---
 
 ---
 
@@ -394,14 +544,16 @@ All other frontend items (P4-F-001–008, P4-F-016, P4-F-018, P4-F-019, P4-F-020
 
 Ranked by leverage (impact of fix ÷ effort), not by original severity label:
 
-1. **Models/schemas are the weakest layer across pillars, and Pillar 2/3's "fixes" are a trap.** Someone edited `src/models/*.py` extensively for both Pillar 2 (`data_quality` column, `metric_category` CHECK constraint) and Pillar 3 (11 items) but never touched `migrations/versions/`. Anyone deploying from migrations gets none of those fixes. **First action: reconcile models vs. migrations with a new Alembic revision**, or the model edits are dead weight.
-2. **Decimal→float precision loss (Pillar 4, P4-M-001–007)** — untouched across all 7 financial schema groups. Every monetary number in the portfolio system loses precision on serialization. High blast radius, moderate effort (schema type change + serializer).
-3. **Backtesting is a dead end in every pillar that has one.** Pillar 2's `/v2/analytics/backtest`, Pillar 4's `/v1/analytics/backtest`, and Pillar 4's frontend `BacktestDashboard.tsx` (which calls a *third*, entirely nonexistent set of endpoints) are three independent broken implementations of the same feature. All three honestly return `PENDING`/empty instead of fake data now, but **no batch worker exists anywhere** in the repo to ever advance a PENDING backtest, and the Pillar 4 frontend has a newly-introduced `NaN`/`undefined` KPI display bug on top. This is the single most broken end-to-end feature surfaced across all three audits — worth consolidating into one real implementation rather than fixing three broken ones.
-4. **Frontend endpoint/backend mismatches with zero backend implementation** (not just wiring bugs, an actual missing feature) cluster around the same few concepts across pillars: **benchmarks** (`/v1/benchmarks` — Pillar 2 Bugs 94/95 and Pillar 4 P4-F-009 are the *same* missing router hit from two different pages), **quant** (`/factor-exposure`, `/technical-signals`, `/correlation`'s zeroed-out metrics — Pillar 2 Bugs 87/93 and Pillar 4 P4-F-010), **technical-backtest** (P4-F-011), **FI-risk** (P4-F-012). These need one scoping decision each (build the backend, or remove the dead frontend code) rather than a wiring fix.
-5. **The "remove hardcoded mock, fall back to real API data" pass introduced real regressions in `ValuationDashboard.tsx` (Pillar 2, Bugs 79/82).** Two of its three still-open frontend bugs are now **worse** than the original static-mock version: unguarded `.map()` calls on API responses that are objects, not arrays, will throw `TypeError` and crash the page the moment a security with real multiples/peer data loads — masked today only because the underlying endpoints' response shape was never checked against what the component expects. Same failure class as `BacktestDashboard.tsx`'s `NaN%` tiles (item 3) — worth a systematic sweep for `(x as any[])` casts with no `Array.isArray` guard across all three pillars' frontends, since this pattern reproduced independently at least 3 times.
-6. **`AnomalyView.tsx` (Pillar 3) is the one page where the original F-001 mock-data bug is fully unfixed** — worth a 10-minute fix to match the pattern already applied to the other 8 pages in the same audit.
-7. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unguarded `abs(None)` crash path (E-013) and unweighted surprise sum (E-036), Pillar 2's screener payload wrapper key (Bug 46, one JSON key away from working), Pillar 2's `/screen/fields` E3-field exclusion (Bug 64).
+1. **Models/schemas are the weakest layer across every pillar, and Pillar 1/2/3's "fixes" are a trap.** Someone edited `src/models/*.py` extensively for Pillar 1 (18 items), Pillar 2 (`data_quality` column, `metric_category` CHECK constraint), and Pillar 3 (11 items) but never touched `migrations/versions/`. Anyone deploying from migrations gets none of those fixes. **First action: reconcile models vs. migrations with a new Alembic revision**, or the model edits are dead weight. This is the single most repeated failure pattern in the whole codebase — it has now been independently confirmed in all four pillars.
+2. **Self-reported fix docs need independent verification, not just a re-read — `PILLAR_1_FIXES.md` is a concrete example.** Its "Corporate actions `security_id` fix" claim is actively false: the connector was switched to write a different table entirely, and the table the API actually reads (`CorporateAction`) still has zero writers — the endpoint went from "wrong filter" to "permanently empty," which is worse than the bug it claimed to fix. Its "SegmentData connector" claim cites a driver script (`scripts/ingest_segments.py`) that doesn't exist in the repo at all. Treat any "Fixes Applied" document as a hypothesis to verify against code, the same discipline applied to the original audits throughout this file.
+3. **Decimal→float precision loss (Pillar 4, P4-M-001–007)** — untouched across all 7 financial schema groups. Every monetary number in the portfolio system loses precision on serialization. High blast radius, moderate effort (schema type change + serializer). Pillar 1's version of this problem is smaller in scope but shows the same instinct: a targeted Decimal→float reversion in `capital_structure.py`/`corporate_bond.py` fixed a real Pydantic serialization bug but reintroduced float precision loss as a side effect.
+4. **Backtesting is a dead end in every pillar that has one.** Pillar 2's `/v2/analytics/backtest`, Pillar 4's `/v1/analytics/backtest`, and Pillar 4's frontend `BacktestDashboard.tsx` (which calls a *third*, entirely nonexistent set of endpoints) are three independent broken implementations of the same feature. All three honestly return `PENDING`/empty instead of fake data now, but **no batch worker exists anywhere** in the repo to ever advance a PENDING backtest, and the Pillar 4 frontend has a newly-introduced `NaN`/`undefined` KPI display bug on top. This is the single most broken end-to-end feature surfaced across all four audits — worth consolidating into one real implementation rather than fixing three broken ones.
+5. **The "real code, but nobody scheduled or documented it" pattern is now confirmed in three of four pillars.** Pillar 3 had this fixed as part of the main `DATA_WIRING_AUDIT.md` pass (11 connectors registered in `batch_config.py`/documented in `CONNECTING_TO_REAL_DATA.md`). Pillar 1's brand-new work from today (6 of 7 Tier-3 connectors, all 4 Tier-2 rollup scripts) has **not** received that same treatment — real, tested code reachable only via a manual `make` target. Since Pillar 3 already has the playbook for closing this exact gap, applying it to Pillar 1's new connectors should be comparatively cheap.
+6. **Frontend endpoint/backend mismatches with zero backend implementation** (not just wiring bugs, an actual missing feature) cluster around the same few concepts across pillars: **benchmarks** (`/v1/benchmarks` — Pillar 2 Bugs 94/95 and Pillar 4 P4-F-009 are the *same* missing router hit from two different pages), **quant** (`/factor-exposure`, `/technical-signals`, `/correlation`'s zeroed-out metrics — Pillar 2 Bugs 87/93 and Pillar 4 P4-F-010), **technical-backtest** (P4-F-011), **FI-risk** (P4-F-012). These need one scoping decision each (build the backend, or remove the dead frontend code) rather than a wiring fix.
+7. **The "remove hardcoded mock, fall back to real API data" pass introduced real regressions in `ValuationDashboard.tsx` (Pillar 2, Bugs 79/82).** Two of its three still-open frontend bugs are now **worse** than the original static-mock version: unguarded `.map()` calls on API responses that are objects, not arrays, will throw `TypeError` and crash the page the moment a security with real multiples/peer data loads — masked today only because the underlying endpoints' response shape was never checked against what the component expects. Same failure class as `BacktestDashboard.tsx`'s `NaN%` tiles (item 4) — worth a systematic sweep for `(x as any[])` casts with no `Array.isArray` guard across all four pillars' frontends, since this pattern reproduced independently at least 3 times. Pillar 1's frontend pass avoided this specific trap (no regressions found), for comparison — it just left `as any` casts in place rather than introducing new unguarded array assumptions.
+8. **`AnomalyView.tsx` (Pillar 3) is the one page where the original F-001 mock-data bug is fully unfixed** — worth a 10-minute fix to match the pattern already applied to the other 8 pages in the same audit, and to the equivalent 10-page sweep that fully succeeded in Pillar 1.
+9. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unguarded `abs(None)` crash path (E-013) and unweighted surprise sum (E-036), Pillar 2's screener payload wrapper key (Bug 46, one JSON key away from working), Pillar 2's `/screen/fields` E3-field exclusion (Bug 64), Pillar 1's `fi_yield_curve.py` duplicated tenor dict (P1-R-047), and the `market_movers.py` test suite that needs updating to match its own rewritten router (Pillar 1).
 
 ---
 
-*This file supersedes nothing — `PILLAR_2_AUDIT_REPORT_v2.md`, `PILLAR_3_AUDIT_REPORT_v2.md`, `PILLAR_4_AUDIT_REPORT_v2.md`, and `DATA_WIRING_AUDIT.md` remain the historical record of what was originally found and what the 2026-07-05/07-09 fix passes changed. This file is the current-state cross-reference layered on top.*
+*This file supersedes nothing — `PILLAR_1_AUDIT_REPORT_v2.md`, `PILLAR_2_AUDIT_REPORT_v2.md`, `PILLAR_3_AUDIT_REPORT_v2.md`, `PILLAR_4_AUDIT_REPORT_v2.md`, `PILLAR_1_FIXES.md`, and `DATA_WIRING_AUDIT.md` remain the historical record of what was originally found and what each fix pass changed. This file is the current-state cross-reference layered on top, with `DATA_WIRING_AUDIT.md` treated as the primary authority per current direction.*
