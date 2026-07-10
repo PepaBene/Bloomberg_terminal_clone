@@ -162,16 +162,34 @@ def extract_sections(html_text: str, filing_type: str = "10-K") -> dict[str, str
     """
     plain = _strip_html(html_text)
 
-    # Find all section boundaries
-    boundaries: list[tuple[str, int]] = []
-
+    # Gather every candidate header position for each section key.
+    candidates: dict[str, list[int]] = {}
     for key, patterns in _SECTION_PATTERNS.items():
+        starts: set[int] = set()
         for pat in patterns:
             for match in pat.finditer(plain):
-                # Avoid duplicates — only keep the first match per section key
-                if not any(k == key for k, _ in boundaries):
-                    boundaries.append((key, match.start()))
-                break
+                starts.add(match.start())
+        if starts:
+            candidates[key] = sorted(starts)
+
+    # Global sorted list of all header positions, used to score how much text
+    # follows each candidate before the next header of any section.
+    all_positions = sorted({p for starts in candidates.values() for p in starts})
+
+    def _span_after(pos: int) -> int:
+        for p in all_positions:
+            if p > pos:
+                return p - pos
+        return len(plain) - pos
+
+    # For each section key pick the occurrence with the largest following span.
+    # A real body header is followed by the full section text; a table-of-contents
+    # entry is immediately followed by the next TOC entry (tiny span), so this
+    # discriminator selects the body header over dense TOC links.
+    boundaries: list[tuple[str, int]] = []
+    for key, starts in candidates.items():
+        best_start = max(starts, key=_span_after)
+        boundaries.append((key, best_start))
 
     # Sort boundaries by position
     boundaries.sort(key=lambda x: x[1])

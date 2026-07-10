@@ -49,6 +49,16 @@ class Settings(BaseSettings):
         "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
     )
 
+    # Political / regulatory intelligence (all keyless, free public sources).
+    # Legislative bills: GovInfo Congressional Bills RSS (keyless XML).
+    GOVINFO_BILLS_FEED_URL: str = "https://www.govinfo.gov/rss/bills.xml"
+    # Regulatory actions: Federal Register public API (keyless JSON).
+    FEDERAL_REGISTER_API_URL: str = (
+        "https://www.federalregister.gov/api/v1/documents.json"
+    )
+    # Sanctions: OFAC Specially Designated Nationals (SDN) list (keyless CSV).
+    OFAC_SDN_CSV_URL: str = "https://www.treasury.gov/ofac/downloads/sdn.csv"
+
     # Polygon.io (EOD Prices)
     POLYGON_API_KEY: str = ""
     POLYGON_RATE_LIMIT: int = 5  # requests per second (free tier)

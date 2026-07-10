@@ -43,6 +43,41 @@ TRANSACTION_CODES = {
     "U": "DISPOSITION_TENDER",
 }
 
+# Mapping of Form 4 transaction codes to the Pillar 3 `transaction_type`
+# vocabulary consumed by the filing-intelligence API (BUY / SELL / EXERCISE / ...).
+P3_TRANSACTION_TYPE = {
+    "P": "BUY",
+    "S": "SELL",
+    "A": "GRANT",
+    "M": "EXERCISE",
+    "X": "EXERCISE",
+    "C": "CONVERSION",
+    "F": "TAX",
+    "G": "GIFT",
+    "D": "SELL",  # disposition to issuer
+    "E": "EXPIRE",
+    "W": "ACQUIRE",
+    "K": "SWAP",
+    "U": "SELL",
+    "I": "OTHER",
+    "J": "OTHER",
+}
+
+# P3 transaction types that represent shares flowing TO the insider (positive net).
+_ACQUIRE_TYPES = {"BUY", "GRANT", "EXERCISE", "CONVERSION", "ACQUIRE"}
+
+
+def _normalize_cik(cik: str | None) -> str | None:
+    """Normalize a CIK to the unpadded form stored in entity_identifiers.
+
+    Form 4 XML reports zero-padded 10-digit CIKs (e.g. ``0000320193``) whereas
+    ``entity_identifiers.identifier_value`` stores them unpadded (``320193``).
+    """
+    if not cik:
+        return None
+    stripped = cik.strip().lstrip("0")
+    return stripped or "0"
+
 
 class EdgarForm4Connector(BaseConnector):
     """Ingest insider transactions from SEC EDGAR Form 4 filings."""
@@ -193,22 +228,20 @@ class EdgarForm4Connector(BaseConnector):
 
             relationship = owner.find(".//reportingOwnerRelationship")
             if relationship is not None:
-                if relationship.find("isDirector") is not None:
-                    dir_el = relationship.find("isDirector")
-                    if dir_el is not None and dir_el.text and dir_el.text.strip() == "1":
-                        result["insider_relationship"] = "DIRECTOR"
-                if relationship.find("isOfficer") is not None:
-                    officer_el = relationship.find("isOfficer")
-                    if officer_el is not None and officer_el.text and officer_el.text.strip() == "1":
-                        result["insider_relationship"] = "OFFICER"
-                        title_el = relationship.find("officerTitle")
-                        if title_el is not None and title_el.text:
-                            result["insider_title"] = title_el.text.strip()
-                if relationship.find("isTenPercentOwner") is not None:
-                    ten_el = relationship.find("isTenPercentOwner")
-                    if ten_el is not None and ten_el.text and ten_el.text.strip() == "1":
-                        if result["insider_relationship"] is None:
-                            result["insider_relationship"] = "TEN_PERCENT_OWNER"
+                def _flag(tag: str) -> bool:
+                    # SEC filers use either "1" or "true" for boolean flags.
+                    el = relationship.find(tag)
+                    return el is not None and el.text is not None and el.text.strip().lower() in ("1", "true")
+
+                if _flag("isDirector"):
+                    result["insider_relationship"] = "DIRECTOR"
+                if _flag("isOfficer"):
+                    result["insider_relationship"] = "OFFICER"
+                    title_el = relationship.find("officerTitle")
+                    if title_el is not None and title_el.text:
+                        result["insider_title"] = title_el.text.strip()
+                if _flag("isTenPercentOwner") and result["insider_relationship"] is None:
+                    result["insider_relationship"] = "TEN_PERCENT_OWNER"
 
         # Non-derivative transactions
         for txn in root.findall(".//nonDerivativeTransaction"):
@@ -379,23 +412,40 @@ class EdgarForm4Connector(BaseConnector):
         for rec in records:
             issuer_cik = rec["issuer_cik"]
             insider_name = rec["insider_name"]
+            insider_cik = rec.get("insider_cik")
             insider_title = rec.get("insider_title")
             insider_relationship = rec.get("insider_relationship")
+            accession = rec.get("accession_number")
 
             for txn in rec["transactions"]:
+                transaction_code = txn.get("transaction_code")
+                ownership_nature = txn.get("ownership_nature")
                 transformed.append({
                     "issuer_cik": issuer_cik,
                     "insider_name": insider_name,
+                    "insider_cik": insider_cik,
                     "insider_title": insider_title,
                     "insider_relationship": insider_relationship,
+                    # transaction_type keeps the InsiderHolding vocabulary
+                    # (PURCHASE/SALE/...) for backwards compatibility.
                     "transaction_type": txn["transaction_type"],
+                    # p3_transaction_type is the API vocabulary (BUY/SELL/...).
+                    "p3_transaction_type": P3_TRANSACTION_TYPE.get(
+                        transaction_code, "OTHER"
+                    ),
+                    "transaction_code": transaction_code,
+                    "acquired_disposed": txn.get("acquired_disposed"),
+                    "is_derivative": txn.get("is_derivative", False),
                     "transaction_date": txn["transaction_date"],
                     "shares_transacted": txn.get("shares_transacted"),
                     "price_per_share": txn.get("price_per_share"),
                     "total_value": txn.get("total_value"),
                     "shares_owned_after": txn.get("shares_owned_after"),
-                    "ownership_nature": txn.get("ownership_nature"),
-                    "accession_number": rec.get("accession_number"),
+                    "ownership_nature": ownership_nature,
+                    "is_open_market": transaction_code in ("P", "S"),
+                    "is_direct_ownership": ownership_nature != "I",
+                    "accession_number": accession,
+                    "filing_date": rec.get("filing_date"),
                 })
 
         logger.info(f"Transformed {len(transformed)} insider transaction records")
@@ -404,82 +454,293 @@ class EdgarForm4Connector(BaseConnector):
     async def load(
         self, records: list[dict[str, Any]], session: AsyncSession
     ) -> dict[str, int]:
-        """Write insider transaction records to database."""
+        """Write insider transactions to `insider_holdings` and `insider_transactions_p3`.
+
+        `insider_holdings` (Domain 6) is keyed on a security and is written only
+        when a matching Security exists. `insider_transactions_p3` (Pillar 3) is
+        keyed on the issuer entity and is written whenever the issuer CIK resolves
+        to an entity. After the per-record loads, aggregated `insider_signals`
+        rows are computed for every entity that received new transactions.
+        """
         from src.models.entity import EntityIdentifier
+        from src.models.insider_intelligence import InsiderTransactionP3
         from src.models.ownership import InsiderHolding
         from src.models.security import Security
 
-        stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+        stats = {
+            "inserted": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "p3_inserted": 0,
+            "p3_skipped": 0,
+            "signals_upserted": 0,
+        }
+
+        # Cache CIK -> (entity_id, security_id) resolutions across records.
+        resolution_cache: dict[str, tuple[Any, Any]] = {}
+        touched_entities: set[Any] = set()
 
         for rec in records:
             try:
                 issuer_cik = rec["issuer_cik"]
+                lookup_cik = _normalize_cik(issuer_cik)
 
-                # Resolve entity_id from issuer CIK (CIK is an entity-level identifier)
-                result = await session.execute(
-                    select(EntityIdentifier).where(
-                        EntityIdentifier.identifier_type == "CIK",
-                        EntityIdentifier.identifier_value == issuer_cik,
-                    )
-                )
-                entity_ident = result.scalar_one_or_none()
-                entity_id = entity_ident.entity_id if entity_ident else None
-
-                # Find the security associated with this entity
-                security_id = None
-                if entity_id is not None:
-                    sec_result = await session.execute(
-                        select(Security).where(
-                            Security.issuer_entity_id == entity_id,
+                if lookup_cik in resolution_cache:
+                    entity_id, security_id = resolution_cache[lookup_cik]
+                else:
+                    result = await session.execute(
+                        select(EntityIdentifier).where(
+                            EntityIdentifier.identifier_type == "CIK",
+                            EntityIdentifier.identifier_value == lookup_cik,
                         )
                     )
-                    security = sec_result.scalars().first()
-                    if security is not None:
-                        security_id = security.security_id
+                    entity_ident = result.scalar_one_or_none()
+                    entity_id = entity_ident.entity_id if entity_ident else None
 
-                if security_id is None:
+                    security_id = None
+                    if entity_id is not None:
+                        sec_result = await session.execute(
+                            select(Security).where(
+                                Security.issuer_entity_id == entity_id,
+                            )
+                        )
+                        security = sec_result.scalars().first()
+                        if security is not None:
+                            security_id = security.security_id
+                    resolution_cache[lookup_cik] = (entity_id, security_id)
+
+                # No entity means nothing can be written for this record.
+                if entity_id is None:
                     stats["skipped"] += 1
+                    stats["p3_skipped"] += 1
                     continue
 
                 transaction_date_val = date.fromisoformat(rec["transaction_date"])
 
-                # Check for duplicate
-                existing = await session.execute(
-                    select(InsiderHolding).where(
-                        InsiderHolding.security_id == security_id,
-                        InsiderHolding.insider_name == rec["insider_name"],
-                        InsiderHolding.transaction_date == transaction_date_val,
-                        InsiderHolding.transaction_type == rec["transaction_type"],
+                # --- insider_holdings (requires a security) ---
+                if security_id is not None:
+                    existing = await session.execute(
+                        select(InsiderHolding).where(
+                            InsiderHolding.security_id == security_id,
+                            InsiderHolding.insider_name == rec["insider_name"],
+                            InsiderHolding.transaction_date == transaction_date_val,
+                            InsiderHolding.transaction_type == rec["transaction_type"],
+                        )
+                    )
+                    if existing.scalar_one_or_none() is not None:
+                        stats["skipped"] += 1
+                    else:
+                        session.add(InsiderHolding(
+                            transaction_id=uuid.uuid4(),
+                            security_id=security_id,
+                            entity_id=entity_id,
+                            insider_name=rec["insider_name"],
+                            insider_title=rec.get("insider_title"),
+                            insider_relationship=rec.get("insider_relationship"),
+                            transaction_type=rec["transaction_type"],
+                            transaction_date=transaction_date_val,
+                            shares_transacted=Decimal(str(rec["shares_transacted"])) if rec.get("shares_transacted") is not None else None,
+                            price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
+                            total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
+                            shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
+                            ownership_nature=rec.get("ownership_nature"),
+                        ))
+                        stats["inserted"] += 1
+
+                # --- insider_transactions_p3 (requires only an entity) ---
+                shares_dec = (
+                    Decimal(str(rec["shares_transacted"]))
+                    if rec.get("shares_transacted") is not None else None
+                )
+                # Natural key: entity + person + date + code + shares.
+                p3_existing = await session.execute(
+                    select(InsiderTransactionP3.id).where(
+                        InsiderTransactionP3.entity_id == entity_id,
+                        InsiderTransactionP3.reporting_person == rec["insider_name"],
+                        InsiderTransactionP3.transaction_date == transaction_date_val,
+                        InsiderTransactionP3.transaction_code == rec.get("transaction_code"),
+                        InsiderTransactionP3.shares == shares_dec,
                     )
                 )
-                if existing.scalar_one_or_none() is not None:
-                    stats["skipped"] += 1
-                    continue
+                if p3_existing.first() is not None:
+                    stats["p3_skipped"] += 1
+                else:
+                    filing_date_val = None
+                    if rec.get("filing_date"):
+                        try:
+                            filing_date_val = date.fromisoformat(rec["filing_date"])
+                        except (ValueError, TypeError):
+                            filing_date_val = None
 
-                holding = InsiderHolding(
-                    transaction_id=uuid.uuid4(),
-                    security_id=security_id,
-                    entity_id=entity_id,
-                    insider_name=rec["insider_name"],
-                    insider_title=rec.get("insider_title"),
-                    insider_relationship=rec.get("insider_relationship"),
-                    transaction_type=rec["transaction_type"],
-                    transaction_date=transaction_date_val,
-                    shares_transacted=Decimal(str(rec["shares_transacted"])) if rec.get("shares_transacted") is not None else None,
-                    price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
-                    total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
-                    shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
-                    ownership_nature=rec.get("ownership_nature"),
-                )
-                session.add(holding)
-                stats["inserted"] += 1
+                    filing_url = None
+                    accession = rec.get("accession_number")
+                    if accession and lookup_cik:
+                        acc_clean = accession.replace("-", "")
+                        filing_url = (
+                            f"{ARCHIVES_BASE_URL}/{lookup_cik}/{acc_clean}/"
+                            f"{accession}-index.htm"
+                        )[:500]
+
+                    session.add(InsiderTransactionP3(
+                        entity_id=entity_id,
+                        reporting_person=rec["insider_name"][:200],
+                        reporting_person_cik=(rec.get("insider_cik") or None) if rec.get("insider_cik") else None,
+                        relationship=(rec.get("insider_relationship") or "UNKNOWN")[:30],
+                        transaction_type=rec["p3_transaction_type"][:20],
+                        transaction_code=rec.get("transaction_code"),
+                        transaction_date=transaction_date_val,
+                        shares=shares_dec,
+                        price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
+                        total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
+                        shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
+                        is_open_market=bool(rec.get("is_open_market", False)),
+                        is_10b5_1=False,  # not reliably present in Form 4 ownership XML
+                        is_direct_ownership=bool(rec.get("is_direct_ownership", True)),
+                        filing_date=filing_date_val,
+                        filing_url=filing_url,
+                    ))
+                    stats["p3_inserted"] += 1
+                    touched_entities.add(entity_id)
 
             except Exception as e:
                 logger.error(f"Error loading Form 4 transaction: {e}")
                 stats["errors"] += 1
 
         await session.flush()
+
+        # Compute aggregated insider signals for entities with new transactions.
+        for entity_id in touched_entities:
+            try:
+                upserted = await self._compute_signal(session, entity_id)
+                stats["signals_upserted"] += upserted
+            except Exception as e:
+                logger.error(f"Error computing insider signal for {entity_id}: {e}")
+                stats["errors"] += 1
+
+        await session.flush()
         return stats
+
+    async def _compute_signal(self, session: AsyncSession, entity_id: Any) -> int:
+        """Compute and upsert an `insider_signals` row for one entity.
+
+        Aggregates all `insider_transactions_p3` rows for the entity over trailing
+        30/90/365-day windows (relative to today) into net share/value flows and
+        insider counts, then classifies the entity's signal.
+        """
+        from datetime import timedelta
+
+        from src.models.insider_intelligence import InsiderSignal, InsiderTransactionP3
+
+        today = date.today()
+        cutoff_365 = today - timedelta(days=365)
+
+        result = await session.execute(
+            select(InsiderTransactionP3).where(
+                InsiderTransactionP3.entity_id == entity_id,
+                InsiderTransactionP3.transaction_date >= cutoff_365,
+            )
+        )
+        txns = result.scalars().all()
+        if not txns:
+            return 0
+
+        def _signed_shares(t: "InsiderTransactionP3") -> Decimal:
+            shares = t.shares or Decimal(0)
+            return shares if t.transaction_type in _ACQUIRE_TYPES else -shares
+
+        def _signed_value(t: "InsiderTransactionP3") -> Decimal:
+            value = t.total_value or Decimal(0)
+            return value if t.transaction_type in _ACQUIRE_TYPES else -value
+
+        windows = {
+            30: today - timedelta(days=30),
+            90: today - timedelta(days=90),
+            365: cutoff_365,
+        }
+        net_shares = {w: Decimal(0) for w in windows}
+        net_value = {w: Decimal(0) for w in windows}
+        for t in txns:
+            s = _signed_shares(t)
+            v = _signed_value(t)
+            for w, cutoff in windows.items():
+                if t.transaction_date >= cutoff:
+                    net_shares[w] += s
+                    net_value[w] += v
+
+        open_market_buys_90d = sum(
+            1 for t in txns
+            if t.is_open_market and t.transaction_type == "BUY"
+            and t.transaction_date >= windows[90]
+        )
+        buyers_30d = {
+            t.reporting_person for t in txns
+            if t.transaction_date >= windows[30]
+            and t.transaction_type in _ACQUIRE_TYPES
+        }
+        sellers_30d = {
+            t.reporting_person for t in txns
+            if t.transaction_date >= windows[30]
+            and t.transaction_type not in _ACQUIRE_TYPES
+        }
+
+        # Classify signal from 90-day net value + open-market buying breadth.
+        nv90 = net_value[90]
+        if open_market_buys_90d >= 2 and len(buyers_30d) >= 2 and nv90 > 0:
+            signal_type = "CLUSTER_BUY"
+        elif nv90 > 0:
+            signal_type = "NET_BUYING"
+        elif nv90 < 0:
+            signal_type = "NET_SELLING"
+        else:
+            signal_type = "NEUTRAL"
+
+        # Strength 0-100 scaled by |net value| (log-ish) + open-market breadth.
+        magnitude = abs(float(nv90))
+        strength = min(100, int(magnitude / 1_000_000 * 10) + open_market_buys_90d * 10)
+
+        detail = {
+            "net_shares_30d": float(net_shares[30]),
+            "net_shares_90d": float(net_shares[90]),
+            "net_shares_365d": float(net_shares[365]),
+            "net_value_30d": float(net_value[30]),
+            "net_value_90d": float(net_value[90]),
+            "net_value_365d": float(net_value[365]),
+            "open_market_buy_count_90d": open_market_buys_90d,
+            "insider_count_buying_30d": len(buyers_30d),
+            "insider_count_selling_30d": len(sellers_30d),
+            "transaction_count_365d": len(txns),
+        }
+
+        # Upsert on (entity_id, signal_date, signal_type).
+        existing = await session.execute(
+            select(InsiderSignal).where(
+                InsiderSignal.entity_id == entity_id,
+                InsiderSignal.signal_date == today,
+                InsiderSignal.signal_type == signal_type,
+            )
+        )
+        signal = existing.scalar_one_or_none()
+        if signal is None:
+            signal = InsiderSignal(
+                entity_id=entity_id,
+                signal_date=today,
+                signal_type=signal_type,
+            )
+            session.add(signal)
+
+        signal.signal_strength = strength
+        signal.net_shares_30d = net_shares[30]
+        signal.net_value_30d = net_value[30]
+        signal.net_shares_90d = net_shares[90]
+        signal.net_value_90d = net_value[90]
+        signal.net_shares_365d = net_shares[365]
+        signal.net_value_365d = net_value[365]
+        signal.open_market_buy_count_90d = open_market_buys_90d
+        signal.insider_count_buying_30d = len(buyers_30d)
+        signal.insider_count_selling_30d = len(sellers_30d)
+        signal.detail = detail
+        return 1
 
     async def close(self) -> None:
         """Close HTTP client."""
