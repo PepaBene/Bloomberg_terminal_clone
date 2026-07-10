@@ -21,6 +21,7 @@ from src.schemas.macro_themes_schema import (
     ThemeScoreResponse,
     ThemeScreenRequest,
     ThemeScreenResponse,
+    ThemeSummaryResponse,
 )
 
 router = APIRouter(tags=["Research - Macro Themes & Scenarios"])
@@ -217,6 +218,94 @@ async def get_theme_score_history(
     return [_theme_score_response(r) for r in rows]
 
 
+async def _entity_names(session: AsyncSession, entity_ids: set[uuid.UUID]) -> dict:
+    if not entity_ids:
+        return {}
+    result = await session.execute(
+        select(Entity.entity_id, Entity.legal_name).where(Entity.entity_id.in_(entity_ids))
+    )
+    return {eid: name for eid, name in result.all()}
+
+
+def _direction_bucket(direction: str | None) -> str:
+    d = (direction or "").upper()
+    if "POS" in d or "BULL" in d:
+        return "bullish"
+    if "NEG" in d or "BEAR" in d:
+        return "bearish"
+    return "neutral"
+
+
+@router.get(
+    "/research/themes/summary/{theme}",
+    response_model=ThemeSummaryResponse,
+)
+async def get_theme_summary(
+    theme: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Aggregate exposure stats for one theme label across all scored
+    entities. There is no fixed theme catalog -- any label that has scored
+    rows works; an unrecognized label just returns entity_count=0 rather
+    than a fabricated 404 (macro themes aren't user-created resources, they're
+    labels the scoring engine assigns)."""
+    result = await session.execute(
+        select(MacroThemeScore).where(MacroThemeScore.theme == theme)
+    )
+    rows = result.scalars().all()
+    if not rows:
+        return ThemeSummaryResponse(theme=theme, entity_count=0)
+
+    scores = [float(r.exposure_score) for r in rows if r.exposure_score is not None]
+    buckets = {"bullish": 0, "bearish": 0, "neutral": 0}
+    for r in rows:
+        buckets[_direction_bucket(r.sensitivity_direction)] += 1
+
+    return ThemeSummaryResponse(
+        theme=theme,
+        entity_count=len({r.entity_id for r in rows}),
+        avg_exposure_score=round(sum(scores) / len(scores), 2) if scores else None,
+        bullish_count=buckets["bullish"],
+        bearish_count=buckets["bearish"],
+        neutral_count=buckets["neutral"],
+        latest_as_of_date=max(r.as_of_date for r in rows),
+    )
+
+
+@router.get(
+    "/research/themes/{theme}/securities",
+    response_model=list[ThemeScreenResponse],
+)
+async def get_theme_securities(
+    theme: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+):
+    """List entities scored against a theme, most-exposed first. Same query
+    screen_by_theme runs, exposed as a plain GET for a theme-detail page
+    (no filter body needed for the common "who's exposed to this theme" case)."""
+    result = await session.execute(
+        select(MacroThemeScore)
+        .where(MacroThemeScore.theme == theme)
+        .order_by(MacroThemeScore.exposure_score.desc().nulls_last())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    names = await _entity_names(session, {r.entity_id for r in rows})
+    return [
+        ThemeScreenResponse(
+            entity_id=r.entity_id,
+            entity_name=names.get(r.entity_id),
+            theme=r.theme,
+            exposure_score=_float(r.exposure_score),
+            sensitivity_direction=r.sensitivity_direction,
+            quantified_exposure=r.quantified_exposure,
+            as_of_date=r.as_of_date,
+        )
+        for r in rows
+    ]
+
+
 @router.post(
     "/research/themes/screen",
     response_model=list[ThemeScreenResponse],
@@ -237,10 +326,12 @@ async def screen_by_theme(
 
     result = await session.execute(stmt)
     rows = result.scalars().all()
+    names = await _entity_names(session, {r.entity_id for r in rows})
 
     return [
         ThemeScreenResponse(
             entity_id=r.entity_id,
+            entity_name=names.get(r.entity_id),
             theme=r.theme,
             exposure_score=_float(r.exposure_score),
             sensitivity_direction=r.sensitivity_direction,

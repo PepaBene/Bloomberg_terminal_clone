@@ -547,16 +547,15 @@ export const RESEARCH = {
     sources: '/v4/research/qa/sources',
   },
   themes: {
-    // Backend only exposes an aggregate dashboard (all theme scores) plus
-    // per-entity exposure routes — there is no per-theme "catalog" resource
-    // with its own id, so `detail`/`create`/`update`/`securities` below have
-    // no live backend counterpart yet (also unused by any page today).
+    // Themes are labels the scoring engine assigns per entity
+    // (macro_theme_scores is keyed by entity_id + theme, not by a
+    // standalone theme id), so there's no create/update — themes aren't
+    // user-authored resources. `detail`/`securities` below are real
+    // aggregate/list-by-theme-label endpoints, not a theme catalog CRUD.
     list: '/v4/research/themes/dashboard',
-    detail: (themeId: string) => `/v4/research/themes/${themeId}`,
+    detail: (themeId: string) => `/v4/research/themes/summary/${themeId}`,
     scenarios: '/v4/research/scenarios',
     screen: '/v4/research/themes/screen',
-    create: '/v4/research/themes',
-    update: (themeId: string) => `/v4/research/themes/${themeId}`,
     securities: (themeId: string) => `/v4/research/themes/${themeId}/securities`,
   },
   notes: {
