@@ -1,14 +1,18 @@
 """Intelligent Alerts & Earnings Intelligence API endpoints (Pillar 3 Phase 4C)."""
 
+import statistics
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.llm_client import get_llm_client
 from src.api.deps import get_session
+from src.models.entity import Entity
 from src.models.intelligent_alerts import ConsolidatedAlert, EarningsSurpriseIntelligence
+from src.models.security import EODPrice, Security
 from src.schemas.intelligent_alerts_schema import (
     AlertFeedResponse,
     ConsolidatedAlertResponse,
@@ -338,6 +342,83 @@ async def get_entity_earnings_history(
     return [_earnings_response(r) for r in rows]
 
 
+async def _compute_stock_reaction(
+    session: AsyncSession, entity_id: uuid.UUID, report_date: date
+) -> dict | None:
+    """Real price/volume reaction around the report date, from EODPrice."""
+    sec_row = (
+        await session.execute(
+            select(Security.security_id, Security.security_type, Security.status)
+            .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+        )
+    ).all()
+    if not sec_row:
+        return None
+    sec_row.sort(key=lambda r: (r[2] != "ACTIVE", r[1] != "COMMON_STOCK"))
+    security_id = sec_row[0][0]
+
+    window_start = report_date - timedelta(days=35)
+    window_end = report_date + timedelta(days=5)
+    rows = (
+        await session.execute(
+            select(EODPrice.price_date, EODPrice.close, EODPrice.volume)
+            .where(
+                EODPrice.security_id == security_id,
+                EODPrice.price_date >= window_start,
+                EODPrice.price_date <= window_end,
+            )
+            .order_by(EODPrice.price_date.asc())
+        )
+    ).all()
+    if len(rows) < 2:
+        return None
+
+    before = [r for r in rows if r[0] < report_date]
+    on_or_after = [r for r in rows if r[0] >= report_date]
+    if not before or not on_or_after:
+        return None
+
+    pre_close = float(before[-1][1]) if before[-1][1] is not None else None
+    post_close = float(on_or_after[0][1]) if on_or_after[0][1] is not None else None
+    if not pre_close or post_close is None:
+        return None
+
+    price_change_pct = round((post_close - pre_close) / pre_close * 100, 2)
+
+    volumes = [float(r[2]) for r in before if r[2] is not None]
+    volume_vs_avg = None
+    post_volume = on_or_after[0][2]
+    if volumes and post_volume is not None:
+        avg_volume = statistics.mean(volumes)
+        if avg_volume > 0:
+            volume_vs_avg = round(float(post_volume) / avg_volume, 2)
+
+    return {
+        "price_change_pct": price_change_pct,
+        "volume_vs_avg": volume_vs_avg,
+        # After-hours moves aren't in the daily EOD price series we ingest.
+        "after_hours_move": None,
+    }
+
+
+def _classify_surprise_direction(eps_surprise_pct: float | None, revenue_surprise_pct: float | None) -> str:
+    combined = (eps_surprise_pct or 0.0) + (revenue_surprise_pct or 0.0)
+    if combined > 5:
+        return "UP"
+    if combined < -5:
+        return "DOWN"
+    return "UNCHANGED"
+
+
+def _recommendation_from_surprise(eps_surprise_pct: float | None, revenue_surprise_pct: float | None) -> str:
+    combined = (eps_surprise_pct or 0.0) + (revenue_surprise_pct or 0.0)
+    if combined >= 10:
+        return "POSITIVE"
+    if combined <= -10:
+        return "NEGATIVE"
+    return "NEUTRAL"
+
+
 @router.post(
     "/research/earnings-intelligence/{entity_id}/analyze",
     response_model=EarningsSurpriseIntelResponse,
@@ -346,7 +427,13 @@ async def analyze_earnings_event(
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Trigger analysis of the latest earnings event for an entity."""
+    """Analyze the latest earnings event for an entity.
+
+    Computes stock reaction from real EOD prices and derives directional
+    implications from the recorded surprise metrics, then persists the
+    result. Previously this endpoint only re-read the existing row without
+    computing anything, regardless of what was requested.
+    """
     result = await session.execute(
         select(EarningsSurpriseIntelligence)
         .where(EarningsSurpriseIntelligence.entity_id == entity_id)
@@ -357,4 +444,59 @@ async def analyze_earnings_event(
     if not row:
         raise HTTPException(status_code=404, detail="No earnings data found for this entity")
 
+    eps_surprise = float(row.eps_surprise_pct) if row.eps_surprise_pct is not None else None
+    rev_surprise = float(row.revenue_surprise_pct) if row.revenue_surprise_pct is not None else None
+
+    stock_reaction = await _compute_stock_reaction(session, entity_id, row.report_date)
+    if stock_reaction is not None:
+        row.stock_reaction = stock_reaction
+
+    direction = _classify_surprise_direction(eps_surprise, rev_surprise)
+    row.revision_implications = {
+        "eps_revision_direction": direction,
+        "basis": "derived from reported EPS/revenue surprise, not confirmed analyst revisions",
+    }
+    row.guidance_implications = {
+        "raised": direction == "UP",
+        "lowered": direction == "DOWN",
+        "maintained": direction == "UNCHANGED",
+        "detail": "Inferred from surprise magnitude; not sourced from disclosed management guidance.",
+    }
+    row.recommendation = _recommendation_from_surprise(eps_surprise, rev_surprise)
+
+    takeaways = []
+    if eps_surprise is not None:
+        takeaways.append(
+            f"EPS {'beat' if eps_surprise >= 0 else 'missed'} consensus by {abs(eps_surprise):.1f}%"
+        )
+    if rev_surprise is not None:
+        takeaways.append(
+            f"Revenue {'beat' if rev_surprise >= 0 else 'missed'} consensus by {abs(rev_surprise):.1f}%"
+        )
+    if stock_reaction and stock_reaction.get("price_change_pct") is not None:
+        takeaways.append(f"Stock moved {stock_reaction['price_change_pct']:+.1f}% around the report date")
+    row.key_takeaways = takeaways or None
+
+    llm = get_llm_client()
+    if llm.enabled:
+        entity = (
+            await session.execute(select(Entity).where(Entity.entity_id == entity_id))
+        ).scalar_one_or_none()
+        row.ai_narrative = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg financial research AI assistant summarizing a "
+                "post-earnings reaction. 2-3 sentences, grounded only in the provided data."
+            ),
+            user_prompt=(
+                f"Company: {entity.legal_name if entity else entity_id}\n"
+                f"EPS surprise: {eps_surprise}%\n"
+                f"Revenue surprise: {rev_surprise}%\n"
+                f"Stock reaction: {stock_reaction}\n"
+                f"Key takeaways: {takeaways}\n"
+                "Summarize this earnings event."
+            ),
+        )
+
+    await session.commit()
+    await session.refresh(row)
     return _earnings_response(row)

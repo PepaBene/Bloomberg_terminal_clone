@@ -1,14 +1,17 @@
 """Alerts & Watchlist API endpoints (Pillar 3 Phase 1)."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import alert_engine
 from src.models.entity import Entity
+from src.models.filing_intelligence import EightKEvent
+from src.models.security import EODPrice, Security
 from src.models.sentiment import AlertEvent, AlertRule, Watchlist
 from src.schemas.alerts import (
     AlertEventResponse,
@@ -22,6 +25,23 @@ router = APIRouter(tags=["Alerts & Watchlist"])
 
 # Default user ID for single-user mode (can be replaced with auth dependency)
 DEFAULT_USER_ID = "default"
+
+# 8-K item number → alert_engine alert_type + priority.
+_EIGHT_K_ALERT_MAP = {
+    "5.02": ("MANAGEMENT_CHANGE", "HIGH"),
+    "4.01": ("AUDITOR_CHANGE", "CRITICAL"),
+    "4.02": ("RESTATEMENT", "CRITICAL"),
+}
+
+
+def _rule_to_engine_dict(rule: AlertRule) -> dict:
+    return {
+        "alert_type": rule.alert_type,
+        "entity_scope": rule.entity_scope or {},
+        "conditions": rule.conditions or {},
+        "priority_threshold": rule.priority_threshold or "LOW",
+        "is_active": rule.is_active,
+    }
 
 
 async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
@@ -71,6 +91,178 @@ async def get_alerts(
         )
         for row in rows
     ]
+
+
+@router.post(
+    "/alerts/evaluate",
+    response_model=dict,
+)
+async def evaluate_alerts(
+    session: AsyncSession = Depends(get_session),
+    days_back: int = Query(default=30, ge=1, le=365, description="Filing look-back window"),
+):
+    """Evaluate active alert rules against real events and persist fired alerts.
+
+    This is the missing producer for AlertEvent: alert_engine (real, but
+    previously only exercised by tests) is now driven by real 8-K filing
+    events (from eight_k_events) and real EOD prices (threshold / 52-week
+    high-low), then the resulting alerts are deduplicated and persisted so
+    GET /alerts returns actual fired events instead of always being empty.
+    """
+    rules = (
+        await session.execute(
+            select(AlertRule).where(
+                AlertRule.user_id == DEFAULT_USER_ID,
+                AlertRule.is_active == True,  # noqa: E712
+            )
+        )
+    ).scalars().all()
+    if not rules:
+        return {"evaluated_rules": 0, "alerts_created": 0, "alert_types": []}
+
+    rule_dicts = [_rule_to_engine_dict(r) for r in rules]
+
+    # ── Filing events from real 8-K rows ──────────────────────────────
+    cutoff = date.today() - timedelta(days=days_back)
+    eight_k_rows = (
+        await session.execute(
+            select(EightKEvent)
+            .where(EightKEvent.filing_date >= cutoff)
+            .order_by(EightKEvent.filing_date.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+
+    entity_ids = {ev.entity_id for ev in eight_k_rows}
+    # Bring in entities named in price-rule scopes as well.
+    for rd in rule_dicts:
+        for raw in (rd["entity_scope"].get("entity_ids") or []):
+            try:
+                entity_ids.add(uuid.UUID(str(raw)))
+            except (ValueError, TypeError):
+                continue
+
+    names: dict = {}
+    if entity_ids:
+        name_rows = (
+            await session.execute(
+                select(Entity.entity_id, Entity.legal_name).where(Entity.entity_id.in_(entity_ids))
+            )
+        ).all()
+        names = {eid: nm for eid, nm in name_rows}
+
+    events = []
+    for ev in eight_k_rows:
+        alert_type, priority = _EIGHT_K_ALERT_MAP.get(
+            ev.item_number, ("FILING_8K", "HIGH" if (ev.priority or 5) <= 2 else "MEDIUM")
+        )
+        events.append({
+            "entity_id": str(ev.entity_id),
+            "alert_type": alert_type,
+            "priority": priority,
+            "entity_name": names.get(ev.entity_id, ""),
+            "detail": {
+                "item_number": ev.item_number,
+                "item_description": ev.item_description,
+                "filing_date": ev.filing_date.isoformat() if ev.filing_date else None,
+            },
+            "source_type": "8K",
+            "source_id": ev.filing_accession_number or str(ev.id),
+        })
+
+    filing_alerts = alert_engine.evaluate_filing_alerts(events, rule_dicts)
+
+    # ── Price alerts from real EOD prices ─────────────────────────────
+    # Only evaluate entities explicitly scoped by a price rule, to bound work.
+    price_rule_entity_ids: set[uuid.UUID] = set()
+    for rd in rule_dicts:
+        if rd["alert_type"] in ("PRICE_THRESHOLD", "PRICE_52W_HIGH", "PRICE_52W_LOW"):
+            for raw in (rd["entity_scope"].get("entity_ids") or []):
+                try:
+                    price_rule_entity_ids.add(uuid.UUID(str(raw)))
+                except (ValueError, TypeError):
+                    continue
+
+    current_prices: dict[str, float] = {}
+    hist_highs: dict[str, float] = {}
+    hist_lows: dict[str, float] = {}
+    price_cutoff = date.today() - timedelta(days=365)
+    for eid in price_rule_entity_ids:
+        sec = (
+            await session.execute(
+                select(Security.security_id)
+                .where(Security.issuer_entity_id == eid, Security.asset_class == "EQUITY")
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if sec is None:
+            continue
+        closes = (
+            await session.execute(
+                select(EODPrice.close)
+                .where(EODPrice.security_id == sec, EODPrice.close.isnot(None),
+                       EODPrice.price_date >= price_cutoff)
+                .order_by(EODPrice.price_date.desc())
+            )
+        ).scalars().all()
+        vals = [float(c) for c in closes]
+        if not vals:
+            continue
+        current_prices[str(eid)] = vals[0]
+        # 52-week high/low over the trailing window (exclude latest so a
+        # fresh extreme still triggers).
+        prior = vals[1:] or vals
+        hist_highs[str(eid)] = max(prior)
+        hist_lows[str(eid)] = min(prior)
+
+    price_alerts = alert_engine.evaluate_price_alerts(
+        current_prices, rule_dicts, historical_highs=hist_highs, historical_lows=hist_lows
+    )
+
+    fired = alert_engine.prioritize_alerts(filing_alerts + price_alerts)
+
+    created = 0
+    created_types: set[str] = set()
+    for a in fired:
+        try:
+            entity_uuid = uuid.UUID(a.entity_id)
+        except (ValueError, TypeError):
+            continue
+        # Dedup: skip if an identical unacknowledged alert already exists.
+        existing = (
+            await session.execute(
+                select(AlertEvent).where(
+                    AlertEvent.user_id == DEFAULT_USER_ID,
+                    AlertEvent.entity_id == entity_uuid,
+                    AlertEvent.alert_type == a.alert_type,
+                    AlertEvent.title == a.title,
+                    AlertEvent.is_acknowledged == False,  # noqa: E712
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            continue
+        session.add(AlertEvent(
+            id=uuid.uuid4(),
+            rule_id=None,
+            user_id=DEFAULT_USER_ID,
+            entity_id=entity_uuid,
+            alert_type=a.alert_type,
+            priority=a.priority,
+            title=a.title,
+            detail=a.detail,
+        ))
+        created += 1
+        created_types.add(a.alert_type)
+
+    if created:
+        await session.commit()
+
+    return {
+        "evaluated_rules": len(rules),
+        "alerts_created": created,
+        "alert_types": sorted(created_types),
+    }
 
 
 @router.post(

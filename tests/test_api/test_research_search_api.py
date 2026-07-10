@@ -81,7 +81,10 @@ async def test_search_with_data(client: AsyncClient, session: AsyncSession):
     entity = await _seed_entity(session)
     await _seed_document(session, entity_id=entity.entity_id)
     await _seed_document(session, entity_id=entity.entity_id, chunk_index=1)
-    resp = await client.post("/v4/research/search", json={"query": "revenue growth", "limit": 10})
+    # "chunk text" is a substring of every seeded chunk_text ("Sample chunk
+    # text for index N.") — the query must now actually match, since the
+    # endpoint applies it as a real filter instead of ignoring it.
+    resp = await client.post("/v4/research/search", json={"query": "chunk text", "limit": 10})
     assert resp.status_code == 200
     data = resp.json()
     assert data["total_results"] >= 2
@@ -94,7 +97,7 @@ async def test_search_with_document_type_filter(client: AsyncClient, session: As
     await _seed_document(session, entity_id=entity.entity_id, source_type="10K")
     await _seed_document(session, entity_id=entity.entity_id, source_type="PRESS_RELEASE", chunk_index=1)
     resp = await client.post("/v4/research/search", json={
-        "query": "test",
+        "query": "chunk",
         "document_types": ["10K"],
     })
     assert resp.status_code == 200
@@ -109,7 +112,7 @@ async def test_search_limit(client: AsyncClient, session: AsyncSession):
     entity = await _seed_entity(session)
     for i in range(5):
         await _seed_document(session, entity_id=entity.entity_id, chunk_index=i)
-    resp = await client.post("/v4/research/search", json={"query": "test", "limit": 2})
+    resp = await client.post("/v4/research/search", json={"query": "chunk", "limit": 2})
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["results"]) <= 2

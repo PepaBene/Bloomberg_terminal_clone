@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.llm_client import get_llm_client
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.investment_thesis import InvestmentThesis, ThesisVersion
@@ -61,6 +62,22 @@ def _thesis_response(row: InvestmentThesis) -> ThesisResponse:
         created_at=getattr(row, "created_at", None),
         updated_at=getattr(row, "updated_at", None),
     )
+
+
+_QUALITY_FIELDS = (
+    "thesis_title", "executive_summary", "key_drivers",
+    "primary_risks", "valuation_scenarios", "catalysts",
+)
+
+
+def _compute_quality_metrics(body: ThesisCreateRequest) -> dict:
+    """Pure completeness metric — how much of the thesis the analyst
+    actually filled in, not an AI judgement of its quality."""
+    filled = sum(1 for f in _QUALITY_FIELDS if getattr(body, f, None))
+    return {
+        "data_coverage": round(filled / len(_QUALITY_FIELDS), 2),
+        "staleness_days": 0,
+    }
 
 
 def _thesis_list_response(row: InvestmentThesis) -> ThesisListResponse:
@@ -183,8 +200,14 @@ async def generate_thesis(
     body: ThesisCreateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Generate a new investment thesis for an entity."""
-    await _get_entity(session, entity_id)
+    """Generate a new investment thesis for an entity.
+
+    The thesis content itself is analyst-authored (from the request body —
+    this is a research tool, not an auto-writer). When the LLM is
+    configured, an elevator pitch is additionally generated from that
+    content; quality_metrics is always computed (real completeness, not AI).
+    """
+    entity = await _get_entity(session, entity_id)
 
     # Determine next version
     version_result = await session.execute(
@@ -192,6 +215,26 @@ async def generate_thesis(
         .where(InvestmentThesis.entity_id == entity_id)
     )
     max_version = version_result.scalar() or 0
+
+    llm = get_llm_client()
+    elevator_pitch = None
+    if llm.enabled and (body.executive_summary or body.key_drivers):
+        elevator_pitch = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg financial research AI assistant. Write a single "
+                "sentence (under 400 characters) elevator pitch for an investment "
+                "thesis, grounded only in the provided content."
+            ),
+            user_prompt=(
+                f"Company: {entity.legal_name}\n"
+                f"Thesis title: {body.thesis_title}\n"
+                f"Executive summary: {body.executive_summary}\n"
+                f"Key drivers: {body.key_drivers}\n"
+                f"Conviction: {body.conviction_level}"
+            ),
+        )
+        if elevator_pitch:
+            elevator_pitch = elevator_pitch[:500]
 
     thesis = InvestmentThesis(
         id=uuid.uuid4(),
@@ -206,7 +249,9 @@ async def generate_thesis(
         primary_risks=body.primary_risks,
         valuation_scenarios=body.valuation_scenarios,
         catalysts=body.catalysts,
-        ai_enabled=False,
+        quality_metrics=_compute_quality_metrics(body),
+        elevator_pitch=elevator_pitch,
+        ai_enabled=elevator_pitch is not None,
     )
     session.add(thesis)
     await session.commit()

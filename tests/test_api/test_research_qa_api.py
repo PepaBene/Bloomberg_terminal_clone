@@ -59,7 +59,10 @@ async def test_ask_question(client: AsyncClient, session: AsyncSession):
     data = resp.json()
     assert data["question"] == "What are the key growth drivers?"
     assert data["user_id"] == "analyst_001"
-    assert data["answer_text"] is not None
+    # No ANTHROPIC_API_KEY in the test environment — answer_text must be
+    # None (honest "AI unavailable"), not a fabricated placeholder string.
+    assert data["answer_text"] is None
+    assert data["answer_type"] == "AI_DISABLED"
 
 
 @pytest.mark.asyncio

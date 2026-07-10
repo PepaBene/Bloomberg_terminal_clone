@@ -1,5 +1,6 @@
 """Analyst Q&A API endpoints (Pillar 3 Phase 4B)."""
 
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -7,8 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.llm_client import get_llm_client
 from src.api.deps import get_session
 from src.models.analyst_qa import QASession, QAFeedback
+from src.models.analytics import AnalyticsResult
+from src.models.entity import Entity
+from src.models.fundamentals import FinancialPeriod  # noqa: F401 — relationships load IncomeStatement etc.
 from src.schemas.analyst_qa_schema import (
     QAFeedbackRequest,
     QAFeedbackResponse,
@@ -24,6 +29,67 @@ router = APIRouter(tags=["Research - Analyst Q&A"])
 
 def _float(val):
     return float(val) if val is not None else None
+
+
+async def _assemble_entity_context(session: AsyncSession, entity_id: uuid.UUID) -> dict:
+    """Pull real financial/valuation data to ground the LLM's answer.
+
+    Mirrors the data-assembly pattern used by company_primer.py — only the
+    fields that are actually populated are included.
+    """
+    context: dict = {}
+    entity = (
+        await session.execute(select(Entity).where(Entity.entity_id == entity_id))
+    ).scalar_one_or_none()
+    if not entity:
+        return context
+    context["entity_name"] = entity.legal_name
+
+    fp = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity_id)
+            .order_by(FinancialPeriod.period_end_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if fp:
+        inc = fp.income_statement
+        bs = fp.balance_sheet
+        cf = fp.cash_flow
+        financials = {}
+        if inc:
+            financials["revenue"] = _float(inc.total_revenue)
+            financials["ebitda"] = _float(inc.ebitda)
+            financials["net_income"] = _float(inc.net_income)
+            financials["eps"] = _float(inc.diluted_eps)
+        if bs:
+            financials["total_debt"] = _float(bs.total_debt)
+            financials["total_equity"] = _float(bs.total_equity)
+        if cf:
+            financials["free_cash_flow"] = _float(cf.free_cash_flow)
+        context["financials"] = {k: v for k, v in financials.items() if v is not None}
+
+    val_rows = (
+        await session.execute(
+            select(AnalyticsResult)
+            .where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_category == "VALUATION",
+            )
+            .order_by(AnalyticsResult.as_of_date.desc())
+            .limit(10)
+        )
+    ).scalars().all()
+    valuation = {}
+    for ar in val_rows:
+        name = ar.metric_name.lower()
+        if ar.value is not None and name not in valuation:
+            valuation[name] = float(ar.value)
+    if valuation:
+        context["valuation"] = valuation
+
+    return context
 
 
 def _qa_response(row: QASession) -> QAResponse:
@@ -57,16 +123,48 @@ async def ask_question(
     session: AsyncSession = Depends(get_session),
 ):
     """Ask a question to the AI analyst Q&A engine."""
+    start = time.monotonic()
+    llm = get_llm_client()
+
+    entity_context: dict = dict(body.context or {})
+    if body.entity_id is not None:
+        entity_context.update(await _assemble_entity_context(session, body.entity_id))
+
+    answer_text = None
+    answer_type = "AI_DISABLED"
+    data_completeness = {
+        "has_entity_context": bool(entity_context.get("entity_name")),
+        "has_financials": bool(entity_context.get("financials")),
+        "has_valuation": bool(entity_context.get("valuation")),
+    }
+
+    if llm.enabled:
+        answer_text = await llm.generate(
+            system_prompt=(
+                "You are a Bloomberg financial research AI assistant answering an "
+                "analyst's question. Ground your answer strictly in the provided "
+                "context data. If the data needed to answer isn't present, say so "
+                "explicitly instead of guessing."
+            ),
+            user_prompt=(
+                f"Question: {body.question}\n"
+                f"Context: {entity_context or 'No entity context provided.'}"
+            ),
+        )
+        answer_type = "AI_GENERATED" if answer_text else "AI_UNAVAILABLE"
+
     qa = QASession(
         id=uuid.uuid4(),
         user_id=body.user_id,
         entity_id=body.entity_id,
         question=body.question,
-        answer_text="AI-generated answer placeholder.",
-        answer_type="AI_GENERATED",
+        answer_text=answer_text,
+        answer_type=answer_type,
         sources=body.context,
+        supporting_data=entity_context or None,
+        data_completeness=data_completeness,
         follow_up_suggestions={"suggestions": ["What are the key risks?", "Compare with peers"]},
-        execution_time_ms=0,
+        execution_time_ms=int((time.monotonic() - start) * 1000),
     )
     session.add(qa)
     await session.commit()

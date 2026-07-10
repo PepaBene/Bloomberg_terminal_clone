@@ -157,14 +157,24 @@ async def test_refresh_primer_not_found(client: AsyncClient, session: AsyncSessi
 
 @pytest.mark.asyncio
 async def test_refresh_primer_success(client: AsyncClient, session: AsyncSession):
-    """POST /v4/research/primers/{entity_id}/refresh creates refresh log."""
+    """POST /v4/research/primers/{entity_id}/refresh generates a primer and
+    completes the refresh log (was a no-op that only logged PENDING)."""
     entity = await _seed_entity(session)
     resp = await client.post(f"/v4/research/primers/{entity.entity_id}/refresh")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "PENDING"
+    # Now actually runs generation and advances the log to DONE, even for an
+    # entity with sparse data (primer produced with a low completeness score
+    # rather than never generated).
+    assert data["status"] == "DONE"
+    assert data["completed_at"] is not None
     assert data["refresh_type"] == "MANUAL"
     assert data["trigger_event"] == "API_REQUEST"
+
+    # A real research_primers row now exists and is retrievable.
+    latest = await client.get(f"/v4/research/primers/{entity.entity_id}")
+    assert latest.status_code == 200
+    assert latest.json()["primer_version"] == 1
 
 
 # ── GET /research/primers/{entity_id}/completeness ───────────────────

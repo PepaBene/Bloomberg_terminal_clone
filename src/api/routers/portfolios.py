@@ -10,10 +10,11 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_optional_user, get_session
-from src.engines import csv_upload_engine
+from src.engines import csv_upload_engine, nav_engine
 from src.engines.portfolio_parser import parse_csv, match_holdings_to_securities
 from src.models.portfolio import Portfolio
 from src.models.position import Position
+from src.models.security import EODPrice, SecurityIdentifier
 from src.models.transaction import Transaction
 from src.models.nav_snapshot import NAVSnapshot, CorporateActionQueue
 from src.schemas.portfolio import (
@@ -91,6 +92,95 @@ async def _get_position(session: AsyncSession, position_id: uuid.UUID) -> Positi
     if not position:
         raise HTTPException(status_code=404, detail="Position not found")
     return position
+
+
+async def _resolve_security_id(session: AsyncSession, ticker: str) -> uuid.UUID | None:
+    result = await session.execute(
+        select(SecurityIdentifier.security_id).where(
+            SecurityIdentifier.identifier_type == "TICKER",
+            SecurityIdentifier.identifier_value == ticker.upper(),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _latest_prices(
+    session: AsyncSession, security_id: uuid.UUID
+) -> tuple[float | None, float | None]:
+    """Return (latest_close, prior_close) for a security from real EOD prices."""
+    rows = (
+        await session.execute(
+            select(EODPrice.close)
+            .where(EODPrice.security_id == security_id, EODPrice.close.isnot(None))
+            .order_by(EODPrice.price_date.desc())
+            .limit(2)
+        )
+    ).scalars().all()
+    latest = float(rows[0]) if rows else None
+    prior = float(rows[1]) if len(rows) > 1 else None
+    return latest, prior
+
+
+async def _refresh_portfolio_positions(session: AsyncSession, portfolio_id: uuid.UUID) -> None:
+    """Recompute and persist market_value/unrealized_pnl/weight/closing_price/
+    day_change_pct for every open position, from real EOD prices via
+    nav_engine.compute_position_valuation().
+
+    Previously nothing ever called this engine in production — positions
+    kept these columns permanently null, so portfolio NAV was
+    cash-balance-only regardless of what was actually held.
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
+    result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    positions = list(result.scalars().all())
+    if not positions:
+        return
+
+    for pos in positions:
+        if pos.security_id is None:
+            pos.security_id = await _resolve_security_id(session, pos.ticker)
+
+        latest_close, prior_close = (
+            await _latest_prices(session, pos.security_id)
+            if pos.security_id is not None
+            else (None, None)
+        )
+        if latest_close is None:
+            # No real price available — leave existing stored values as-is
+            # rather than fabricating a valuation.
+            continue
+
+        val = nav_engine.compute_position_valuation(
+            ticker=pos.ticker,
+            shares=float(pos.shares or 0),
+            cost_basis_total=float(pos.cost_basis_total or 0),
+            cost_basis_per_share=float(pos.cost_basis_per_share or 0),
+            closing_price=latest_close,
+            prior_close=prior_close,
+        )
+        pos.closing_price = Decimal(str(latest_close))
+        pos.market_value = Decimal(str(round(val.market_value, 2)))
+        pos.unrealized_pnl = Decimal(str(round(val.unrealized_pnl, 2)))
+        pos.unrealized_pnl_pct = Decimal(str(val.unrealized_pnl_pct))
+        pos.day_change_pct = (
+            Decimal(str(val.day_change_pct)) if val.day_change_pct is not None else None
+        )
+
+    total_market_value = sum(
+        float(pos.market_value) for pos in positions if pos.market_value is not None
+    )
+    nav = total_market_value + float(portfolio.current_cash or 0)
+    if nav > 0:
+        for pos in positions:
+            if pos.market_value is not None:
+                pos.weight = Decimal(str(round(float(pos.market_value) / nav, 6)))
+
+    await session.commit()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -220,6 +310,7 @@ async def upload_commit(
         positions_created += 1
 
     await session.commit()
+    await _refresh_portfolio_positions(session, portfolio.id)
 
     return UploadCommitResponse(
         portfolio_id=portfolio.id,
@@ -449,6 +540,7 @@ async def clone_portfolio(
         )
         session.add(new_pos)
     await session.commit()
+    await _refresh_portfolio_positions(session, clone.id)
     await session.refresh(clone)
 
     return PortfolioResponse(
@@ -482,6 +574,7 @@ async def list_positions(
 ):
     """List all open positions for a portfolio."""
     await _get_portfolio(session, portfolio_id)
+    await _refresh_portfolio_positions(session, portfolio_id)
     result = await session.execute(
         select(Position).where(
             Position.portfolio_id == portfolio_id,
@@ -570,16 +663,25 @@ async def add_position(
         await session.commit()
         await session.refresh(pos)
 
+    await _refresh_portfolio_positions(session, portfolio_id)
+    await session.refresh(pos)
+
     return PositionResponse(
         id=pos.id,
         portfolio_id=pos.portfolio_id,
         security_id=pos.security_id,
         ticker=pos.ticker,
         status=pos.status,
-        shares=pos.shares,
-        cost_basis_total=pos.cost_basis_total,
-        cost_basis_per_share=pos.cost_basis_per_share,
+        shares=float(pos.shares) if pos.shares is not None else None,
+        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
         first_acquisition_date=pos.first_acquisition_date,
+        market_value=float(pos.market_value) if pos.market_value is not None else None,
+        unrealized_pnl=float(pos.unrealized_pnl) if pos.unrealized_pnl is not None else None,
+        unrealized_pnl_pct=float(pos.unrealized_pnl_pct) if pos.unrealized_pnl_pct is not None else None,
+        weight=float(pos.weight) if pos.weight is not None else None,
+        closing_price=float(pos.closing_price) if pos.closing_price is not None else None,
+        day_change_pct=float(pos.day_change_pct) if pos.day_change_pct is not None else None,
         notes=pos.notes,
     )
 
@@ -612,16 +714,25 @@ async def update_position(
     await session.commit()
     await session.refresh(pos)
 
+    await _refresh_portfolio_positions(session, portfolio_id)
+    await session.refresh(pos)
+
     return PositionResponse(
         id=pos.id,
         portfolio_id=pos.portfolio_id,
         security_id=pos.security_id,
         ticker=pos.ticker,
         status=pos.status,
-        shares=pos.shares,
-        cost_basis_total=pos.cost_basis_total,
-        cost_basis_per_share=pos.cost_basis_per_share,
+        shares=float(pos.shares) if pos.shares is not None else None,
+        cost_basis_total=float(pos.cost_basis_total) if pos.cost_basis_total is not None else None,
+        cost_basis_per_share=float(pos.cost_basis_per_share) if pos.cost_basis_per_share is not None else None,
         first_acquisition_date=pos.first_acquisition_date,
+        market_value=float(pos.market_value) if pos.market_value is not None else None,
+        unrealized_pnl=float(pos.unrealized_pnl) if pos.unrealized_pnl is not None else None,
+        unrealized_pnl_pct=float(pos.unrealized_pnl_pct) if pos.unrealized_pnl_pct is not None else None,
+        weight=float(pos.weight) if pos.weight is not None else None,
+        closing_price=float(pos.closing_price) if pos.closing_price is not None else None,
+        day_change_pct=float(pos.day_change_pct) if pos.day_change_pct is not None else None,
         notes=pos.notes,
     )
 
@@ -783,6 +894,7 @@ async def create_transaction(
                 pos.weight = Decimal("0")
 
     await session.commit()
+    await _refresh_portfolio_positions(session, portfolio_id)
     await session.refresh(txn)
 
     return TransactionResponse(
@@ -858,6 +970,7 @@ async def get_nav(
 ):
     """Get current NAV summary for a portfolio."""
     portfolio = await _get_portfolio(session, portfolio_id)
+    await _refresh_portfolio_positions(session, portfolio_id)
 
     # Count open positions
     pos_count_result = await session.execute(

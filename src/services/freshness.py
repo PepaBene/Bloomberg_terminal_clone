@@ -173,7 +173,7 @@ async def _refresh_one(session, entity_id, data_type, cik, now) -> None:
         from src.ingestion.edgar_8k import Edgar8KConnector
         await Edgar8KConnector(ciks=[cik]).run(session)
         await session.commit()
-        has = await _entity_has(session, "corporate_actions", entity_id)
+        has = await _entity_has(session, "eight_k_events", entity_id)
     else:
         return
 

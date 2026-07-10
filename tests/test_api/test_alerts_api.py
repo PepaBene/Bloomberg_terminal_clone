@@ -86,6 +86,53 @@ async def test_delete_custom_alert_not_found(client: AsyncClient, session: Async
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_evaluate_produces_alert_events(client: AsyncClient, session: AsyncSession):
+    """POST /v3/alerts/evaluate turns a real 8-K event + active rule into a
+    persisted AlertEvent that GET /v3/alerts then returns."""
+    from datetime import date
+
+    from src.models.filing_intelligence import EightKEvent
+    from src.models.sentiment import AlertRule
+
+    eid = uuid.uuid4()
+    await _seed_entity(session, eid)
+    session.add(EightKEvent(
+        id=uuid.uuid4(),
+        entity_id=eid,
+        filing_date=date.today(),
+        item_number="5.02",
+        item_description="Departure of Principal Officer",
+        priority=2,
+        materiality="MEDIUM",
+    ))
+    session.add(AlertRule(
+        id=uuid.uuid4(),
+        user_id="default",
+        alert_type="MANAGEMENT_CHANGE",
+        entity_scope={"type": "UNIVERSE"},
+        priority_threshold="LOW",
+        is_active=True,
+    ))
+    await session.commit()
+
+    resp = await client.post("/v3/alerts/evaluate")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["alerts_created"] >= 1
+    assert "MANAGEMENT_CHANGE" in data["alert_types"]
+
+    # The fired alert is now retrievable via GET /alerts.
+    listing = await client.get("/v3/alerts")
+    assert listing.status_code == 200
+    types = {a["alert_type"] for a in listing.json()}
+    assert "MANAGEMENT_CHANGE" in types
+
+    # Idempotent: a second evaluate doesn't duplicate the same alert.
+    resp2 = await client.post("/v3/alerts/evaluate")
+    assert resp2.json()["alerts_created"] == 0
+
+
 # ── Watchlist Tests ──────────────────────────────────────────────────
 
 

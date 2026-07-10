@@ -34,14 +34,15 @@ EDGAR_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
 # Primary search endpoint for 8-K filings
 EDGAR_8K_SEARCH_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 
-# Items of interest in 8-K filings
+# Items of interest in 8-K filings: item_number -> (label, priority 1-5, materiality)
+# Priority 1 = most urgent/material; 5 = least.
 ITEMS_OF_INTEREST = {
-    "2.01": "ACQUISITION",       # Completion of Acquisition or Disposition
-    "5.02": "MANAGEMENT_CHANGE", # Departure/Election of Directors/Officers
-    "8.01": "OTHER_EVENT",       # Other Events
-    "1.01": "MATERIAL_AGREEMENT",# Entry into Material Definitive Agreement
-    "2.02": "EARNINGS",          # Results of Operations / Financial Condition
-    "5.07": "SHAREHOLDER_VOTE",  # Submission of Matters to Vote
+    "2.01": ("ACQUISITION", 1, "HIGH"),          # Completion of Acquisition or Disposition
+    "2.02": ("EARNINGS", 1, "HIGH"),             # Results of Operations / Financial Condition
+    "5.02": ("MANAGEMENT_CHANGE", 2, "MEDIUM"),  # Departure/Election of Directors/Officers
+    "1.01": ("MATERIAL_AGREEMENT", 2, "MEDIUM"), # Entry into Material Definitive Agreement
+    "5.07": ("SHAREHOLDER_VOTE", 3, "LOW"),      # Submission of Matters to Vote
+    "8.01": ("OTHER_EVENT", 4, "LOW"),           # Other Events
 }
 
 
@@ -199,7 +200,7 @@ class Edgar8KConnector(BaseConnector):
         return valid
 
     async def transform(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Transform 8-K data into CorporateAction records."""
+        """Transform 8-K data into EightKEvent records."""
         transformed = []
 
         for rec in records:
@@ -210,37 +211,41 @@ class Edgar8KConnector(BaseConnector):
             relevant_items = rec.get("relevant_items", [])
 
             for item_number in relevant_items:
-                action_type = ITEMS_OF_INTEREST.get(item_number, "OTHER_EVENT")
+                label, priority, materiality = ITEMS_OF_INTEREST.get(
+                    item_number, ("OTHER_EVENT", 4, "LOW")
+                )
 
-                # Build description
-                description = (
-                    f"8-K Item {item_number}: {action_type} — "
-                    f"Filed by {entity_name} (CIK {cik})"
+                item_description = (
+                    f"Item {item_number}: {label} — Filed by {entity_name} (CIK {cik})"
                 )
 
                 transformed.append({
                     "cik": cik,
-                    "action_type": action_type,
-                    "action_subtype": f"8-K Item {item_number}",
-                    "announcement_date": filing_date_str,
-                    "status": "ANNOUNCED",
-                    "description": description,
+                    "item_number": item_number,
+                    "item_description": item_description,
+                    "priority": priority,
+                    "materiality": materiality,
+                    "filing_date": filing_date_str,
                     "source": "SEC_EDGAR_8K",
                     "accession_number": accession,
                     "document_url": rec.get("document_url"),
                     "is_amendment": rec.get("is_amendment", False),
                 })
 
-        logger.info(f"Transformed {len(transformed)} corporate action records from 8-K filings")
+        logger.info(f"Transformed {len(transformed)} 8-K event records")
         return transformed
 
     async def load(
         self, records: list[dict[str, Any]], session: AsyncSession
     ) -> dict[str, int]:
-        """Write corporate action records to database."""
-        from src.models.corporate_actions import CorporateAction
+        """Write 8-K event records to the eight_k_events table.
+
+        This is the table /v3/filings/events/* actually queries — a prior
+        version of this connector wrote to CorporateAction, which no 8-K
+        endpoint reads, so persisted rows were invisible to the API.
+        """
         from src.models.entity import EntityIdentifier
-        from src.models.security import Security
+        from src.models.filing_intelligence import EightKEvent
 
         stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
 
@@ -257,66 +262,43 @@ class Edgar8KConnector(BaseConnector):
                 )
                 entity_ident = result.scalar_one_or_none()
                 entity_id = entity_ident.entity_id if entity_ident else None
+                if entity_id is None:
+                    stats["skipped"] += 1
+                    continue
 
-                # Resolve the issuer's primary equity security so that the
-                # per-security corporate-actions endpoint (which filters on
-                # security_id) can return these rows. Prefer common stock.
-                security_id = None
-                if entity_id is not None:
-                    sec_result = await session.execute(
-                        select(Security.security_id)
-                        .where(
-                            Security.issuer_entity_id == entity_id,
-                            Security.asset_class == "EQUITY",
-                        )
-                        .order_by(
-                            (Security.security_type == "COMMON_STOCK").desc(),
-                            Security.security_id,
-                        )
-                        .limit(1)
-                    )
-                    security_id = sec_result.scalar_one_or_none()
+                filing_date = date.fromisoformat(rec["filing_date"])
 
-                announcement_date = date.fromisoformat(rec["announcement_date"])
-
-                # Check for duplicate by accession_number + action_subtype
-                # (one 8-K can produce multiple actions for different items)
+                # Check for duplicate by entity + accession + item
+                # (one 8-K can produce multiple events for different items)
                 existing = await session.execute(
-                    select(CorporateAction).where(
-                        CorporateAction.entity_id == entity_id,
-                        CorporateAction.action_type == rec["action_type"],
-                        CorporateAction.action_subtype == rec["action_subtype"],
-                        CorporateAction.announcement_date == announcement_date,
-                        CorporateAction.source == "SEC_EDGAR_8K",
+                    select(EightKEvent).where(
+                        EightKEvent.entity_id == entity_id,
+                        EightKEvent.item_number == rec["item_number"],
+                        EightKEvent.filing_date == filing_date,
+                        EightKEvent.filing_accession_number == rec["accession_number"],
                     )
                 )
                 if existing.scalar_one_or_none() is not None:
                     stats["skipped"] += 1
                     continue
 
-                # NOTE: ex_date / record_date / payment_date are dividend- and
-                # split-specific schedule dates. The 8-K item types handled here
-                # (acquisitions, management changes, material agreements, earnings,
-                # shareholder votes, other events) are point-in-time announced
-                # events that carry no such schedule, so those fields are left
-                # null by design. announcement_date is the meaningful event date;
-                # the corporate_actions router coalesces it into the calendar.
-                action = CorporateAction(
-                    action_id=uuid.uuid4(),
-                    action_type=rec["action_type"],
-                    action_subtype=rec["action_subtype"],
+                event = EightKEvent(
+                    id=uuid.uuid4(),
                     entity_id=entity_id,
-                    security_id=security_id,
-                    announcement_date=announcement_date,
-                    status=rec["status"],
-                    description=rec.get("description"),
-                    source="SEC_EDGAR_8K",
+                    filing_date=filing_date,
+                    item_number=rec["item_number"],
+                    item_description=rec.get("item_description"),
+                    priority=rec["priority"],
+                    materiality=rec["materiality"],
+                    filing_accession_number=rec["accession_number"],
+                    filing_url=rec.get("document_url"),
+                    is_processed=False,
                 )
-                session.add(action)
+                session.add(event)
                 stats["inserted"] += 1
 
             except Exception as e:
-                logger.error(f"Error loading 8-K corporate action: {e}")
+                logger.error(f"Error loading 8-K event: {e}")
                 stats["errors"] += 1
 
         await session.flush()

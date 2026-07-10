@@ -9,9 +9,10 @@ from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines import portfolio_risk_engine
+from src.engines import e2_wacc, portfolio_risk_engine, treasury_analytics
 from src.models.portfolio import Portfolio
 from src.models.position import Position
+from src.models.security import FixedIncomeDetails, Security
 from src.models.portfolio_risk import (
     ConcentrationAnalysis,
     FactorExposureSnapshot,
@@ -470,24 +471,81 @@ async def get_unintended_factors(
 async def _load_position_dicts(
     session: AsyncSession, portfolio_id: uuid.UUID
 ) -> list[dict]:
-    """Load open positions for engine consumption."""
+    """Load open positions for engine consumption.
+
+    Resolves each position's real asset class, equity beta (Blume-adjusted
+    OLS regression vs the market benchmark, reusing e2_wacc's beta engine),
+    and bond duration (from coupon/maturity via treasury_analytics) —
+    previously every position was hardcoded to equity/beta=1.0/duration=0.0
+    regardless of what it actually held, so stress tests always applied a
+    uniform equity shock and never modeled rate/spread risk on bonds.
+    """
     result = await session.execute(
         select(Position).where(
             Position.portfolio_id == portfolio_id,
             Position.status == "OPEN",
         )
     )
-    return [
-        {
+    positions = list(result.scalars().all())
+
+    dicts = []
+    for pos in positions:
+        asset_class = "equity"
+        beta = 1.0
+        duration = 0.0
+        spread_duration = 0.0
+
+        sec = None
+        if pos.security_id is not None:
+            sec = (
+                await session.execute(
+                    select(Security).where(Security.security_id == pos.security_id)
+                )
+            ).scalar_one_or_none()
+
+        if sec is not None and sec.asset_class == "FIXED_INCOME":
+            asset_class = "bond"
+            fi = (
+                await session.execute(
+                    select(FixedIncomeDetails).where(
+                        FixedIncomeDetails.security_id == pos.security_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if (
+                fi is not None
+                and fi.coupon_rate is not None
+                and sec.maturity_date is not None
+                and pos.closing_price
+            ):
+                years = (sec.maturity_date - date.today()).days / 365.25
+                if years > 0:
+                    face = float(fi.face_value or 100.0)
+                    price = float(pos.closing_price)
+                    ytm = treasury_analytics.compute_treasury_ytm(
+                        float(fi.coupon_rate), face, price, years
+                    )
+                    dur = treasury_analytics.compute_duration_convexity(
+                        ytm, float(fi.coupon_rate), years
+                    )
+                    duration = dur["modified_duration"]
+                    # Approximation: for a fixed-rate bond, spread duration
+                    # is close to modified (interest-rate) duration.
+                    spread_duration = dur["modified_duration"]
+        elif sec is not None:
+            adjusted_beta, _r2, _n = await e2_wacc._compute_beta(session, pos.security_id)
+            if adjusted_beta is not None:
+                beta = adjusted_beta
+
+        dicts.append({
             "ticker": pos.ticker,
             "market_value": float(pos.market_value) if pos.market_value is not None else 0.0,
-            "asset_class": "equity",
-            "beta": 1.0,
-            "duration": 0.0,
-            "spread_duration": 0.0,
-        }
-        for pos in result.scalars().all()
-    ]
+            "asset_class": asset_class,
+            "beta": beta,
+            "duration": duration,
+            "spread_duration": spread_duration,
+        })
+    return dicts
 
 
 @router.post(

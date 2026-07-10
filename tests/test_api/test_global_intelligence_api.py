@@ -706,3 +706,44 @@ async def test_get_sanctions_by_country_empty(client: AsyncClient, session: Asyn
     resp = await client.get("/v3/global/political/sanctions/XXX")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ── FRED-backed US macro indicators (on-demand producer) ─────────────
+
+
+async def _seed_fred(session: AsyncSession, code, *, value, yoy_pct=None, qoq=None, yoy=None):
+    from src.models.macro import MacroIndicator, MacroValue
+    ind = MacroIndicator(
+        indicator_id=uuid.uuid4(), indicator_code=code, name=code,
+        category="MACRO", frequency="MONTHLY",
+    )
+    session.add(ind)
+    await session.flush()
+    session.add(MacroValue(
+        indicator_id=ind.indicator_id, observation_date=date(2025, 6, 1),
+        vintage_date=date(2025, 6, 15), value=value,
+        value_yoy_percent=yoy_pct, value_qoq_annualized=qoq, value_yoy=yoy,
+    ))
+    await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_global_macro_computed_from_fred(client: AsyncClient, session: AsyncSession):
+    """/global/macro/* endpoints populate US GlobalMacroIndicator rows on-demand
+    from real FRED macro_values (was empty forever)."""
+    await _seed_fred(session, "CPIAUCSL", value=310.0, yoy_pct=3.2)
+    await _seed_fred(session, "GDPC1", value=22000.0, qoq=2.5)
+    await _seed_fred(session, "T10Y2Y", value=-0.6)  # inverted curve
+    await _seed_fred(session, "UNRATE", value=4.1, yoy=0.3)
+    await session.commit()
+
+    infl = await client.get("/v3/global/macro/inflation")
+    assert infl.status_code == 200
+    us_cpi = [r for r in infl.json() if r.get("country_code") == "US"]
+    assert us_cpi and us_cpi[0]["value"] == 3.2
+
+    rec = await client.get("/v3/global/macro/recession-probability")
+    assert rec.status_code == 200
+    us_rec = [r for r in rec.json() if r.get("country_code") == "US"]
+    # Inverted yield curve => elevated recession probability computed by engine.
+    assert us_rec and us_rec[0]["value"] is not None and us_rec[0]["value"] > 50

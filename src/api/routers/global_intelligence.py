@@ -8,6 +8,9 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.engines import commodity_intelligence, global_macro as global_macro_engine
+from src.models.entity import Entity
+from src.models.macro import MacroIndicator, MacroValue
 from src.models.country_risk import (
     CompanyCountryExposure,
     CountryProfile,
@@ -58,6 +61,83 @@ from src.schemas.political_intelligence import (
 )
 
 router = APIRouter(tags=["Global Intelligence"])
+
+
+async def _latest_macro(session: AsyncSession, code: str) -> MacroValue | None:
+    """Latest FRED observation for a series code."""
+    ind = (
+        await session.execute(select(MacroIndicator).where(MacroIndicator.indicator_code == code))
+    ).scalar_one_or_none()
+    if ind is None:
+        return None
+    return (
+        await session.execute(
+            select(MacroValue)
+            .where(MacroValue.indicator_id == ind.indicator_id)
+            .order_by(MacroValue.observation_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _ensure_us_macro_indicators(session: AsyncSession) -> bool:
+    """Populate US GlobalMacroIndicator rows for today from real FRED data
+    (macro_values), computing recession probability via the global_macro
+    engine. Returns True if any rows now exist. This is the producer the
+    /global/macro/* endpoints were missing — global_macro_indicators had no
+    writer, and the compute engines had no caller. US-only (FRED)."""
+    today = date.today()
+    have = (
+        await session.execute(
+            select(func.count()).select_from(GlobalMacroIndicator)
+            .where(GlobalMacroIndicator.country_code == "US",
+                   GlobalMacroIndicator.release_date == today)
+        )
+    ).scalar() or 0
+    if have:
+        return True
+
+    rows_written = 0
+
+    async def _put(indicator_type: str, value, prior=None, period="LATEST"):
+        nonlocal rows_written
+        if value is None:
+            return
+        session.add(GlobalMacroIndicator(
+            id=uuid.uuid4(), country_code="US", indicator_type=indicator_type,
+            period_label=period, value=value,
+            prior_value=prior, source="FRED", release_date=today,
+        ))
+        rows_written += 1
+
+    # Inflation (CPI YoY %).
+    cpi = await _latest_macro(session, "CPIAUCSL")
+    if cpi is not None and cpi.value_yoy_percent is not None:
+        await _put("CPI", float(cpi.value_yoy_percent))
+
+    # Real GDP growth (annualized QoQ, fall back to YoY).
+    gdp = await _latest_macro(session, "GDPC1")
+    if gdp is not None:
+        g = gdp.value_qoq_annualized if gdp.value_qoq_annualized is not None else gdp.value_yoy_percent
+        if g is not None:
+            await _put("GDP_GROWTH", float(g))
+
+    # Recession probability via the engine (yield-curve spread + unemployment).
+    t10y2y = await _latest_macro(session, "T10Y2Y")
+    unrate = await _latest_macro(session, "UNRATE")
+    if t10y2y is not None and t10y2y.value is not None:
+        unemp_change = float(unrate.value_yoy) if unrate is not None and unrate.value_yoy is not None else None
+        rec = global_macro_engine.compute_recession_probability(
+            yield_curve_spread=float(t10y2y.value),
+            pmi=50.0,  # No PMI series in the FRED seed set — neutral placeholder.
+            credit_spreads_bps=400.0,
+            unemployment_change=unemp_change,
+        )
+        await _put("RECESSION_PROB", round(rec.probability, 2))
+
+    if rows_written:
+        await session.commit()
+    return rows_written > 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -438,6 +518,7 @@ async def get_macro_dashboard(
     session: AsyncSession = Depends(get_session),
 ):
     """G20 macro overview dashboard — latest indicator per country."""
+    await _ensure_us_macro_indicators(session)
     # Get the latest indicator per country
     latest_sub = (
         select(
@@ -508,6 +589,7 @@ async def get_inflation_comparison(
     session: AsyncSession = Depends(get_session),
 ):
     """Global inflation comparison across countries."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "CPI")
@@ -539,6 +621,7 @@ async def get_growth_ranking(
     session: AsyncSession = Depends(get_session),
 ):
     """Global growth ranking by country (GDP growth)."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "GDP_GROWTH")
@@ -577,6 +660,7 @@ async def get_recession_probability(
     session: AsyncSession = Depends(get_session),
 ):
     """Recession probability indicators by country."""
+    await _ensure_us_macro_indicators(session)
     result = await session.execute(
         select(GlobalMacroIndicator)
         .where(GlobalMacroIndicator.indicator_type == "RECESSION_PROB")
@@ -907,22 +991,71 @@ async def run_commodity_scenario(
     body: CommodityScenarioRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Run a price scenario impact analysis for a commodity."""
+    """Run a price scenario impact analysis for a commodity.
+
+    Delegates to commodity_intelligence.run_commodity_scenario (a real,
+    unit-tested engine with no prior production caller) so that PRODUCER vs
+    CONSUMER exposure flips the impact direction and revenue exposure is
+    weighted in — rather than the previous flat `price_change × score`
+    linear product that ignored exposure direction entirely.
+    """
     result = await session.execute(
         select(CommodityCompanyExposure)
         .where(CommodityCompanyExposure.commodity_code == code.upper())
         .order_by(CommodityCompanyExposure.sensitivity_score.desc().nulls_last())
     )
     rows = result.scalars().all()
-    affected = []
-    for r in rows:
-        score = float(r.sensitivity_score) if r.sensitivity_score is not None else 0
-        affected.append({
+
+    # Resolve entity names for the engine's most-impacted list.
+    entity_ids = [r.entity_id for r in rows]
+    names: dict = {}
+    if entity_ids:
+        name_rows = (
+            await session.execute(
+                select(Entity.entity_id, Entity.legal_name).where(Entity.entity_id.in_(entity_ids))
+            )
+        ).all()
+        names = {eid: nm for eid, nm in name_rows}
+
+    exposed_companies = [
+        {
             "entity_id": str(r.entity_id),
-            "exposure_type": r.exposure_type,
-            "sensitivity_score": score,
-            "estimated_impact_pct": round(body.price_change_pct * score / 100, 4),
-        })
+            "entity_name": names.get(r.entity_id) or str(r.entity_id),
+            "exposure_type": r.exposure_type or "INDIRECT",
+            "sensitivity_score": float(r.sensitivity_score) if r.sensitivity_score is not None else 0.0,
+            # revenue_exposure_pct isn't stored on this model; historical
+            # correlation is the closest available proxy for how much of the
+            # sensitivity translates to revenue.
+            "revenue_exposure_pct": (
+                abs(float(r.historical_correlation)) * 100
+                if r.historical_correlation is not None
+                else None
+            ),
+            "commodity_code": code.upper(),
+        }
+        for r in rows
+    ]
+
+    # The request carries a percentage change, not absolute prices — anchor
+    # to a nominal 100 so the engine's price_change_pct matches the input.
+    current_price = 100.0
+    scenario_price = current_price * (1.0 + body.price_change_pct / 100.0)
+    scenario = commodity_intelligence.run_commodity_scenario(
+        current_price=current_price,
+        scenario_price=scenario_price,
+        exposed_companies=exposed_companies,
+    )
+
+    affected = [
+        {
+            "entity_id": imp.entity_id,
+            "exposure_type": imp.exposure_type,
+            "sensitivity_score": imp.sensitivity_score,
+            "direction": imp.direction,
+            "estimated_impact_pct": imp.estimated_revenue_impact_pct,
+        }
+        for imp in scenario.affected_companies
+    ]
     return CommodityScenarioResponse(
         commodity_code=code.upper(),
         scenario_price_change_pct=body.price_change_pct,

@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_optional_user, get_session
+from src.engines import performance_engine
 from src.models.portfolio import Portfolio
 from src.models.position import Position
 from src.models.transaction import Transaction
@@ -95,6 +96,175 @@ def _perf_to_response(snap: PerformanceSnapshot) -> PerformanceResponse:
     )
 
 
+# ── NAV / performance computation ────────────────────────────────────
+#
+# Nothing in the codebase ever wrote a NAVSnapshot or PerformanceSnapshot
+# row in production — every read endpoint below queried tables that stayed
+# permanently empty. These helpers wire up nav_engine and the previously
+# orphaned performance_engine (TWR/MWR/Sharpe/Sortino/drawdown/etc, all
+# real, unit-tested pure computation) against real position/price data.
+
+
+async def _ensure_nav_snapshot_today(session: AsyncSession, portfolio_id: uuid.UUID) -> NAVSnapshot:
+    """Idempotently record today's NAV snapshot from real position data."""
+    # Local import: avoids a circular import (portfolios.py doesn't import
+    # this module) while reusing the real market-value refresh logic.
+    from src.api.routers.portfolios import _refresh_portfolio_positions
+    from src.engines import nav_engine
+
+    today = date.today()
+    existing_today = (
+        await session.execute(
+            select(NAVSnapshot).where(
+                NAVSnapshot.portfolio_id == portfolio_id,
+                NAVSnapshot.snapshot_date == today,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_today:
+        return existing_today
+
+    portfolio = await _get_portfolio(session, portfolio_id)
+    await _refresh_portfolio_positions(session, portfolio_id)
+
+    pos_rows = (
+        await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio_id,
+                Position.status == "OPEN",
+            )
+        )
+    ).scalars().all()
+    market_value = sum(float(p.market_value) for p in pos_rows if p.market_value is not None)
+    unrealized_pnl = sum(float(p.unrealized_pnl) for p in pos_rows if p.unrealized_pnl is not None)
+    cash = float(portfolio.current_cash or 0)
+    nav = market_value + cash
+
+    prior = (
+        await session.execute(
+            select(NAVSnapshot)
+            .where(NAVSnapshot.portfolio_id == portfolio_id, NAVSnapshot.snapshot_date < today)
+            .order_by(NAVSnapshot.snapshot_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    daily_return = 0.0
+    cumulative_return = 0.0
+    if prior is not None and float(prior.nav) > 0:
+        daily_return = nav_engine.compute_daily_return(nav, float(prior.nav))
+        cumulative_return = (1.0 + float(prior.cumulative_return or 0.0)) * (1.0 + daily_return) - 1.0
+
+    snap = NAVSnapshot(
+        id=uuid.uuid4(),
+        portfolio_id=portfolio_id,
+        snapshot_date=today,
+        nav=Decimal(str(round(nav, 2))),
+        market_value=Decimal(str(round(market_value, 2))),
+        cash_balance=Decimal(str(round(cash, 2))),
+        unrealized_pnl=Decimal(str(round(unrealized_pnl, 2))),
+        daily_return=Decimal(str(round(daily_return, 6))),
+        cumulative_return=Decimal(str(round(cumulative_return, 6))),
+    )
+    session.add(snap)
+    await session.commit()
+    await session.refresh(snap)
+    return snap
+
+
+def _dec_or_none(val: float | None, places: int = 6) -> Decimal | None:
+    return Decimal(str(round(val, places))) if val is not None else None
+
+
+async def _compute_and_persist_performance(
+    session: AsyncSession, portfolio_id: uuid.UUID
+) -> PerformanceSnapshot | None:
+    """Build and persist a real "since-inception-to-date" DAILY performance
+    snapshot from NAV history via performance_engine.build_performance_summary().
+
+    Returns None when there's fewer than two NAV snapshots (not enough
+    history yet to derive a return series) rather than fabricating one.
+
+    Benchmark-relative metrics (benchmark_return, beta, alpha, tracking
+    error, information ratio, up/down capture, batting average) are left
+    null: Portfolio.benchmark_id is a free-text ticker, not a resolved
+    security with a real price series wired here, so those remain an
+    honest gap rather than a guess.
+
+    The sole external cash flow modeled is the portfolio's initial_cash at
+    inception — this portfolio model has no deposit/withdrawal transaction
+    type distinct from BUY/SELL (which are internal, NAV-neutral), so MWR
+    computed this way is exact for the "no subsequent external flows" case
+    and reduces to (very close to) TWR otherwise.
+    """
+    await _ensure_nav_snapshot_today(session, portfolio_id)
+    portfolio = await _get_portfolio(session, portfolio_id)
+
+    nav_rows = (
+        await session.execute(
+            select(NAVSnapshot)
+            .where(NAVSnapshot.portfolio_id == portfolio_id)
+            .order_by(NAVSnapshot.snapshot_date.asc())
+        )
+    ).scalars().all()
+    if len(nav_rows) < 2:
+        return None
+
+    nav_history = [{"date": r.snapshot_date.isoformat(), "nav": float(r.nav)} for r in nav_rows]
+
+    cash_flows = None
+    if portfolio.initial_cash is not None and float(portfolio.initial_cash) > 0:
+        cash_flows = [{"date_offset": 0, "amount": -float(portfolio.initial_cash)}]
+
+    summary = performance_engine.build_performance_summary(nav_history, cash_flows=cash_flows)
+
+    period_start = nav_rows[0].snapshot_date
+    period_end = nav_rows[-1].snapshot_date
+
+    existing = (
+        await session.execute(
+            select(PerformanceSnapshot).where(
+                PerformanceSnapshot.portfolio_id == portfolio_id,
+                PerformanceSnapshot.period_type == "DAILY",
+                PerformanceSnapshot.period_end == period_end,
+            )
+        )
+    ).scalar_one_or_none()
+
+    fields = dict(
+        twr_return=_dec_or_none(summary.twr_return, 8),
+        mwr_return=_dec_or_none(summary.mwr_return, 8),
+        max_drawdown=_dec_or_none(summary.drawdown.max_drawdown),
+        sharpe_ratio=_dec_or_none(summary.risk_metrics.sharpe_ratio),
+        sortino_ratio=_dec_or_none(summary.risk_metrics.sortino_ratio),
+        calmar_ratio=_dec_or_none(summary.risk_metrics.calmar_ratio),
+        volatility=_dec_or_none(summary.risk_metrics.volatility),
+        best_day=_dec_or_none(summary.best_day, 8),
+        worst_day=_dec_or_none(summary.worst_day, 8),
+        positive_days=summary.positive_days,
+        negative_days=summary.negative_days,
+    )
+
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        snap = existing
+    else:
+        snap = PerformanceSnapshot(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio_id,
+            period_type="DAILY",
+            period_start=period_start,
+            period_end=period_end,
+            **fields,
+        )
+        session.add(snap)
+
+    await session.commit()
+    await session.refresh(snap)
+    return snap
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Static route — MUST be before /{portfolio_id} routes
 # ══════════════════════════════════════════════════════════════════════
@@ -128,14 +298,15 @@ async def compare_portfolios(
         if not portfolio or portfolio.user_id != requester:
             continue
 
-        # Get latest performance snapshot
-        snap_result = await session.execute(
-            select(PerformanceSnapshot)
-            .where(PerformanceSnapshot.portfolio_id == pid)
-            .order_by(PerformanceSnapshot.period_end.desc())
-            .limit(1)
-        )
-        snap = snap_result.scalar_one_or_none()
+        snap = await _compute_and_persist_performance(session, pid)
+        if not snap:
+            snap_result = await session.execute(
+                select(PerformanceSnapshot)
+                .where(PerformanceSnapshot.portfolio_id == pid)
+                .order_by(PerformanceSnapshot.period_end.desc())
+                .limit(1)
+            )
+            snap = snap_result.scalar_one_or_none()
 
         entries.append(PerformanceCompareEntry(
             portfolio_id=pid,
@@ -165,14 +336,18 @@ async def get_performance(
 ):
     """Get latest performance snapshot for a portfolio."""
     await _get_portfolio(session, portfolio_id)
-
-    result = await session.execute(
-        select(PerformanceSnapshot)
-        .where(PerformanceSnapshot.portfolio_id == portfolio_id)
-        .order_by(PerformanceSnapshot.period_end.desc())
-        .limit(1)
-    )
-    snap = result.scalar_one_or_none()
+    snap = await _compute_and_persist_performance(session, portfolio_id)
+    if not snap:
+        # Not enough NAV history to compute fresh (e.g. a brand-new
+        # portfolio) — fall back to whatever's already on record (a prior
+        # batch-computed snapshot) instead of clobbering it with null.
+        result = await session.execute(
+            select(PerformanceSnapshot)
+            .where(PerformanceSnapshot.portfolio_id == portfolio_id)
+            .order_by(PerformanceSnapshot.period_end.desc())
+            .limit(1)
+        )
+        snap = result.scalar_one_or_none()
     if not snap:
         return None
     return _perf_to_response(snap)
@@ -189,6 +364,7 @@ async def get_returns(
 ):
     """Get return time series for a portfolio."""
     await _get_portfolio(session, portfolio_id)
+    await _ensure_nav_snapshot_today(session, portfolio_id)
 
     result = await session.execute(
         select(NAVSnapshot)

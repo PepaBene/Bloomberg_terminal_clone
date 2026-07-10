@@ -7,7 +7,12 @@ returned, only narrative text fields are None.
 
 from __future__ import annotations
 
+import logging
 import os
+
+from src.services.ai.claude_client import get_claude_client
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -29,15 +34,24 @@ class LLMClient:
     ) -> str | None:
         """Generate text from the LLM.
 
-        Returns None when AI is disabled (no API key).
+        Returns None when AI is disabled (no API key) or the call fails.
         """
         if not self._enabled:
             return None
 
-        # In production, this would call the Anthropic API.
-        # For now, return None to indicate AI is available but
-        # actual integration is deferred.
-        return None
+        client = get_claude_client()
+        if not client.is_configured:
+            return None
+
+        try:
+            return await client.generate_text(
+                prompt=user_prompt,
+                system=system_prompt,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            logger.exception("LLM generation failed")
+            return None
 
 
 # Module-level singleton

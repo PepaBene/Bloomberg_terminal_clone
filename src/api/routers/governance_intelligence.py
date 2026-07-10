@@ -101,10 +101,25 @@ async def _compute_governance_assessment_live(
         for m in board_rows
     ]
 
+    # Determine who holds the CEO title from the proxy's executive
+    # compensation table (BoardMember carries no role/title field) and
+    # cross-reference by name against the board chair.
+    exec_rows = (
+        await session.execute(
+            select(ExecutiveCompensation.person_name, ExecutiveCompensation.role)
+            .where(ExecutiveCompensation.proxy_id == proxy.id)
+        )
+    ).all()
+    ceo_names = {
+        name.strip().lower()
+        for name, role in exec_rows
+        if "CEO" in role.upper() or "CHIEF EXECUTIVE" in role.upper()
+    }
+
     independent_count = sum(1 for m in board_members if m.get("is_independent"))
     board_total = len(board_members) or 0
     ceo_is_chair = any(
-        m.get("is_chair") and (m.get("expertise_areas") or m.get("role") == "CEO")
+        m.get("is_chair") and m.get("person_name", "").strip().lower() in ceo_names
         for m in board_members
     )
 
@@ -147,55 +162,39 @@ async def get_governance_score(
     )
     row = result.scalar_one_or_none()
 
-    if not row:
-        # No pre-computed score — compute on-demand using governance engine
-        governance_data: dict = {
-            "dual_class": False,
-            "ceo_is_chair": False,
-            "board_independence_pct": None,
-            "avg_board_tenure": None,
-            "has_poison_pill": False,
-            "has_staggered_board": False,
-            "ceo_pay_ratio": None,
-            "related_party_flag": False,
-            "long_term_incentive_pct": None,
-            "has_majority_voting": False,
-        }
-        score_result = governance_scoring.compute_governance_score(governance_data)
-
-        today = date.today()
-        row = GovernanceAssessment(
-            id=uuid.uuid4(),
-            entity_id=entity_id,
-            assessment_date=today,
-            governance_score=score_result["score"],
-            classification=score_result["classification"],
-            red_flags=score_result["red_flags"],
+    if row:
+        return GovernanceAssessmentResponse(
+            entity_id=row.entity_id,
+            assessment_date=row.assessment_date,
+            governance_score=row.governance_score,
+            classification=row.classification,
+            red_flags=_parse_red_flags(row.red_flags),
+            board_independence_pct=float(row.board_independence_pct) if row.board_independence_pct is not None else None,
+            board_diversity_pct=float(row.board_diversity_pct) if row.board_diversity_pct is not None else None,
+            ceo_is_chair=row.ceo_is_chair,
         )
-        session.add(row)
-        await session.commit()
 
-    red_flags = []
-    if row.red_flags:
-        for rf in row.red_flags:
-            red_flags.append(
-                GovernanceRedFlagResponse(
-                    flag=rf.get("flag", ""),
-                    severity=rf.get("severity", "LOW"),
-                    detail=rf.get("detail", ""),
-                    weight=rf.get("weight", 0),
-                )
-            )
+    # No pre-computed score — compute on-demand from real proxy/board data.
+    # NOTE: this must never fall back to fabricated governance_data (all
+    # fields defaulted/False) — a prior version did that and persisted the
+    # fabricated result here, permanently poisoning this cache for the
+    # entity even after real proxy data was later ingested.
+    live = await _compute_governance_assessment_live(session, entity_id)
+    if not live:
+        raise HTTPException(
+            status_code=404,
+            detail="No proxy filing data available to compute a governance score for this entity",
+        )
 
     return GovernanceAssessmentResponse(
-        entity_id=row.entity_id,
-        assessment_date=row.assessment_date,
-        governance_score=row.governance_score,
-        classification=row.classification,
-        red_flags=red_flags,
-        board_independence_pct=float(row.board_independence_pct) if row.board_independence_pct is not None else None,
-        board_diversity_pct=float(row.board_diversity_pct) if row.board_diversity_pct is not None else None,
-        ceo_is_chair=row.ceo_is_chair,
+        entity_id=entity_id,
+        assessment_date=date.today(),
+        governance_score=live["score"],
+        classification=live["classification"],
+        red_flags=_parse_red_flags(live["red_flags"]),
+        board_independence_pct=live["board_independence_pct"],
+        board_diversity_pct=live["board_diversity_pct"],
+        ceo_is_chair=live["ceo_is_chair"],
     )
 
 

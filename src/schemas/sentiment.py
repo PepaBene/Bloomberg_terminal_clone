@@ -28,7 +28,7 @@ class SentimentAggregateResponse(BaseModel):
     entity_id: uuid.UUID
     as_of_date: date | None = None
     timeframe: str = "ROLLING_30D"
-    avg_sentiment: float
+    avg_sentiment: float | None = None
     sentiment_momentum: float | None = None
     article_count: int = 0
     positive_pct: float = 0.0
