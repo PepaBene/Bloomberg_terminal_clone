@@ -198,6 +198,62 @@ async def _compute_competitive(session: AsyncSession, entity: Entity) -> bool:
         moat_evidence={"evidence": moat.evidence}, ai_enabled=False,
     ))
 
+    # ── Moat history (real per-period snapshot -> moat_history had zero
+    #    writers; classification fields are only set on the latest period
+    #    since we don't re-run the classifier over history) ─────────────
+    hist_periods = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity_id)
+            .order_by(FinancialPeriod.period_end_date.asc())
+            .limit(8)
+        )
+    ).scalars().all()
+    for p in hist_periods:
+        inc_p = p.income_statement
+        if not inc_p or not inc_p.total_revenue or inc_p.gross_profit is None:
+            continue
+        gross_margin = float(inc_p.gross_profit) / float(inc_p.total_revenue) * 100
+        roic_val = (await session.execute(
+            select(AnalyticsResult.value).where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_name == "roic",
+                AnalyticsResult.as_of_date <= p.period_end_date,
+            ).order_by(AnalyticsResult.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+        wacc_val = (await session.execute(
+            select(AnalyticsResult.value).where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_name == "wacc",
+                AnalyticsResult.as_of_date <= p.period_end_date,
+            ).order_by(AnalyticsResult.as_of_date.desc()).limit(1)
+        )).scalar_one_or_none()
+        roic_f = float(roic_val) if roic_val is not None else None
+        wacc_f = float(wacc_val) if wacc_val is not None else None
+        is_latest = p.period_end_date == hist_periods[-1].period_end_date
+
+        values = dict(
+            roic=roic_f, wacc=wacc_f,
+            roic_wacc_spread=(roic_f - wacc_f) if roic_f is not None and wacc_f is not None else None,
+            gross_margin=gross_margin,
+            moat_width=moat.moat_width if is_latest else None,
+            moat_score=moat.moat_score if is_latest else None,
+            market_share_est=market_share if is_latest else None,
+        )
+        existing_h = (await session.execute(
+            select(MoatHistory).where(
+                MoatHistory.entity_id == entity_id,
+                MoatHistory.period_end_date == p.period_end_date,
+            )
+        )).scalar_one_or_none()
+        if existing_h is not None:
+            for k, v in values.items():
+                setattr(existing_h, k, v)
+        else:
+            session.add(MoatHistory(
+                id=uuid.uuid4(), entity_id=entity_id, period_end_date=p.period_end_date, **values,
+            ))
+
     # ── Competitive landscape ─────────────────────────────────────────
     entity_data = {
         "entity_id": str(entity_id), "name": entity.legal_name,
@@ -359,15 +415,19 @@ async def get_moat_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Get historical moat metrics for trend analysis."""
-    await _get_entity(session, entity_id)
+    entity = await _get_entity(session, entity_id)
 
-    result = await session.execute(
-        select(MoatHistory)
-        .where(MoatHistory.entity_id == entity_id)
-        .order_by(MoatHistory.period_end_date.desc())
-        .limit(20)
-    )
-    rows = result.scalars().all()
+    async def _q():
+        return (await session.execute(
+            select(MoatHistory)
+            .where(MoatHistory.entity_id == entity_id)
+            .order_by(MoatHistory.period_end_date.desc())
+            .limit(20)
+        )).scalars().all()
+
+    rows = await _q()
+    if not rows and await _compute_competitive(session, entity):
+        rows = await _q()
 
     history = [
         MoatHistoryEntry(
