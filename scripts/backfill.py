@@ -44,6 +44,9 @@ from src.database import get_session_factory
 from src.ingestion.edgar_13f import Edgar13FConnector
 from src.ingestion.edgar_8k import Edgar8KConnector
 from src.ingestion.edgar_esg import EdgarESGConnector
+from src.ingestion.edgar_filing_diff import EdgarFilingDiffConnector
+from src.ingestion.edgar_form4 import EdgarForm4Connector
+from src.ingestion.edgar_proxy import EdgarProxyConnector
 from src.ingestion.edgar_xbrl import EdgarXBRLConnector
 from src.ingestion.polygon_eod import PolygonEODConnector
 
@@ -86,6 +89,18 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     # that E6 reads by and the presence marker for ownership data.
     "ownership": EntityCikType(
         "ownership", Edgar13FConnector, "ciks", "institutional_holdings", "security_id"
+    ),
+    # SEC Form 4 insider transactions (per issuer CIK).
+    "insider": EntityCikType(
+        "insider", EdgarForm4Connector, "issuer_ciks", "insider_transactions_p3", "entity_id"
+    ),
+    # DEF 14A proxy governance (proxy_filings + comp/board/proposals).
+    "governance": EntityCikType(
+        "governance", EdgarProxyConnector, "ciks", "proxy_filings", "entity_id"
+    ),
+    # 10-K/10-Q section diffs (heavy: fetches two full filings per company).
+    "filing_diff": EntityCikType(
+        "filing_diff", EdgarFilingDiffConnector, "cik_list", "filing_diffs", "entity_id"
     ),
 }
 DATE_TYPES = {"prices"}
