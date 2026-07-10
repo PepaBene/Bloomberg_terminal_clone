@@ -1,7 +1,7 @@
-# Pillar 3 & Pillar 4 — Open Items Tracker
+# Pillar 2, 3 & Pillar 4 — Open Items Tracker
 
 **Date:** 2026-07-10
-**Method:** Every issue in `PILLAR_3_AUDIT_REPORT_v2.md` (147 issues) and `PILLAR_4_AUDIT_REPORT_v2.md` (157 issues) was re-verified against the **current** codebase — not re-read from the documents, but re-derived from source (file:line citations below). Two intervening fix passes are already reflected in the codebase: a data-wiring pass (`DATA_WIRING_AUDIT.md`, 2026-07-09) and a separate, undocumented frontend/router/engine remediation pass whose commits weren't captured in any audit doc but are visible as inline code comments citing the original issue IDs (e.g. `# E-019 fix`, `# P4-F-013`).
+**Method:** Every issue in `PILLAR_2_AUDIT_REPORT_v2.md` (98 issues), `PILLAR_3_AUDIT_REPORT_v2.md` (147 issues), and `PILLAR_4_AUDIT_REPORT_v2.md` (157 issues) was re-verified against the **current** codebase — not re-read from the documents, but re-derived from source (file:line citations below). Intervening fix passes are already reflected in the codebase: a data-wiring pass (`DATA_WIRING_AUDIT.md`, 2026-07-09), a further Pillar-2 commit (`29687c2`, 2026-07-08) that postdates `DATA_WIRING_AUDIT.md`, and a separate, undocumented frontend/router/engine remediation pass whose commits weren't captured in any audit doc but are visible as inline code comments citing the original issue IDs (e.g. `# E-019 fix`, `# P4-F-013`, `[Bug 42 fix]`).
 **Purpose:** a single place to see what's genuinely still broken vs. what's been fixed since the v2 audits, so future work isn't wasted re-discovering already-closed issues or, worse, assuming closed issues are still open.
 
 **Status legend:** 🔴 STILL OPEN · 🟡 PARTIALLY FIXED · ✅ FIXED (listed only where the original doc's premise itself was wrong, or as section totals)
@@ -10,15 +10,117 @@
 
 ## Table of contents
 
-1. [Pillar 3 — Engines](#pillar-3--engines)
-2. [Pillar 3 — Routers & app.py registration](#pillar-3--routers--apppy-registration)
-3. [Pillar 3 — Models & schemas](#pillar-3--models--schemas-important-caveat-below)
-4. [Pillar 3 — Frontend](#pillar-3--frontend)
-5. [Pillar 4 — Routers & app.py registration](#pillar-4--routers--apppy-registration)
-6. [Pillar 4 — Engines](#pillar-4--engines)
-7. [Pillar 4 — Models & schemas](#pillar-4--models--schemas)
-8. [Pillar 4 — Frontend](#pillar-4--frontend)
-9. [Cross-cutting themes / where to start](#cross-cutting-themes--where-to-start)
+1. [Pillar 2 — Path mismatch & E1/E2 engines](#pillar-2--path-mismatch--e1e2-engines)
+2. [Pillar 2 — E3/E4 engines & peer service](#pillar-2--e3e4-engines--peer-service)
+3. [Pillar 2 — Routers, models, batch pipeline, app-level](#pillar-2--routers-models-batch-pipeline-app-level)
+4. [Pillar 2 — Frontend](#pillar-2--frontend-includes-genuine-regressions)
+5. [Pillar 3 — Engines](#pillar-3--engines)
+6. [Pillar 3 — Routers & app.py registration](#pillar-3--routers--apppy-registration)
+7. [Pillar 3 — Models & schemas](#pillar-3--models--schemas-important-caveat-below)
+8. [Pillar 3 — Frontend](#pillar-3--frontend)
+9. [Pillar 4 — Routers & app.py registration](#pillar-4--routers--apppy-registration)
+10. [Pillar 4 — Engines](#pillar-4--engines)
+11. [Pillar 4 — Models & schemas](#pillar-4--models--schemas)
+12. [Pillar 4 — Frontend](#pillar-4--frontend)
+13. [Cross-cutting themes / where to start](#cross-cutting-themes--where-to-start)
+
+---
+
+## Pillar 2 — Path mismatch & E1/E2 engines
+
+*(Part 1 path mismatch + 35 engine bugs — essentially all FIXED; this is the cleanest layer across all three pillars)*
+
+**Universal path mismatch (Part 1) — FULLY FIXED.** All 14 `ANALYTICS.*` path pairs in `frontend/src/api/endpoints.ts` now match `src/api/routers/analytics.py`/`screening.py` route decorators exactly. This was the audit's headline "blocks everything" finding — genuinely resolved.
+
+**All 18 E1 bugs (Bugs 1–18, ratios/DuPont/TTM/trends/industry KPIs) — FIXED**, each with an explicit `[Bug N fix]` code comment: employee-count metrics removed, negative-equity flag propagated to ROIC/ROCE/DuPont composites, manual zero-division guards replaced with `safe_divide()`, fiscal-year-based period matching, dynamic trend-ratio discovery, TTM fallback view, months-covered off-by-one fixed, startup field-mapping validation, all-None metrics still emitted with `INSUFFICIENT_DATA`, minimum-4-points stdev gate, zero-variance→`HIGHLY_CONSISTENT`, 180-day momentum-comparison gap, REIT gain-on-sale/maintenance-capex sourced from real data with `ESTIMATED` fallback flags, junk placeholder KPIs removed, insurance combined-ratio proxy now flagged `ESTIMATED`.
+
+**28 of 35 E2 bugs (DCF/WACC/Multiples/Comps/Football Field) — FIXED**, including the two highest-severity ones: Bug 19 (sensitivity grid now fully re-discounts explicit-period FCFs per cell, not just terminal value) and Bug 23 (size/country risk premiums now from real lookup tables). Also fixed: leverage_target param, exit-multiple terminal method, tax-rate fallback logic, shared E1/E2 metric-name constants, fiscal-year EPS matching, session.flush() after merge, peer-override ValueError on empty match, denominator metric-name alignment (`ttm_diluted_eps`, `bvps`, `dps` — confirmed these match real E1 output), `session.merge()` upsert for CompsResult, football-field EPS metric name, single-peer ±10% spread, sensitivity-grid JSON-array parsing, consensus_view field placement.
+
+**Newer finding (post-audit) — FIXED.** DCF request-schema field names (`revenue_growth_rates` etc.) are now translated via an explicit `_rename` dict in `analytics.py` to the engine's real assumption keys — custom DCF assumptions are no longer silently dropped.
+
+**`DuPontDecomposition` dead-table claim — resolved via architecture change, not a bug fix.** The dedicated `DuPontDecomposition` ORM table is still never constructed (confirmed dead code), but `/dupont/{id}` no longer depends on it — the endpoint was rewritten to read `AnalyticsResult` rows filtered by `metric_category="DUPONT"`, and `DuPontEngine` is wired into the batch pipeline's `e1`/`all` groups. No user-facing 404; `DATA_WIRING_AUDIT.md`'s "permanent 404" claim is stale.
+
+### 🟡 Partially fixed
+
+| Bug | Detail |
+|---|---|
+| 20 | Out-of-range CAGR ([-20%,+50%]) is now clamped to the nearest bound (fixed) rather than reset to flat 5%. But when historical CAGR is **unavailable entirely** (<2 years of data), it still falls back to a flat 5% with **no sector-median fallback** — that specific complaint remains open for the no-data path. `src/engines/e2_dcf.py:601-610` |
+| 26 | Dividend-yield sign convention (`abs()`) is now documented via inline comments at `e2_multiples.py:300` and `e1_ratios.py:913`, but `e1_ratios.py:1275` (`dividend_yield_trailing`) still has no comment — relies on variable naming alone. |
+
+---
+
+## Pillar 2 — E3/E4 engines & peer service
+
+*(19 issues — 18 FIXED, 1 PARTIALLY FIXED)*
+
+**All 10 E3 quality-score bugs (Bugs 36–45) — FIXED**: shares-prior missing now flags `INSUFFICIENT_DATA` instead of assuming no dilution; negative equity now nulls out ROA-dependent F1–F4 instead of computing misleading values; Altman X4 field renamed to `altman_x4_value`+`altman_x4_description` (no longer misleadingly named); EBIT now includes interest income/expense adjustment; Beneish M-Score now requires all 8 components or returns `INSUFFICIENT_DATA` instead of biasing toward "not a manipulator"; AQI division-by-zero guarded; composite scores now prorate by available weight instead of penalizing missing data as 0; revenue-growth consistency now counts positive-years-out-of-5 instead of breaking on first negative year; `compute_credit_aware_financial_strength()` now actually called; composite persistence wrapped in try/except.
+
+**5 of 6 E4 screening bugs — FIXED**: universe endpoints (S&P 500/Russell 1000) now seed on demand by actually running the screening engine; `ScreenerDashboard.tsx` now uses the real `useRunScreen()` mutation and `useScreenFields()` hook instead of hardcoded metrics; prebuilt library screen field names now match real `AnalyticsResult` metric names; Dividend Aristocrats screen now requires 25+ consecutive years and positive 1y/3y/5y growth, not just a single 5y>0 check.
+
+**Peer service — all 3 bugs FIXED**, including a correction to `DATA_WIRING_AUDIT.md` itself: that later audit claimed the comps engine's percentile calculation had "a second, unfixed copy" still including the subject security in its own peer distribution. Verified via `git log -p`: this was fixed in commit `29687c2` (2026-07-08) — **three days after** `DATA_WIRING_AUDIT.md` was written (2026-07-05). Both percentile implementations (`peer_service.py::_percentile` and `e2_comps.py::_percentile_rank`) now correctly exclude the subject security.
+
+**Bug 85 (screener "20 of 20" fake preview count) — FIXED.** Now shows an honest "Demo mode — backend unavailable" banner with `totalCount=null` instead of a misleading real-looking count.
+
+### 🔴 Still open
+
+| Bug | File:line | Issue |
+|---|---|---|
+| 46 | `frontend/src/pages/screener/ScreenerDashboard.tsx:123-135` vs `src/schemas/screening.py:44` | Field/operator name mapping was fixed (`metric→field`, `operator→op`, `valueTo→value2`), but the frontend still builds the payload as a top-level `{logic, filters: [...]}` instead of the backend's required `{filters: {logic, filters: [...]}}` wrapper — every screen run still gets a 422 and falls back to mock data. **The saving grace: this now correctly triggers the honest "Demo mode" banner (Bug 85, fixed) instead of silently showing fake data as real.** |
+
+---
+
+## Pillar 2 — Routers, models, batch pipeline, app-level
+
+*(24 items — 17 FIXED, 4 PARTIALLY FIXED, 4 STILL OPEN)*
+
+### 🔴 Still open
+
+| Bug | File:line | Issue |
+|---|---|---|
+| 68 | `src/models/analytics.py:44` vs `migrations/versions/014_analytics_tables.py:34` | **Model-only fix, no migration** (same pattern as Pillar 3's model/migration gap). Model now declares `data_quality: String(100)`, but the migration that actually creates the table still has `String(20)`. Inserting a 35-char comma-joined flag string (`"NO_DCF_DATA,NO_COMPS_DATA,NO_52W_DATA"`) still fails/truncates on any database built from migrations. |
+| 74 | `src/api/app.py:70`, `src/config.py:117` | No authentication enforced by default — `REQUIRE_AUTH: bool = False`. |
+| — | `scripts/run_analytics_batch.py:55-65` (`ENGINE_GROUPS`) | **Batch pipeline scope gap confirmed still true.** `e2_dcf`, `e2_comps`, `e2_football_field`, `e5_risk`, `e7_quant` remain absent from every `--engine` choice including `all` — they only ever run live/on-demand per API request, never pre-computed or scheduled. |
+| — | `src/api/routers/backtesting.py:22-58` | `POST /v2/analytics/backtest` still a stub — creates a `PENDING` `BacktestRun` row with a comment describing a batch worker that would advance it, but **no such worker exists anywhere** in `scripts/` or `src/scheduler/`. Rows never advance past PENDING. (Distinct from, but the same failure pattern as, Pillar 4's `/v1/analytics/backtest`.) |
+
+### 🟡 Partially fixed
+
+| Bug | Detail |
+|---|---|
+| 55 | Router-level category lowercasing is now case-robust in practice (neutralizes the original bug's effect). But the model declares a DB `CheckConstraint("metric_category = UPPER(metric_category)")` with no corresponding migration — model-only fix again. |
+| 64 | `GET /screen/fields` now genuinely queries `SELECT DISTINCT metric_name FROM analytics_results` instead of a pure hardcoded list — but filters `engine_id IN ('E1','E2')` only, silently excluding live, populated E3 quality-score fields (`piotroski_f_score`, `altman_z_score`, `altman_zone`, `beneish_m_score`) from the screenable-fields response. |
+| 73 | Startup lifespan handler now auto-seeds analytics via a background batch run when `AnalyticsResult` is empty — but by construction can't cover DCF/Comps/Football Field/E5/E7, since those aren't in any `ENGINE_GROUPS` value (same root cause as the batch-scope item above). |
+| 77 | Silent `except: pass` → `logger.warning(...)` fix confirmed for the Pillar 3 router block. **Does not apply to Pillar 2 routers** (`analytics`, `screening`, `flows`, `risk`, `quant`, `scenario`) — those were never wrapped in try/except at all; a broken import there crashes the whole app at startup (fail-fast, arguably safer, but not the documented fix pattern). |
+
+All other items (Bugs 56–63, 65–67 [indexes present in model though also missing from migrations — lower-severity than Bug 68 since a missing index degrades performance rather than breaking correctness], 69–72, the invalid `--engine e6` scheduled job, 75, 76) are confirmed **FIXED**. Notably: the batch runner was rewritten for per-chunk commits + idempotent resume via `ingestion_progress` tracking + per-security 30s timeouts; E3 import failures now crash loudly instead of silently skipping; CORS and DB-backed health checks are both present (though `allow_origins=["*"]` + `allow_credentials=True` together is spec-invalid and worth a follow-up).
+
+---
+
+## Pillar 2 — Frontend (includes genuine regressions)
+
+*(21 items — 10 FIXED, 8 PARTIALLY FIXED, 3 STILL OPEN — and 2 of the 3 still-open items are new crash-risk regressions, not just unfixed originals)*
+
+### 🔴 Still open — including new regressions worse than the original bug
+
+| Bug | File:line | Issue |
+|---|---|---|
+| 79 | `ValuationDashboard.tsx:111,117`; `RatioDashboard.tsx:106`; `MultiplesOverTime.tsx:84` | **Regression.** Hardcoded `multiplesOverTimeData` array removed, but the replacement code reads a `.history` field that doesn't exist on the real backend response (`GET /v2/analytics/multiples/{id}/history` actually returns `data_points`). The raw non-array API object then gets passed into two components that call `.map()` with no `Array.isArray` guard — **will throw `TypeError` and crash the page** once a security with real multiples data loads. Worse than the original static-mock bug. |
+| 80 | `ValuationDashboard.tsx` | Football field data (`apiFootball`/`activeFootballData`) is fetched and computed but **never rendered anywhere** — no `FootballField` component is imported or exists in the codebase at all. Dead code fetching data for a UI element that doesn't exist. |
+| 82 | `ValuationDashboard.tsx:112`; `PeerScatter.tsx:92-131` | **Regression.** Hardcoded 5-peer fallback removed, but `activePeers = (apiPeers as any[]) ?? MOCK_PEER_SCATTER` is a bare type cast with no runtime check. The real backend (`GET /v2/analytics/ratios/{id}/vs-peers`) returns an **object** (`{comparisons: [...]}` of per-metric percentile aggregates), not an array of per-peer points at all. Once the API call succeeds, this object flows into `PeerScatter`, which calls `.map()` unguarded → **will throw `TypeError` and crash**. Even with a guard added, the backend doesn't return the right shape (`{ticker,x,y,marketCap}` points) for this to ever work — needs a new/different endpoint, not just a frontend fix. |
+
+### 🟡 Partially fixed
+
+| Bug | Detail |
+|---|---|
+| 81 | DCF sensitivity: frontend field-name reading fixed (snake_case), but `GET /v2/analytics/dcf/{id}/sensitivity` **doesn't exist in the backend at all** — always errors, matrix never shows real data. (The DCF response itself already contains `sensitivity_grid` sitting unused as an alternative source.) |
+| 84 | Screening management paths are now individually correct, but `screens/library`/`screens/saved` return bare JSON arrays while the frontend still expects a `.screens` wrapper key (`apiPrebuilt?.screens`) — Prebuilt Screens panel and Load-screen modal never populate despite correct URLs. |
+| 87 | `useFactorExposure`/`useTechnicalSignals` no longer permanently disabled (real `secId` now sourced from store) — but `GET /v2/analytics/factor-exposure/{id}` and `/technical-signals/{id}` don't exist in the backend at all, so Momentum Signals table stays permanently (honestly) empty. |
+| 88 | Fake vol-surface formula removed, disclosure label "Illustrative — not from live data" added (both original complaints resolved) — but there's still no real backend wiring for vol-surface data at all. |
+| 91 | Backtest KPI tiles now computed dynamically instead of hardcoded — but since `BACKTESTING.strategies`/`.run`/`.history` don't exist in the backend (real routes are a completely different `/v1/analytics/backtest` shape), the results array stays empty and 4 of 6 KPI tiles literally render `"+undefined%"`/`"NaN%"` — a new, more confusing failure mode than the old static mock numbers. |
+| 93 | Strategy selector now wired to `useBacktestStrategies()` — but since that endpoint doesn't exist, it falls back to a now-**empty** array (was a static 6-option list before) — dropdown renders with zero options, arguably worse UX than before. |
+| 94 | Property-name fix (`.benchmarks` before `.indices`) is correct, but `GET /v1/benchmarks` has no backend implementation at all (same root cause as Pillar 4's P4-F-009) — always 404s. |
+| 95 | Now posts to a distinct `BENCHMARKS.create` path instead of the list endpoint — but that endpoint doesn't exist either; create-index always fails, now with a visible error message instead of silently. |
+
+All other items (Bugs 78, 83, 85, 86, 89, 90 [same underlying fix as Pillar 4's P4-F-020], 92, 96, 97, 98) are confirmed **FIXED**.
 
 ---
 
@@ -292,13 +394,14 @@ All other frontend items (P4-F-001–008, P4-F-016, P4-F-018, P4-F-019, P4-F-020
 
 Ranked by leverage (impact of fix ÷ effort), not by original severity label:
 
-1. **Models/schemas are the weakest layer in both pillars, and Pillar 3's "fixes" are a trap.** Someone edited `src/models/*.py` extensively but never touched `migrations/versions/`. Anyone deploying from migrations gets none of those 11 Pillar-3 model fixes. **First action: reconcile models vs. migrations with a new Alembic revision**, or the model edits are dead weight.
+1. **Models/schemas are the weakest layer across pillars, and Pillar 2/3's "fixes" are a trap.** Someone edited `src/models/*.py` extensively for both Pillar 2 (`data_quality` column, `metric_category` CHECK constraint) and Pillar 3 (11 items) but never touched `migrations/versions/`. Anyone deploying from migrations gets none of those fixes. **First action: reconcile models vs. migrations with a new Alembic revision**, or the model edits are dead weight.
 2. **Decimal→float precision loss (Pillar 4, P4-M-001–007)** — untouched across all 7 financial schema groups. Every monetary number in the portfolio system loses precision on serialization. High blast radius, moderate effort (schema type change + serializer).
-3. **Backtesting is a dead end in both pillars.** Pillar 4's `backtesting.py` now honestly returns `PENDING` instead of fake `COMPLETED`, but **no batch worker exists anywhere** to ever advance it — and the frontend (`BacktestDashboard.tsx`) calls endpoints that don't even exist on the backend, with a newly-introduced `NaN`/`undefined` KPI display bug on top. This is the single most broken end-to-end feature surfaced across both audits.
-4. **Frontend endpoint/backend mismatches with zero backend implementation** (not just wiring bugs): Pillar 4's benchmarks (`P4-F-009`), quant (`P4-F-010`), technical-backtest (`P4-F-011`), FI-risk (`P4-F-012`) all point at routes that were never built. These need a scoping decision (build the backend, or remove the dead frontend code) rather than a wiring fix.
-5. **`AnomalyView.tsx` (Pillar 3) is the one page where the original F-001 mock-data bug is fully unfixed** — worth a 10-minute fix to match the pattern already applied to the other 8 pages in the same audit.
-6. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unguarded `abs(None)` crash path (E-013) and unweighted surprise sum (E-036).
+3. **Backtesting is a dead end in every pillar that has one.** Pillar 2's `/v2/analytics/backtest`, Pillar 4's `/v1/analytics/backtest`, and Pillar 4's frontend `BacktestDashboard.tsx` (which calls a *third*, entirely nonexistent set of endpoints) are three independent broken implementations of the same feature. All three honestly return `PENDING`/empty instead of fake data now, but **no batch worker exists anywhere** in the repo to ever advance a PENDING backtest, and the Pillar 4 frontend has a newly-introduced `NaN`/`undefined` KPI display bug on top. This is the single most broken end-to-end feature surfaced across all three audits — worth consolidating into one real implementation rather than fixing three broken ones.
+4. **Frontend endpoint/backend mismatches with zero backend implementation** (not just wiring bugs, an actual missing feature) cluster around the same few concepts across pillars: **benchmarks** (`/v1/benchmarks` — Pillar 2 Bugs 94/95 and Pillar 4 P4-F-009 are the *same* missing router hit from two different pages), **quant** (`/factor-exposure`, `/technical-signals`, `/correlation`'s zeroed-out metrics — Pillar 2 Bugs 87/93 and Pillar 4 P4-F-010), **technical-backtest** (P4-F-011), **FI-risk** (P4-F-012). These need one scoping decision each (build the backend, or remove the dead frontend code) rather than a wiring fix.
+5. **The "remove hardcoded mock, fall back to real API data" pass introduced real regressions in `ValuationDashboard.tsx` (Pillar 2, Bugs 79/82).** Two of its three still-open frontend bugs are now **worse** than the original static-mock version: unguarded `.map()` calls on API responses that are objects, not arrays, will throw `TypeError` and crash the page the moment a security with real multiples/peer data loads — masked today only because the underlying endpoints' response shape was never checked against what the component expects. Same failure class as `BacktestDashboard.tsx`'s `NaN%` tiles (item 3) — worth a systematic sweep for `(x as any[])` casts with no `Array.isArray` guard across all three pillars' frontends, since this pattern reproduced independently at least 3 times.
+6. **`AnomalyView.tsx` (Pillar 3) is the one page where the original F-001 mock-data bug is fully unfixed** — worth a 10-minute fix to match the pattern already applied to the other 8 pages in the same audit.
+7. **Small, cheap, high-clarity fixes** ready to knock out in one pass: `risk.py`'s ignored `benchmark` param (P4-R-042), `fi_risk.py`'s missing `session` params (P4-R-044), `portfolio_watchlists.py`'s missing entity fallback labels (P4-R-032), `PortfolioList.tsx`'s never-implemented TODO toast (P4-F-023), `earnings_surprise_intelligence.py`'s unguarded `abs(None)` crash path (E-013) and unweighted surprise sum (E-036), Pillar 2's screener payload wrapper key (Bug 46, one JSON key away from working), Pillar 2's `/screen/fields` E3-field exclusion (Bug 64).
 
 ---
 
-*This file supersedes nothing — `PILLAR_3_AUDIT_REPORT_v2.md`, `PILLAR_4_AUDIT_REPORT_v2.md`, and `DATA_WIRING_AUDIT.md` remain the historical record of what was originally found and what the 2026-07-09 wiring pass changed. This file is the current-state cross-reference layered on top.*
+*This file supersedes nothing — `PILLAR_2_AUDIT_REPORT_v2.md`, `PILLAR_3_AUDIT_REPORT_v2.md`, `PILLAR_4_AUDIT_REPORT_v2.md`, and `DATA_WIRING_AUDIT.md` remain the historical record of what was originally found and what the 2026-07-05/07-09 fix passes changed. This file is the current-state cross-reference layered on top.*
