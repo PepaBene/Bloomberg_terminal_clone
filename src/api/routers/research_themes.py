@@ -97,12 +97,33 @@ async def get_themes_dashboard(
     session: AsyncSession = Depends(get_session),
 ):
     """Get all themes overview / dashboard."""
-    result = await session.execute(
-        select(MacroThemeScore)
-        .order_by(MacroThemeScore.as_of_date.desc())
-        .limit(limit)
-    )
-    rows = result.scalars().all()
+
+    async def _q():
+        return (await session.execute(
+            select(MacroThemeScore)
+            .order_by(MacroThemeScore.as_of_date.desc())
+            .limit(limit)
+        )).scalars().all()
+
+    rows = await _q()
+    if not rows:
+        # Bounded first-population pass so a fresh install shows real scores
+        # immediately, mirroring the entity cap run_scenario already uses.
+        entities = (
+            await session.execute(
+                select(Entity.entity_id, Entity.gics_sector)
+                .where(Entity.gics_sector.isnot(None))
+                .limit(_SCENARIO_MAX_ENTITIES)
+            )
+        ).all()
+        wrote = False
+        for entity_id, gics_sector in entities:
+            if await _compute_theme_scores_for_entity(session, entity_id, gics_sector):
+                wrote = True
+        if wrote:
+            await session.commit()
+            rows = await _q()
+
     return [_theme_score_response(r) for r in rows]
 
 
@@ -188,12 +209,23 @@ async def get_entity_theme_exposures(
     session: AsyncSession = Depends(get_session),
 ):
     """Get macro theme exposure scores for an entity."""
-    result = await session.execute(
-        select(MacroThemeScore)
-        .where(MacroThemeScore.entity_id == entity_id)
-        .order_by(MacroThemeScore.as_of_date.desc())
-    )
-    rows = result.scalars().all()
+
+    async def _q():
+        return (await session.execute(
+            select(MacroThemeScore)
+            .where(MacroThemeScore.entity_id == entity_id)
+            .order_by(MacroThemeScore.as_of_date.desc())
+        )).scalars().all()
+
+    rows = await _q()
+    if not rows:
+        entity = (
+            await session.execute(select(Entity).where(Entity.entity_id == entity_id))
+        ).scalar_one_or_none()
+        if entity is not None and await _compute_theme_scores_for_entity(session, entity_id, entity.gics_sector):
+            await session.commit()
+            rows = await _q()
+
     return [_theme_score_response(r) for r in rows]
 
 
@@ -411,6 +443,68 @@ async def _load_scenario_company(session: AsyncSession, entity_id: uuid.UUID, gi
         "current_price": float(price_row),
         "base_margin_bps": base_margin_bps if base_margin_bps is not None else 1500.0,
     }
+
+
+_THEME_SHOCK_LABELS = {
+    "GDP_GROWTH": "+2pp GDP growth",
+    "INFLATION": "+2pp inflation",
+    "RATE_HIKES": "+100bp Fed funds rate",
+    "OIL_PRICES": "+25% oil price",
+}
+
+
+def _quantify_theme_exposure(theme: str, sector: str, exp: dict, base_eps: float | None) -> str:
+    line = f"{_THEME_SHOCK_LABELS.get(theme, theme)} -> {sector} sector EPS {exp['exposure_score']:+.2f}%"
+    if exp.get("scenario_eps") is not None and base_eps:
+        line += f" (${base_eps:.2f} -> ${exp['scenario_eps']:.2f})"
+    return line
+
+
+async def _compute_theme_scores_for_entity(
+    session: AsyncSession, entity_id: uuid.UUID, gics_sector: str | None
+) -> bool:
+    """Populate real theme-exposure scores for one entity from its GICS
+    sector's sensitivity to 4 standardized macro shocks (GDP growth,
+    inflation, rate hikes, oil prices), reusing
+    macro_scenario_engine.compute_theme_exposures() (built on the same
+    tested SECTOR_SENSITIVITIES/estimate_eps_impact() the scenario-run
+    endpoint already uses). ``macro_theme_scores`` had zero producers
+    anywhere before this. Returns False when the entity has no GICS sector
+    to score against."""
+    sector = _GICS_SECTOR_NAMES.get(gics_sector)
+    if not sector:
+        return False
+
+    company = await _load_scenario_company(session, entity_id, gics_sector)
+    base_eps = company["base_eps"] if company else None
+
+    exposures = macro_scenario_engine.compute_theme_exposures(sector, base_eps)
+    today = date.today()
+    for theme, exp in exposures.items():
+        existing = (
+            await session.execute(
+                select(MacroThemeScore).where(
+                    MacroThemeScore.entity_id == entity_id,
+                    MacroThemeScore.theme == theme,
+                    MacroThemeScore.as_of_date == today,
+                )
+            )
+        ).scalar_one_or_none()
+        values = dict(
+            exposure_score=exp["exposure_score"],
+            sensitivity_direction=exp["direction"],
+            evidence={
+                "sector": sector, "shock": exp["shock"],
+                "base_eps": base_eps, "scenario_eps": exp.get("scenario_eps"),
+            },
+            quantified_exposure=_quantify_theme_exposure(theme, sector, exp, base_eps),
+        )
+        if existing is not None:
+            for k, v in values.items():
+                setattr(existing, k, v)
+        else:
+            session.add(MacroThemeScore(id=uuid.uuid4(), entity_id=entity_id, as_of_date=today, **values))
+    return True
 
 
 @router.post(

@@ -305,6 +305,17 @@ BATCH_JOBS: list[BatchJob] = [
         description="Score ingested news into sentiment_scores + roll up sentiment_aggregates (no LLM required).",
         depends_on=("news_backfill",),
     ),
+    BatchJob(
+        name="theme_scores_compute",
+        cron="0 7 * * *",  # 7 AM daily (after fundamentals/EOD prices settle)
+        script="scripts/compute_theme_scores.py",
+        sla_minutes=30,
+        domain="P3",
+        description=(
+            "Compute macro_theme_scores (GDP/inflation/rates/oil exposure per entity) "
+            "from real GICS-sector sensitivity -- pure local computation, no external calls."
+        ),
+    ),
 ]
 
 # Lookup by name for programmatic access

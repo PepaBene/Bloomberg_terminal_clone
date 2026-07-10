@@ -260,6 +260,11 @@ python scripts/backfill_news.py --status              # coverage so far
 python scripts/backfill_news.py --batch-size 20 --max-minutes 8
 python -m scripts.run_news_loop                        # runs backfill_news to completion
 python scripts/compute_sentiment.py --max-minutes 10   # news_articles -> sentiment_scores/aggregates
+
+# Macro theme exposure scores — pure local computation (no external calls),
+# reuses macro_scenario_engine's tested sector-sensitivity formula under 4
+# standardized shocks (GDP growth, inflation, rate hikes, oil prices)
+python -m scripts.compute_theme_scores
 ```
 
 All of the above are also registered in `src/scheduler/batch_config.py`
@@ -349,10 +354,10 @@ pip install apscheduler
 python scripts/run_scheduler.py
 ```
 
-This reads `src/scheduler/batch_config.py` (30 jobs covering Pillar 1,
+This reads `src/scheduler/batch_config.py` (31 jobs covering Pillar 1,
 Pillar 2 daily/weekly cycles, the FI yield-curve/credit-spread +
-briefing pipeline, and the Pillar 3 connectors from §6 above) and runs
-them in-process.
+briefing pipeline, and the Pillar 3 connectors + theme-scoring job from
+§6 above) and runs them in-process.
 
 ### 10.2 — Crontab (any Unix host)
 
