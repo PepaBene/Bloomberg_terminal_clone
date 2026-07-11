@@ -335,6 +335,7 @@ export {
   useBenchmarkConstituents,
   useBenchmarkCompare,
   useBenchmarkFactSheet,
+  useCreateBenchmark,
 } from '@/api/hooks/useQuant';
 
 // Phase 0: Missing Domain Hooks

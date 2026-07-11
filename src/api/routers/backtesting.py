@@ -3,6 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,55 @@ from src.schemas.backtesting import (
 )
 
 router = APIRouter(tags=["Backtesting"])
+
+# Mounted without the "/v1" prefix the rest of this module's router gets
+# (see src/api/app.py) -- the frontend (frontend/src/api/endpoints.ts
+# BACKTESTING.strategies) calls this at the /v2 path screening.py's
+# prebuilt-screen-library endpoints already live under, since a "backtest
+# strategy" is just that same library reshaped for submission as
+# BacktestRequest.strategy_definition (Pillar 2 Frontend Bug 93).
+strategies_router = APIRouter(tags=["Backtesting"])
+
+
+class BacktestStrategyOption(BaseModel):
+    """A selectable backtest strategy: a pre-built screen definition
+    (src/engines/e4_screens_library.py) reshaped so its `strategy_definition`
+    can be submitted directly to `POST /v1/analytics/backtest`.
+    """
+
+    strategy_id: str
+    name: str
+    description: str | None = None
+    tags: list[str] = []
+    strategy_definition: dict
+
+
+@strategies_router.get(
+    "/v2/analytics/backtest/strategies",
+    response_model=list[BacktestStrategyOption],
+)
+async def list_backtest_strategies():
+    """List available backtest strategies.
+
+    Reuses the same pre-built screen library `GET /v2/analytics/screens/
+    library` (src/api/routers/screening.py) already exposes, rather than
+    inventing a second, parallel strategy-template system -- a "backtest
+    strategy" here is naturally just a named, pre-built screen definition
+    that can also be run historically via the backtest worker.
+    """
+    from src.engines.e4_screens_library import get_all_prebuilt_screens
+
+    screens = get_all_prebuilt_screens()
+    return [
+        BacktestStrategyOption(
+            strategy_id=sid,
+            name=s["name"],
+            description=s.get("description"),
+            tags=s.get("tags", []),
+            strategy_definition=s.get("filters", {}),
+        )
+        for sid, s in screens.items()
+    ]
 
 
 @router.post(

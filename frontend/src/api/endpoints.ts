@@ -132,7 +132,10 @@ export const ANALYTICS = {
   ratioPercentile: (secId: string) => `/v2/analytics/ratios/${secId}/percentile`,
   ratioHistory: (secId: string) => `/v2/analytics/ratios/${secId}/history`,
 
-  // --- These have no backend yet — hooks disabled until endpoints exist ---
+  // --- sectorRelative / fairValue / seasonality still have no backend yet —
+  // hooks stay disabled until those endpoints exist. technicalSignals and
+  // factorExposure (Bug 87) and correlation (Bug 86) ARE wired to real
+  // backend endpoints — see src/api/routers/analytics.py. ---
   sectorRelative: (secId: string) => `/v2/analytics/sector-relative/${secId}`,
   fairValue: (secId: string) => `/v2/analytics/fair-value/${secId}`,
   technicalSignals: (secId: string) => `/v2/analytics/technical-signals/${secId}`,
@@ -836,7 +839,7 @@ export const BENCHMARKS = {
   returns: (id: string) => `/v1/benchmarks/${id}/returns`,
   constituents: (id: string) => `/v1/benchmarks/${id}/constituents`,
   compare: '/v1/benchmarks/compare',
-  create: '/v1/benchmarks/create',
+  create: '/v1/benchmarks',
   factSheets: (id: string) => `/v1/benchmarks/${id}/fact-sheet`,
 } as const;
 

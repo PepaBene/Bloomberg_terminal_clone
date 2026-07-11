@@ -275,6 +275,13 @@ def create_app() -> FastAPI:
     from src.api.routers.backtesting import router as backtesting_router
     app.include_router(backtesting_router, prefix="/v1")
 
+    from src.api.routers.backtesting import strategies_router as backtest_strategies_router
+    app.include_router(backtest_strategies_router)
+
+    # Pillar 2 Frontend Bugs 93-95: Benchmarks (standard indices + custom)
+    from src.api.routers.benchmarks import router as benchmarks_router
+    app.include_router(benchmarks_router, prefix="/v1")
+
     # Pillar 2 Supplement – Part 2: Default Risk Scoring
     from src.api.routers.default_risk import router as default_risk_router
     app.include_router(default_risk_router, prefix="/v1")

@@ -2,9 +2,7 @@
 // Custom Index Builder — Build & Manage Custom Indices / Benchmarks
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { BENCHMARKS } from '@/api/endpoints';
+import { useBenchmarks, useCreateBenchmark } from '@/api/hooks/useQuant';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -35,16 +33,9 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
-// --- Empty fallback (P4-F-018) -----------------------------------------------
-// No more hardcoded sample indices ("US Tech Leaders", "Russell Quality
-// Screen", etc.). Live data from the API populates the table; KPIs
-// display dashes until backed by real numbers.
-
-const customIndices: { id: string; name: string; constituents: number; weighting: string; universe: string; ytdReturn: number; createdDate: string }[] = [];
+// --- Empty fallback -----------------------------------------------------
+// No hardcoded sample indices. Live data from GET /v1/benchmarks
+// (src/api/routers/benchmarks.py) populates the table below.
 
 const kpiData = [
   { label: 'Custom Indices', value: '—' },
@@ -53,8 +44,7 @@ const kpiData = [
   { label: 'Best Performing', value: '—' },
 ];
 
-const weightingOptions = ['Equal', 'Market Cap', 'Factor'];
-const universeOptions = ['S&P 500', 'Russell 1000', 'Global'];
+const weightingOptions = ['Equal'];
 
 const inputStyle: React.CSSProperties = {
   fontFamily: 'var(--font-data)',
@@ -72,30 +62,52 @@ const inputStyle: React.CSSProperties = {
 
 export default function CustomIndexBuilder() {
   const [name, setName] = useState('');
-  const [weighting, setWeighting] = useState('Equal');
-  const [universe, setUniverse] = useState('S&P 500');
+  const [tickersInput, setTickersInput] = useState('');
+  // Equal weighting is the only method this form currently computes
+  // client-side without fabricating market-cap/factor data it doesn't
+  // have. The dropdown is kept (rather than removed) so the option is
+  // visible/selectable for future wiring once that data is available.
+  const [weighting] = useState('Equal');
 
-  const { data: apiBenchmarks } = useQuery({
-    queryKey: ['benchmarks', 'list'],
-    queryFn: () => api.get(BENCHMARKS.list),
-  });
-
-  // [Bug 94 fix] — Try correct API response key first, then fallback
-  const activeIndices = (apiBenchmarks as any)?.benchmarks ?? (apiBenchmarks as any)?.indices ?? customIndices;
+  const { data: benchmarks } = useBenchmarks();
+  const activeIndices = benchmarks ?? [];
 
   const [createError, setCreateError] = useState<string | null>(null);
+  const createBenchmark = useCreateBenchmark();
 
   const handleCreateIndex = useCallback(async () => {
-    if (!name.trim()) return;
     setCreateError(null);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setCreateError('Enter an index name.');
+      return;
+    }
+    const tickers = Array.from(
+      new Set(
+        tickersInput
+          .split(/[,\s]+/)
+          .map((t) => t.trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (tickers.length === 0) {
+      setCreateError('Enter at least one constituent ticker (comma-separated).');
+      return;
+    }
+    const weight = 1 / tickers.length;
     try {
-      await api.post(BENCHMARKS.create, { name, weighting, universe });
+      await createBenchmark.mutateAsync({
+        name: trimmedName,
+        constituents: tickers.map((ticker) => ({ ticker, weight })),
+      });
+      setName('');
+      setTickersInput('');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create index. Please try again.';
       setCreateError(message);
       console.error('[CustomIndexBuilder] create index failed:', err);
     }
-  }, [name, weighting, universe]);
+  }, [name, tickersInput, createBenchmark]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -111,7 +123,7 @@ export default function CustomIndexBuilder() {
         {kpiData.map((kpi) => (
           <div key={kpi.label} style={panelStyle}>
             <div style={labelStyle}>{kpi.label}</div>
-            <div style={{ ...dataStyle, fontSize: 'var(--text-lg)', fontWeight: 600, marginTop: '4px', color: kpi.color ?? 'var(--color-text-primary)' }}>
+            <div style={{ ...dataStyle, fontSize: 'var(--text-lg)', fontWeight: 600, marginTop: '4px' }}>
               {kpi.value}
             </div>
           </div>
@@ -133,31 +145,26 @@ export default function CustomIndexBuilder() {
             />
           </div>
           <div>
-            <label style={{ ...labelStyle, display: 'block', marginBottom: '4px' }}>Weighting Scheme</label>
-            <select
-              value={weighting}
-              onChange={(e) => setWeighting(e.target.value)}
+            <label style={{ ...labelStyle, display: 'block', marginBottom: '4px' }}>Constituent Tickers</label>
+            <input
+              type="text"
+              value={tickersInput}
+              onChange={(e) => setTickersInput(e.target.value)}
+              placeholder="e.g. AAPL, MSFT, GOOGL"
               style={inputStyle}
-            >
+            />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, display: 'block', marginBottom: '4px' }}>Weighting Scheme</label>
+            <select value={weighting} disabled style={inputStyle}>
               {weightingOptions.map((w) => (
                 <option key={w} value={w}>{w}</option>
               ))}
             </select>
           </div>
-          <div>
-            <label style={{ ...labelStyle, display: 'block', marginBottom: '4px' }}>Universe</label>
-            <select
-              value={universe}
-              onChange={(e) => setUniverse(e.target.value)}
-              style={inputStyle}
-            >
-              {universeOptions.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          </div>
           <button
             onClick={handleCreateIndex}
+            disabled={createBenchmark.isPending}
             style={{
               fontFamily: 'var(--font-ui)',
               fontSize: 'var(--text-sm)',
@@ -165,15 +172,20 @@ export default function CustomIndexBuilder() {
               padding: '8px 20px',
               borderRadius: '4px',
               border: 'none',
-              cursor: 'pointer',
+              cursor: createBenchmark.isPending ? 'wait' : 'pointer',
               background: 'var(--color-accent-primary)',
               color: 'var(--color-text-inverse)',
               whiteSpace: 'nowrap',
+              opacity: createBenchmark.isPending ? 0.7 : 1,
             }}
           >
-            Create Index
+            {createBenchmark.isPending ? 'Creating…' : 'Create Index'}
           </button>
         </div>
+        <p style={{ ...labelStyle, marginTop: '8px', fontSize: 'var(--text-xs)' }}>
+          Equal-weighted only for now: each ticker gets a 1/N weight. Market-cap/factor
+          weighting needs additional data this form doesn't collect yet.
+        </p>
         {createError && (
           <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-negative) 10%, transparent)', color: 'var(--color-signal-negative)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)' }}>
             {createError}
@@ -181,25 +193,27 @@ export default function CustomIndexBuilder() {
         )}
       </div>
 
-      {/* Existing Custom Indices Table */}
+      {/* Existing Benchmarks / Custom Indices Table */}
       <div style={panelStyle}>
-        <h2 style={sectionTitle}>Existing Custom Indices</h2>
+        <h2 style={sectionTitle}>Benchmarks &amp; Custom Indices</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              {['Name', 'Constituents', 'Weight Scheme', 'YTD Return %', 'Created Date'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: h === 'Name' || h === 'Weight Scheme' || h === 'Created Date' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+              {['Name', 'Type', 'Ticker', 'Constituents', 'Created'].map((h) => (
+                <th key={h} style={{ ...labelStyle, textAlign: h === 'Constituents' ? 'right' : 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {activeIndices.map((idx: any) => (
-              <tr key={idx.id} style={{ height: 'var(--table-row-height)' }}>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500, color: 'var(--color-accent-primary)' }}>{idx.name}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{idx.constituents}</td>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{idx.weighting}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(idx.ytdReturn), fontWeight: 600 }}>{idx.ytdReturn >= 0 ? '+' : ''}{idx.ytdReturn.toFixed(2)}%</td>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{idx.createdDate}</td>
+            {activeIndices.map((b) => (
+              <tr key={b.benchmark_id} style={{ height: 'var(--table-row-height)' }}>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500, color: 'var(--color-accent-primary)' }}>{b.name}</td>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{b.benchmark_type}</td>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{b.ticker ?? '—'}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{b.constituent_count ?? '—'}</td>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>
+                  {b.created_at ? new Date(b.created_at).toLocaleDateString() : '—'}
+                </td>
               </tr>
             ))}
           </tbody>

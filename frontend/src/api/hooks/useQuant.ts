@@ -3,7 +3,7 @@
 // Wraps analytics correlation/factor + benchmark endpoints for quant workflows
 // =============================================================================
 
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 import { ANALYTICS, BENCHMARKS } from '../endpoints';
 
@@ -38,12 +38,43 @@ export function useFactorExposureQuant(secId: string, options?: { enabled?: bool
 // Benchmarks
 // ---------------------------------------------------------------------------
 
+export interface BenchmarkSummary {
+  benchmark_id: string;
+  name: string;
+  code: string;
+  ticker: string | null;
+  benchmark_type: 'INDEX' | 'CUSTOM';
+  constituent_count: number | null;
+  created_at: string | null;
+}
+
+export interface CreateBenchmarkRequest {
+  name: string;
+  constituents: { ticker: string; weight: number }[];
+}
+
+// [Bug 94 fix] Real backend now exists (src/api/routers/benchmarks.py) --
+// returns a plain array of BenchmarkSummary, not wrapped in `.benchmarks`/
+// `.indices`.
 export function useBenchmarks(options?: { enabled?: boolean }) {
-  return useQuery({
+  return useQuery<BenchmarkSummary[]>({
     queryKey: ['quant', 'benchmarks'],
-    queryFn: () => api.get(BENCHMARKS.list),
+    queryFn: () => api.get<BenchmarkSummary[]>(BENCHMARKS.list),
     enabled: options?.enabled ?? true,
     staleTime: STALE_1H,
+  });
+}
+
+// [Bug 95 fix] Real backend now exists -- POST /v1/benchmarks persists a
+// custom weighted benchmark/index and invalidates the list so
+// CustomIndexBuilder.tsx sees it immediately.
+export function useCreateBenchmark() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateBenchmarkRequest) => api.post(BENCHMARKS.create, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quant', 'benchmarks'] });
+    },
   });
 }
 
