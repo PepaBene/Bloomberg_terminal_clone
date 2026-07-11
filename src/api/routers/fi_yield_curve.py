@@ -270,7 +270,9 @@ async def get_discount_factor(
     # Collect stored DFs
     df_tenors = []
     df_values = []
-    df_tenor_years = {"1Y": 1.0, "2Y": 2.0, "5Y": 5.0, "10Y": 10.0, "20Y": 20.0, "30Y": 30.0}
+    # Derive tenor-in-years from the module-level _DF_COLS keys (e.g. "10Y" -> 10.0)
+    # rather than a second hardcoded literal, so the two can't drift apart.
+    df_tenor_years = {t_str: _TENOR_PARSE[t_str] for t_str in _DF_COLS}
     for t_str, col in _DF_COLS.items():
         val = getattr(snapshot, col, None)
         if val is not None:

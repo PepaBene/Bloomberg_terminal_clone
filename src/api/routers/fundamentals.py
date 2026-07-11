@@ -43,16 +43,13 @@ async def list_entity_filings(
 ):
     """List filings for an entity."""
     query = select(Filing).where(Filing.entity_id == entity_id)
-    count_query = select(Filing).where(Filing.entity_id == entity_id)
 
     if filing_type:
         query = query.where(Filing.filing_type == filing_type)
-        count_query = count_query.where(Filing.filing_type == filing_type)
     if status:
         query = query.where(Filing.processing_status == status.upper())
-        count_query = count_query.where(Filing.processing_status == status.upper())
 
-    total_result = await session.execute(select(sa_func.count()).select_from(count_query.subquery()))
+    total_result = await session.execute(select(sa_func.count()).select_from(query.subquery()))
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
@@ -131,17 +128,11 @@ async def get_income_statements(
         .join(FinancialPeriod)
         .where(FinancialPeriod.entity_id == entity_id)
     )
-    count_query = (
-        select(IncomeStatement)
-        .join(FinancialPeriod)
-        .where(FinancialPeriod.entity_id == entity_id)
-    )
 
     if period_type:
         query = query.where(FinancialPeriod.period_type == period_type.upper())
-        count_query = count_query.where(FinancialPeriod.period_type == period_type.upper())
 
-    total_result = await session.execute(select(sa_func.count()).select_from(count_query.subquery()))
+    total_result = await session.execute(select(sa_func.count()).select_from(query.subquery()))
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
@@ -170,17 +161,11 @@ async def get_balance_sheets(
         .join(FinancialPeriod)
         .where(FinancialPeriod.entity_id == entity_id)
     )
-    count_query = (
-        select(BalanceSheet)
-        .join(FinancialPeriod)
-        .where(FinancialPeriod.entity_id == entity_id)
-    )
 
     if period_type:
         query = query.where(FinancialPeriod.period_type == period_type.upper())
-        count_query = count_query.where(FinancialPeriod.period_type == period_type.upper())
 
-    total_result = await session.execute(select(sa_func.count()).select_from(count_query.subquery()))
+    total_result = await session.execute(select(sa_func.count()).select_from(query.subquery()))
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
@@ -209,17 +194,11 @@ async def get_cash_flows(
         .join(FinancialPeriod)
         .where(FinancialPeriod.entity_id == entity_id)
     )
-    count_query = (
-        select(CashFlowStatement)
-        .join(FinancialPeriod)
-        .where(FinancialPeriod.entity_id == entity_id)
-    )
 
     if period_type:
         query = query.where(FinancialPeriod.period_type == period_type.upper())
-        count_query = count_query.where(FinancialPeriod.period_type == period_type.upper())
 
-    total_result = await session.execute(select(sa_func.count()).select_from(count_query.subquery()))
+    total_result = await session.execute(select(sa_func.count()).select_from(query.subquery()))
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
@@ -244,13 +223,11 @@ async def get_entity_segments(
 ):
     """Get segment data for an entity."""
     query = select(SegmentData).where(SegmentData.entity_id == entity_id)
-    count_query = select(SegmentData).where(SegmentData.entity_id == entity_id)
 
     if segment_type:
         query = query.where(SegmentData.segment_type == segment_type.upper())
-        count_query = count_query.where(SegmentData.segment_type == segment_type.upper())
 
-    total_result = await session.execute(select(sa_func.count()).select_from(count_query.subquery()))
+    total_result = await session.execute(select(sa_func.count()).select_from(query.subquery()))
     total_count = total_result.scalar_one()
 
     offset = (pagination.page - 1) * pagination.page_size
