@@ -34,6 +34,7 @@ WACC engine output.
 from __future__ import annotations
 
 import logging
+import statistics
 from datetime import date
 from typing import Any
 from uuid import UUID
@@ -42,7 +43,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engines.base import BaseEngine, EngineOutput, cagr, make_input, safe_divide
-from src.models.analytics import DCFResult, WACCResult
+from src.engines.peer_service import PeerService
+from src.models.analytics import AnalyticsResult, DCFResult, WACCResult
 from src.models.fundamentals import (
     BalanceSheet,
     CashFlowStatement,
@@ -139,6 +141,17 @@ class DCFEngine(BaseEngine):
             logger.info("DCF: insufficient historical data for entity %s", entity_id)
             return []
 
+        # 3b. [Bug 20 fix] When there's <2 years of revenue history the
+        # engine can't compute a historical CAGR at all. Rather than
+        # falling straight to a flat 5% growth assumption, look up a
+        # sector-median revenue growth rate from GICS peers first — only
+        # fall back to flat 5% if no peer data exists either.
+        sector_median_growth: float | None = None
+        if len(hist["rev_series"]) < 2:
+            sector_median_growth = await self._sector_median_revenue_growth(
+                session, security_id
+            )
+
         # 4. Load or default discount rate
         wacc_val, cost_of_equity = await self._load_discount_rates(
             session, entity_id, security_id
@@ -150,7 +163,8 @@ class DCFEngine(BaseEngine):
 
         # 6. Build assumptions (merge defaults with user overrides)
         assumptions = self._build_assumptions(
-            hist, method, wacc_val, cost_of_equity, user_assumptions
+            hist, method, wacc_val, cost_of_equity, user_assumptions,
+            sector_median_growth=sector_median_growth,
         )
 
         # 7. Run the DCF projection
@@ -353,6 +367,47 @@ class DCFEngine(BaseEngine):
             and p.cash_flow is not None
         ]
         return complete
+
+    async def _sector_median_revenue_growth(
+        self,
+        session: AsyncSession,
+        security_id: UUID,
+    ) -> float | None:
+        """[Bug 20 fix] Sector-median revenue CAGR from GICS peers.
+
+        Used as the no-flat-default fallback when the subject itself has
+        <2 years of revenue history and thus no computable historical
+        CAGR. Reuses ``PeerService`` (same GICS peer-group construction
+        as the comps/football-field engines) and the ``revenue_3y_cagr``
+        metric already produced by ``e1_ratios.RatioEngine`` for peers
+        that do have enough history. Returns ``None`` when no peers or no
+        peer growth data exists, in which case callers fall back to a
+        flat default.
+        """
+        try:
+            peer_group = await PeerService().get_peers(session, security_id)
+        except ValueError:
+            return None
+        peer_ids = [p.security_id for p in peer_group.peers]
+        if not peer_ids:
+            return None
+
+        rows = (
+            await session.execute(
+                select(AnalyticsResult.value).where(
+                    AnalyticsResult.security_id.in_(peer_ids),
+                    AnalyticsResult.metric_name == "revenue_3y_cagr",
+                    AnalyticsResult.value.isnot(None),
+                )
+            )
+        ).scalars().all()
+        peer_growth = [float(v) for v in rows]
+        if not peer_growth:
+            return None
+
+        median_growth = statistics.median(peer_growth)
+        # Same plausibility bounds used for the subject's own CAGR clamp.
+        return max(-0.20, min(median_growth, 0.50))
 
     async def _load_discount_rates(
         self,
@@ -571,6 +626,7 @@ class DCFEngine(BaseEngine):
         wacc: float,
         cost_of_equity: float | None,
         user_overrides: dict | None,
+        sector_median_growth: float | None = None,
     ) -> dict[str, Any]:
         """Construct full assumptions dict, merging defaults with user overrides.
 
@@ -599,7 +655,27 @@ class DCFEngine(BaseEngine):
             hist_cagr = None
 
         if hist_cagr is None:
-            base_growth = 0.05
+            # [Bug 20 fix] <2yr of history means no historical CAGR is
+            # computable at all. Prefer a sector-median growth rate from
+            # GICS peers (computed by the caller via
+            # ``_sector_median_revenue_growth``) over a flat 5% default,
+            # since 5% overstates growth for a struggling sector and
+            # understates it for a hot one. Flat 5% remains the last
+            # resort when no peer data exists either.
+            if sector_median_growth is not None:
+                base_growth = sector_median_growth
+                logger.info(
+                    "DCF: no historical CAGR (<2yr revenue data) — using "
+                    "sector-median peer revenue CAGR %.2f%% as base growth.",
+                    base_growth * 100,
+                )
+            else:
+                base_growth = 0.05
+                logger.info(
+                    "DCF: no historical CAGR (<2yr revenue data) and no "
+                    "sector-median peer growth available — falling back "
+                    "to flat 5%% base growth."
+                )
         elif hist_cagr < -0.20 or hist_cagr > 0.50:
             # CAGR is out of plausible range — likely noisy / single-event
             # data. Clamp to the closest sensible bound rather than blindly

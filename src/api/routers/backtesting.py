@@ -33,8 +33,11 @@ async def submit_backtest(
 
     The run is queued with status PENDING. Marking it COMPLETED on insert
     would lie to the client because the underlying backtest engine has not
-    yet executed. A batch worker reads PENDING rows, runs the backtester,
-    and writes a BacktestResult before flipping status to COMPLETED.
+    yet executed. ``scripts/run_backtest_worker.py`` polls for PENDING rows,
+    runs the actual strategy-basket simulation, and writes a BacktestResult
+    before flipping status to COMPLETED (or FAILED on error). Run it via
+    ``python -m scripts.run_backtest_worker --once`` or ``--loop``; it is not
+    yet wired into a scheduler (see that script's module docstring).
     """
     run = BacktestRun(
         backtest_id=uuid.uuid4(),
