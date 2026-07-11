@@ -190,8 +190,27 @@ python scripts/ingest_credit_spreads.py
 # 8. Fundamentals — SEC EDGAR XBRL (income statement, balance sheet, cash flow)
 python scripts/ingest_edgar_xbrl.py --limit 100
 
-# 9. Corporate actions — 8-K filings
+# 8b. Segments — SEC EDGAR XBRL dimensional segment members -> segment_data
+#     (business/geographic revenue+income+assets breakdown). NOTE: SEC's
+#     companyfacts endpoint mostly flattens facts to consolidated values;
+#     this only picks up segments for filings whose XBRL genuinely carries
+#     dimensional members, so coverage is real but partial.
+python scripts/ingest_segments.py --limit 100
+
+# 9. Corporate actions — dividends + splits (Polygon.io)
 python scripts/ingest_corporate_actions.py --limit 100
+#    • Structured ex/record/pay dates + cash amounts / split ratios, keyed
+#      off tickers already in the security master (reuses POLYGON_API_KEY,
+#      same key as EOD prices). This replaced an earlier wiring mistake:
+#      the script used to drive Edgar8KConnector, whose load() actually
+#      writes the unrelated `eight_k_events` table (no `security_id`
+#      column at all), so `corporate_actions` had zero real writers and
+#      `GET /securities/{id}/corporate-actions` was permanently empty.
+#      8-K filing-event ingestion for `eight_k_events` still happens — see
+#      `scripts/backfill.py` / `src/services/freshness.py`, which call
+#      Edgar8KConnector directly for that (separate) purpose. M&A events
+#      are still covered by `ingest_ma_deals.py` -> the separate MADeals
+#      table, not touched by this script.
 
 # 10. Ownership — 13F (institutional) + Form 4 (insider)
 python scripts/ingest_ownership.py --limit 100
@@ -205,6 +224,67 @@ python scripts/ingest_esg.py --limit 100
 # 13. Business relationships — NLP over 10-K item 1
 python scripts/ingest_relationships.py --limit 100
 ```
+
+### Pillar 1 Supplement — Fixed-income, credit, macro-policy, and rollups
+
+These connectors are real and tested but were previously reachable only via
+a manual `make` target — never scheduled in `batch_config.py` or documented
+here (the same "orphaned engine" failure mode already fixed for Pillar 3).
+They are now both scheduled (see §10) and documented below. All are
+CIK-driven except where noted, and keyless/free except where noted.
+
+```bash
+# Capital structure — SEC EDGAR 10-K XBRL debt aggregates + footnote-parsed
+# debt tranches -> capital_structures / debt_tranches. When a parsed tranche
+# can be matched (by coupon rate + maturity year) to an existing traded
+# fixed-income Security of the same issuer, this also upserts
+# fixed_income_details and — if the footnote text contains an explicit
+# optional-redemption ("callable ... on or after <date>") clause —
+# call_put_schedule. In practice this match rarely fires today because no
+# connector in this codebase creates Security rows for corporate bonds
+# (OpenFIGI below is ticker-driven and resolves almost exclusively to
+# equities) — see the open gap noted in §12 (Troubleshooting).
+python scripts/ingest_capital_structure.py --limit 100
+
+# Credit ratings — SEC EDGAR 8-K rating-agency mentions (S&P/Moody's/Fitch)
+# -> credit_rating_events (entity-level). When a rating is actually
+# extracted from the filing text, this also upserts security-level
+# credit_ratings for the issuer's fixed-income securities — 8-Ks disclose
+# ratings at the issuer level, not per instrument, so the issuer rating is
+# applied to each of the issuer's FI securities (real, extracted data;
+# just issuer- rather than CUSIP-granularity).
+python scripts/ingest_credit_ratings.py --limit 100
+
+# Treasury securities — US Treasury Fiscal Data API (keyless)
+python scripts/ingest_treasury_securities.py
+
+# Executives/directors — SEC EDGAR ownership filings
+python scripts/ingest_executives.py --limit 20
+
+# FOMC rate decisions — derived from FRED target-range series (reuses FRED_API_KEY)
+python scripts/ingest_fomc.py
+
+# Central-bank policy (Fed/ECB/BOE) — derived from FRED policy-rate series
+# (ECB/BOE series are present but, per the connector's own docs, not yet
+# validated against live payloads)
+python scripts/ingest_central_bank.py
+
+# Money market rates — SOFR / effective + target fed funds / T-bills /
+# commercial paper / prime, from FRED (reuses FRED_API_KEY). extract() was
+# previously a stub that always returned []; now mirrors the
+# fred_credit_spreads.py pattern.
+python scripts/ingest_money_market.py
+
+# Rollups — pure computation over already-ingested data, no external calls
+python scripts/compute_ownership_summary.py    # -> ownership_summaries
+python scripts/compute_technicals.py           # -> technical_study_values
+python scripts/compute_esg_temperature.py      # -> esg_temperature_scores
+python scripts/compute_debt_maturity.py        # -> debt_maturity_profiles/maturity_buckets
+```
+
+All of the above are now registered in `src/scheduler/batch_config.py`
+(domain `P1S`, plus `FI`/`D3` for the fixed-income and segments jobs) so a
+running scheduler keeps them fresh automatically — see §10.
 
 ### Pillar 3 — Intelligence
 

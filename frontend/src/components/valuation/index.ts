@@ -14,3 +14,6 @@ export type { DCFPanelProps, DCFAssumptions, DCFResult, DCFSensitivity } from '.
 
 export { SensitivityMatrix } from './SensitivityMatrix';
 export type { SensitivityMatrixProps } from './SensitivityMatrix';
+
+export { FootballField } from './FootballField';
+export type { FootballFieldProps, FootballFieldMethodology } from './FootballField';

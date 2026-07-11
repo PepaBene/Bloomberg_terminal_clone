@@ -98,7 +98,6 @@ export {
   useSavePeerGroup,
   useSectorRelative,
   useDCFModel,
-  useDCFSensitivity,
   useFootballField,
   useTechnicalSignals,
   useSeasonality,

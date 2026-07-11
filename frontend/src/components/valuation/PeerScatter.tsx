@@ -52,6 +52,13 @@ const C = {
 /* ------------------------------------------------------------------ */
 
 export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSelect }: PeerScatterProps) {
+  // [Bug 82 fix] Guard against a non-array `peers` prop (e.g. the real
+  // `/vs-peers` backend response, which is a `{comparisons: [...]}` object of
+  // per-metric percentile aggregates, not an array of per-peer scatter
+  // points) so this degrades to an empty chart instead of throwing on
+  // `.map()` / spreading into `Math.min`/`Math.max`.
+  const safePeers = Array.isArray(peers) ? peers : [];
+
   const svgRef = useRef<SVGSVGElement>(null);
   const [containerWidth, setContainerWidth] = useState(600);
   const height = 360;
@@ -89,9 +96,9 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
 
   /* Scales */
   const { xScale, yScale, rScale, xTicks, yTicks } = useMemo(() => {
-    const xVals = peers.map((p) => p.x);
-    const yVals = peers.map((p) => p.y);
-    const mcVals = peers.map((p) => p.marketCap);
+    const xVals = safePeers.map((p) => p.x);
+    const yVals = safePeers.map((p) => p.y);
+    const mcVals = safePeers.map((p) => p.marketCap);
 
     const xMin = Math.min(...xVals);
     const xMax = Math.max(...xVals);
@@ -128,7 +135,7 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
       xTicks: generateTicks(xMin, xMax, 5),
       yTicks: generateTicks(yMin, yMax, 5),
     };
-  }, [peers, containerWidth, height]);
+  }, [safePeers, containerWidth, height]);
 
   const plotW = containerWidth - MARGIN.left - MARGIN.right;
   const plotH = height - MARGIN.top - MARGIN.bottom;
@@ -136,12 +143,12 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
   /* Map peers to lasso-testable points (SVG coordinate space) */
   const lassoPoints = useMemo(
     () =>
-      peers.map((p) => ({
+      safePeers.map((p) => ({
         id: p.ticker,
         x: xScale(p.x),
         y: yScale(p.y),
       })),
-    [peers, xScale, yScale],
+    [safePeers, xScale, yScale],
   );
 
   const selectedIds = useLassoSelection(lassoPoints, lassoPolygon);
@@ -168,6 +175,21 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
         Peer Comparison
       </div>
 
+      {/* [Bug 82 fix] Empty/placeholder state instead of rendering an empty
+          (or NaN-scaled) chart when there's no per-peer scatter data. */}
+      {safePeers.length === 0 ? (
+        <div
+          style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-text-tertiary)',
+            padding: 'var(--space-3) 0',
+          }}
+        >
+          No peer comparison data available.
+        </div>
+      ) : (
+        <>
       {/* Lasso toggle button */}
       <button
         onClick={() => {
@@ -306,7 +328,7 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
         </defs>
 
         {/* Dots */}
-        {peers.map((p) => {
+        {safePeers.map((p) => {
           const isHighlighted = highlightTicker != null && p.ticker === highlightTicker;
           const isHovered = hoveredTicker === p.ticker;
           const isSelected = selectedIds.includes(p.ticker);
@@ -483,6 +505,8 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
             Clear
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

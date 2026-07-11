@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Ownership Dashboard — Institutional Holders, Insider Ownership, Short Interest
 // ---------------------------------------------------------------------------
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { OwnershipSummary } from '@/components/company/OwnershipSummary';
 import type { Holder } from '@/components/company/OwnershipSummary';
 import { OwnershipChangeTable, ShortInterestChart, ActivistBanner } from '@/components/ownership';
@@ -9,6 +9,48 @@ import type { OwnershipChange, ShortInterestDataPoint, ActivistInfo } from '@/co
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
 import { useInstitutionalHoldings, useInsiderHoldings, useOwnershipSummary, useShortInterest, useFundHoldings } from '@/hooks';
+
+// --- API response shapes (subset of backend schemas actually read) ---------
+// `GET /v1/securities/{id}/ownership/institutional` and `/ownership/insider`
+// and `/short-interest` all return `PaginatedResponse` (`{data: [...], meta}`),
+// not a bare array (src/api/routers/ownership.py).
+
+interface InstitutionalHoldingApi {
+  institution_id: string;
+  shares_held: number | null;
+  market_value: number | null;
+  percent_of_outstanding: number | null;
+  shares_change: number | null;
+}
+
+interface InsiderHoldingApi {
+  insider_name: string | null;
+  transaction_date: string | null;
+  shares_transacted: number | null;
+  shares_owned_after: number | null;
+}
+
+// Mirrors `OwnershipSummaryResponse` (src/schemas/ownership.py:64) — a single
+// object (not paginated); it has no `.changes` field.
+interface OwnershipSummaryApi {
+  institutional_percent: number | null;
+  insider_percent: number | null;
+}
+
+interface ShortInterestApi {
+  settlement_date: string;
+  shares_short: number | null;
+  short_percent_float: number | null;
+  days_to_cover: number | null;
+}
+
+interface FundHoldingApi {
+  fundName?: string;
+  name?: string;
+  shares?: number;
+  pctOfFund?: number;
+  marketValue?: number;
+}
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
