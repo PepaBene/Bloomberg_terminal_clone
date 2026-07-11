@@ -434,9 +434,10 @@ pip install apscheduler
 python scripts/run_scheduler.py
 ```
 
-This reads `src/scheduler/batch_config.py` (31 jobs covering Pillar 1,
-Pillar 2 daily/weekly cycles, the FI yield-curve/credit-spread +
-briefing pipeline, and the Pillar 3 connectors + theme-scoring job from
+This reads `src/scheduler/batch_config.py` (`len(BATCH_JOBS)` jobs covering
+Pillar 1, Pillar 2 daily/weekly cycles, the FI yield-curve/credit-spread +
+briefing pipeline, the Pillar 1 Supplement fixed-income/credit/macro-policy
+connectors + rollups, and the Pillar 3 connectors + theme-scoring job from
 §6 above) and runs them in-process.
 
 ### 10.2 — Crontab (any Unix host)
@@ -486,6 +487,7 @@ python scripts/run_scheduler.py --validate
 | Migrations fail with "table already exists" | Schema was created via something other than Alembic | Drop the database (`docker compose down -v && docker compose up -d`) and re-run `make migrate` |
 | `psycopg2`/`asyncpg` connection errors | Postgres not running or different port | `docker compose ps`, check `DATABASE_URL` |
 | Frontend shows CORS errors | Frontend origin missing from `ALLOWED_ORIGINS` | Add the origin to `.env`, restart API |
+| `expand=fixed_income_details` / `expand=call_put_schedule` on `/v1/securities/{id}` is always empty | No connector in this codebase creates `Security` rows for corporate bonds (`asset_class=FIXED_INCOME`) — `ingest_openfigi.py` is ticker-driven and resolves almost exclusively to equities; `ingest_agency_bonds.py` / `ingest_trace_bonds.py` / `ingest_treasury_securities.py` / `ingest_bond_issuances.py` all write to their own separate models, not `securities`. `ingest_capital_structure.py`'s tranche->security matching (coupon + maturity year) is real and tested but has nothing to match against until a bond-CUSIP security-master connector exists — that's a genuine gap, not fabricated with placeholder values | Add a CUSIP/ISIN-driven bond security-master connector (e.g. an OpenFIGI variant keyed by CUSIP instead of ticker, or a licensed bond reference-data feed) before expecting these fields to populate |
 
 ---
 
