@@ -5,6 +5,8 @@ import pytest
 from src.engines.eight_k_engine import (
     ITEM_DESCRIPTIONS,
     PRIORITY_MAP,
+    EightKParseResult,
+    EightKParseStatus,
     assess_event_materiality,
     classify_priority,
     extract_key_dates,
@@ -307,10 +309,12 @@ class TestParseEightKItems:
         <p><b>Item 5.02</b></p>
         <p>John Smith has resigned as Chief Executive Officer effective immediately.</p>
         </body></html>"""
-        items = parse_eight_k_items(html)
-        assert len(items) >= 1
-        assert items[0]["item_number"] == "5.02"
-        assert "resigned" in items[0]["item_text"].lower()
+        result = parse_eight_k_items(html)
+        assert isinstance(result, EightKParseResult)
+        assert result.status == EightKParseStatus.OK
+        assert len(result.items) >= 1
+        assert result.items[0]["item_number"] == "5.02"
+        assert "resigned" in result.items[0]["item_text"].lower()
 
     def test_parse_multiple_items(self):
         html = """<html><body>
@@ -319,17 +323,34 @@ class TestParseEightKItems:
         <p><b>Item 9.01</b></p>
         <p>Financial Statements and Exhibits. The press release is furnished as Exhibit 99.1.</p>
         </body></html>"""
-        items = parse_eight_k_items(html)
-        assert len(items) >= 2
-        numbers = [item["item_number"] for item in items]
+        result = parse_eight_k_items(html)
+        assert result.status == EightKParseStatus.OK
+        assert len(result.items) >= 2
+        numbers = [item["item_number"] for item in result.items]
         assert "2.01" in numbers
         assert "9.01" in numbers
 
     def test_parse_empty_html(self):
-        items = parse_eight_k_items("")
-        assert items == []
+        """Empty input is a genuine no-items result, not a parse failure."""
+        result = parse_eight_k_items("")
+        assert result.items == []
+        assert result.status == EightKParseStatus.NO_ITEMS_FOUND
 
     def test_parse_no_items(self):
+        """Well-formed text with no Item headers is genuinely item-less."""
         html = "<html><body><p>This filing contains no item references.</p></body></html>"
-        items = parse_eight_k_items(html)
-        assert items == []
+        result = parse_eight_k_items(html)
+        assert result.items == []
+        assert result.status == EightKParseStatus.NO_ITEMS_FOUND
+
+    def test_parse_failure_distinguished_from_no_items(self):
+        """P1-E-014 regression: a genuine extractor failure must be signalled
+        distinctly from a well-formed filing that simply has no items.
+        """
+        result = parse_eight_k_items(None)  # type: ignore[arg-type]
+        assert result.items == []
+        assert result.status == EightKParseStatus.PARSE_FAILED
+        assert result.error is not None
+        # And this must be a different status than the genuine no-items case.
+        no_items_result = parse_eight_k_items("<html><body><p>No items here.</p></body></html>")
+        assert no_items_result.status != result.status

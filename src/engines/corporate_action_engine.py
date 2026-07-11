@@ -318,8 +318,18 @@ def match_corporate_actions_to_holdings(
     """Match corporate actions to current holdings by ticker.
 
     Returns one ``{action, holding}`` dict per (action, holding) pair where
-    the tickers match. Used by the portfolio corporate-actions queue to
-    flag actions that affect the user's positions.
+    the tickers match.
+
+    Note (P1-E-006): this function is intentionally exposed for future use.
+    It has no production caller today. The natural integration point is a
+    background/batch job that would populate ``CorporateActionQueue``
+    (``src/models/nav_snapshot.py``) by matching newly-ingested
+    ``CorporateAction`` rows against portfolio ``Position``/holdings — that
+    queue is already read by ``list_corporate_actions`` in
+    ``src/api/routers/portfolios.py``, but nothing currently writes to it via
+    this matcher. Wiring that job in touches router/model code outside this
+    engine module's scope, so it is left as pure computation here, ready to
+    be called once that batch job (or an equivalent) is built.
     """
     by_ticker: dict[str, list[dict]] = {}
     for h in holdings:
