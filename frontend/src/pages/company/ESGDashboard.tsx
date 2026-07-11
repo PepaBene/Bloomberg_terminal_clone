@@ -1,10 +1,56 @@
 // ---------------------------------------------------------------------------
 // ESG Dashboard — Environmental, Social, Governance Scores & Analysis
 // ---------------------------------------------------------------------------
+import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
-import { useESG, useESGScores, useESGHistory } from '@/hooks';
+import { useESG } from '@/hooks';
 import { GaugeChart } from '@/components/charts';
+
+// --- API response shapes (subset of backend schemas actually read) ---------
+// Mirrors `ESGOverviewResponse`/`ESGScoreResponse`/`ESGMetricResponse`/
+// `ESGControversyResponse` (src/schemas/esg.py) — `GET /v1/entities/{id}/esg`
+// bundles all three collections in one call; `scores` is ordered most-recent
+// first.
+interface ESGScoreApi {
+  provider: string;
+  as_of_date: string;
+  esg_score: number | null;
+  esg_rating: string | null;
+  environmental_score: number | null;
+  social_score: number | null;
+  governance_score: number | null;
+  score_trend: string | null;
+}
+interface ESGMetricApi {
+  metric_type: string;
+  metric_category: string | null;
+  value: number | null;
+  unit: string | null;
+}
+interface ESGControversyApi {
+  controversy_type: string;
+  severity: string | null;
+  description: string | null;
+  start_date: string | null;
+}
+interface ESGOverviewApi {
+  scores?: ESGScoreApi[];
+  metrics?: ESGMetricApi[];
+  controversies?: ESGControversyApi[];
+}
+
+interface ESGMetricCategoryGroup {
+  category: string;
+  metrics: { name: string; value: string }[];
+}
+
+interface ControversyRow {
+  topic: string;
+  date: string;
+  description: string;
+  severity: string;
+}
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -14,12 +60,12 @@ const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVar
 // Default empty data (populated by API)
 const MOCK_ESG = {
   overall: 0, environmental: 0, social: 0, governance: 0,
-  rating: '—', ratingAgency: '—', lastUpdated: '',
+  rating: '—', ratingAgency: '—', lastUpdated: '', trend: null as string | null,
 };
 
-const MOCK_METRICS: any[] = [];
+const MOCK_METRICS: ESGMetricCategoryGroup[] = [];
 
-const MOCK_CONTROVERSIES: any[] = [];
+const MOCK_CONTROVERSIES: ControversyRow[] = [];
 
 function trendIcon(trend: string): string {
   if (trend === 'improving') return '▲';
@@ -38,13 +84,53 @@ export default function ESGDashboard() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
-  const { data: apiESG } = useESG(resolvedId);
-  const { data: apiScores } = useESGScores(resolvedId);
-  const { data: apiHistory } = useESGHistory(resolvedId);
+  const { data: apiESG } = useESG(resolvedId) as { data: ESGOverviewApi | undefined };
 
-  const esg = (apiESG as any) ?? MOCK_ESG;
-  const metrics = (apiScores as any)?.categories ?? MOCK_METRICS;
-  const controversies = (apiESG as any)?.controversies ?? MOCK_CONTROVERSIES;
+  // [P1-FP-014 fix] `ESGOverviewResponse` bundles `scores` (most-recent
+  // first), `metrics`, and `controversies` in one `/esg` call — read the
+  // real fields instead of the previously-assumed (and wrong-path)
+  // `apiScores?.categories` / `apiESG?.controversies` shape.
+  const latestScore = apiESG?.scores?.[0];
+  const esg = latestScore
+    ? {
+        overall: latestScore.esg_score ?? 0,
+        environmental: latestScore.environmental_score ?? 0,
+        social: latestScore.social_score ?? 0,
+        governance: latestScore.governance_score ?? 0,
+        rating: latestScore.esg_rating ?? '—',
+        ratingAgency: latestScore.provider ?? '—',
+        lastUpdated: latestScore.as_of_date ?? '',
+        trend: latestScore.score_trend,
+      }
+    : MOCK_ESG;
+
+  // `ESGMetricResponse` has no per-metric trend field, so the trend arrow
+  // that used to be rendered per-row (from a nonexistent `m.trend`) has been
+  // dropped rather than fabricated — group the real flat metric list by
+  // `metric_category` instead.
+  const metrics: ESGMetricCategoryGroup[] = useMemo(() => {
+    const rows = apiESG?.metrics;
+    if (!Array.isArray(rows) || rows.length === 0) return MOCK_METRICS;
+    const byCategory = new Map<string, { name: string; value: string }[]>();
+    for (const m of rows) {
+      const category = m.metric_category ?? 'Other';
+      const list = byCategory.get(category) ?? [];
+      list.push({ name: m.metric_type, value: m.value != null ? `${m.value}${m.unit ? ` ${m.unit}` : ''}` : '—' });
+      byCategory.set(category, list);
+    }
+    return Array.from(byCategory.entries()).map(([category, catMetrics]) => ({ category, metrics: catMetrics }));
+  }, [apiESG]);
+
+  const controversies: ControversyRow[] = useMemo(() => {
+    const rows = apiESG?.controversies;
+    if (!Array.isArray(rows) || rows.length === 0) return MOCK_CONTROVERSIES;
+    return rows.map((c) => ({
+      topic: c.controversy_type,
+      date: c.start_date ?? '',
+      description: c.description ?? '',
+      severity: c.severity ?? '',
+    }));
+  }, [apiESG]);
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -62,6 +148,11 @@ export default function ESGDashboard() {
           <div style={{ marginTop: '8px' }}>
             <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-accent-primary)' }}>{esg.rating}</span>
             <span style={{ ...labelStyle, marginLeft: '6px' }}>{esg.ratingAgency}</span>
+            {esg.trend && (
+              <span style={{ fontSize: 'var(--text-xs)', color: trendColor(esg.trend), marginLeft: '6px' }}>
+                {trendIcon(esg.trend)} {esg.trend}
+              </span>
+            )}
           </div>
         </div>
         {[{ key: 'environmental', label: 'Environmental' }, { key: 'social', label: 'Social' }, { key: 'governance', label: 'Governance' }].map((pillar) => (
@@ -73,17 +164,14 @@ export default function ESGDashboard() {
 
       {/* ESG Metrics by Category */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {metrics.map((cat: any) => (
+        {metrics.map((cat) => (
           <div key={cat.category} style={panelStyle}>
             <h2 style={sectionTitle}>{cat.category}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {cat.metrics.map((m: any) => (
+              {cat.metrics.map((m) => (
                 <div key={m.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <span style={labelStyle}>{m.name}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{m.value}</span>
-                    <span style={{ fontSize: 'var(--text-xs)', color: trendColor(m.trend) }}>{trendIcon(m.trend)}</span>
-                  </div>
+                  <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{m.value}</span>
                 </div>
               ))}
             </div>
@@ -98,7 +186,7 @@ export default function ESGDashboard() {
           <p style={labelStyle}>No active controversies</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {controversies.map((c: any, i: number) => (
+            {controversies.map((c, i: number) => (
               <div key={i} style={{ padding: '10px', background: 'var(--color-surface-raised)', borderRadius: '4px', borderLeft: `3px solid ${c.severity === 'High' ? 'var(--color-signal-negative)' : c.severity === 'Medium' ? 'var(--color-signal-warning)' : 'var(--color-text-tertiary)'}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{c.topic}</span>

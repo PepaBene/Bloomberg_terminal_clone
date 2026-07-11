@@ -8,6 +8,28 @@ import type { YieldCurvePoint } from '@/components/charts';
 import { KeySpreadsPanel, NewIssueTable } from '@/components/fi';
 import type { SpreadRow, NewIssue } from '@/components/fi';
 
+// --- API response shapes ----------------------------------------------------
+// [P1-FP-018 note] Unlike the other pages cleaned up alongside this one,
+// none of `/v1/fi/yield-curve`, `/v1/fi/credit/sector-spreads`,
+// `/v1/fi/new-issues`, or `/v1/fi/agency` (the endpoints these hooks call)
+// match any route actually defined under `src/api/routers/` — the real FI
+// routers are mounted at `/v1/fixed-income/...` (`fi_yield_curve.py`) and a
+// differently-shaped `/v1/fi/...` intelligence domain (`fi_intelligence.py`,
+// e.g. `/fi/credit/briefing`, `/fi/yield-curve/history`). That's a separate,
+// systemic path-mismatch issue across the whole Fixed Income domain — out of
+// scope for this cleanup pass. These types describe the shape the UI needs
+// (matching `KeySpreadsPanel`/`NewIssueTable`'s own prop types) with a
+// runtime `Array.isArray` guard, since the real response contract can't be
+// confirmed against a live route today.
+interface AgencyBondApi {
+  issuer: string;
+  coupon: number | string;
+  maturity: string;
+  size: string;
+  spread: number;
+  rating: string;
+}
+
 // --- Helpers -----------------------------------------------------------------
 
 function signalColor(value: number): string {
@@ -50,7 +72,7 @@ const KEY_SPREADS: SpreadRow[] = [];
 
 const NEW_ISSUES: NewIssue[] = [];
 
-const MOCK_AGENCY_BONDS: any[] = [];
+const MOCK_AGENCY_BONDS: AgencyBondApi[] = [];
 
 // --- Component ---------------------------------------------------------------
 
@@ -71,10 +93,12 @@ export default function FIDashboard() {
   const { data: apiBriefing } = useFIBriefing();
   const { data: apiAgency } = useAgencyBonds();
 
-  const yieldCurve = (apiYield as any[]) ?? MOCK_YIELD_CURVE;
-  const spreads = (apiSpreads as any)?.spreads ?? KEY_SPREADS;
-  const newIssues = (apiNewIssues as any[]) ?? NEW_ISSUES;
-  const agencyBonds = (apiAgency as any[]) ?? MOCK_AGENCY_BONDS;
+  const yieldCurve: YieldTenor[] = Array.isArray(apiYield) ? (apiYield as YieldTenor[]) : MOCK_YIELD_CURVE;
+  const spreads: SpreadRow[] = Array.isArray((apiSpreads as { spreads?: unknown } | undefined)?.spreads)
+    ? ((apiSpreads as { spreads: SpreadRow[] }).spreads)
+    : KEY_SPREADS;
+  const newIssues: NewIssue[] = Array.isArray(apiNewIssues) ? (apiNewIssues as NewIssue[]) : NEW_ISSUES;
+  const agencyBonds: AgencyBondApi[] = Array.isArray(apiAgency) ? (apiAgency as AgencyBondApi[]) : MOCK_AGENCY_BONDS;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -188,7 +212,8 @@ export default function FIDashboard() {
       {/* AI Market Narrative */}
       {(() => {
         const MOCK_BRIEFING = '';
-        const briefingText = (apiBriefing as any)?.text ?? (apiBriefing as any)?.narrative ?? MOCK_BRIEFING;
+        const briefing = apiBriefing as { text?: string; narrative?: string } | undefined;
+        const briefingText = briefing?.text ?? briefing?.narrative ?? MOCK_BRIEFING;
         return briefingText ? (
           <div className="terminal-panel" style={{ marginTop: 'var(--panel-gap)' }}>
             <h2 className="terminal-section-title">AI Market Narrative</h2>
@@ -222,7 +247,7 @@ export default function FIDashboard() {
             </tr>
           </thead>
           <tbody>
-            {agencyBonds.map((b: any, i: number) => (
+            {agencyBonds.map((b, i: number) => (
               <tr key={i}>
                 <td style={{ fontWeight: 600 }}>{b.issuer}</td>
                 <td className="right">{Number(b.coupon).toFixed(3)}%</td>
