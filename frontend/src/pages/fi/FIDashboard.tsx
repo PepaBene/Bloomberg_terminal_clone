@@ -190,7 +190,10 @@ export default function FIDashboard() {
               {['Treasury Dashboard', 'Credit Market Deep Dive', 'Bond Screener', 'Issuance Monitor'].map((label) => (
                 <div
                   key={label}
-                  onClick={() => navigate(QUICK_LINK_ROUTES[label])}
+                  onClick={() => {
+                    const route = QUICK_LINK_ROUTES[label];
+                    if (route) navigate(route);
+                  }}
                   style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'var(--text-sm)',

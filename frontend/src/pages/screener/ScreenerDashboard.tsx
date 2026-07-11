@@ -5,8 +5,6 @@ import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
 import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
-import { api } from '@/api/client';
-import { ANALYTICS } from '@/api/endpoints';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 

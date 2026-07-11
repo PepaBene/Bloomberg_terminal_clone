@@ -108,14 +108,17 @@ export default function OwnershipDashboard() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
-  const { data: apiHolders } = useInstitutionalHoldings(resolvedId) as {
+  // (`resolvedId` is `string | undefined`; these hooks take a required
+  // `string` and internally guard on `enabled: !!id`, so passing `?? ''` is
+  // safe — it never fires a request when there's no resolved id.)
+  const { data: apiHolders } = useInstitutionalHoldings(resolvedId ?? '') as {
     data: { data?: InstitutionalHoldingApi[] } | undefined;
   };
-  const { data: apiInsiders } = useInsiderHoldings(resolvedId) as {
+  const { data: apiInsiders } = useInsiderHoldings(resolvedId ?? '') as {
     data: { data?: InsiderHoldingApi[] } | undefined;
   };
-  const { data: apiOwnership } = useOwnershipSummary(resolvedId) as { data: OwnershipSummaryApi | undefined };
-  const { data: apiShort } = useShortInterest(resolvedId) as { data: { data?: ShortInterestApi[] } | undefined };
+  const { data: apiOwnership } = useOwnershipSummary(resolvedId ?? '') as { data: OwnershipSummaryApi | undefined };
+  const { data: apiShort } = useShortInterest(resolvedId ?? '') as { data: { data?: ShortInterestApi[] } | undefined };
   const { data: apiFundHoldings } = useFundHoldings(resolvedId) as { data: FundHoldingApi[] | undefined };
 
   // [P1-FP-010 fix] `/ownership/institutional` returns a `PaginatedResponse`

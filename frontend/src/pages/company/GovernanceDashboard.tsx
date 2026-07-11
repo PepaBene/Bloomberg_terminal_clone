@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
 // Governance Dashboard — Board, Compensation, Proxy, Shareholder Proposals
 // ---------------------------------------------------------------------------
-import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
 import { useGovernance, useGovernanceBoard, useGovernanceCompensation, useGovernanceProxy, useShareholderProposals } from '@/hooks';

@@ -155,9 +155,13 @@ export default function ESGDashboard() {
             )}
           </div>
         </div>
-        {[{ key: 'environmental', label: 'Environmental' }, { key: 'social', label: 'Social' }, { key: 'governance', label: 'Governance' }].map((pillar) => (
+        {[
+          { key: 'environmental', label: 'Environmental', value: esg.environmental },
+          { key: 'social', label: 'Social', value: esg.social },
+          { key: 'governance', label: 'Governance', value: esg.governance },
+        ].map((pillar) => (
           <div key={pillar.key} style={{ ...panelStyle, textAlign: 'center' }}>
-            <GaugeChart value={esg[pillar.key]} max={100} label={pillar.label} />
+            <GaugeChart value={pillar.value} max={100} label={pillar.label} />
           </div>
         ))}
       </div>

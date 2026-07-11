@@ -34,6 +34,15 @@ interface EntityDetailApi {
   short_name?: string | null;
 }
 
+// Shape this page expects from the income/balance/cash-flow hooks (annual vs.
+// quarterly statement rows). Declared explicitly instead of leaving the hook
+// result implicitly typed, which otherwise widens to `{}` and breaks the
+// `.annual`/`.quarterly` access below.
+interface StatementsApi {
+  annual?: StatementRowData[];
+  quarterly?: StatementRowData[];
+}
+
 // --- Mock Data ---------------------------------------------------------------
 
 const DEFAULT_COMPANY = { name: 'Loading...', ticker: '' };
@@ -74,11 +83,14 @@ export default function FinancialStatements() {
   };
 
   // Wire to API hooks
-  const { data: apiIncome } = useIncomeStatements(resolvedId);
-  const { data: apiBalance } = useBalanceSheets(resolvedId);
-  const { data: apiCashFlow } = useCashFlows(resolvedId);
-  const { data: apiSegments } = useSegments(resolvedId) as { data: PaginatedSegmentsApi | undefined };
-  const { data: apiRevBreakdown } = useRevenueBreakdown(resolvedId) as { data: PaginatedSegmentsApi | undefined };
+  // (`resolvedId` is `string | undefined`; these hooks take a required
+  // `string` and internally guard on `enabled: !!entityId`, so passing `?? ''`
+  // is safe — it never fires a request when there's no resolved id.)
+  const { data: apiIncome } = useIncomeStatements(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiBalance } = useBalanceSheets(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiCashFlow } = useCashFlows(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiSegments } = useSegments(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
+  const { data: apiRevBreakdown } = useRevenueBreakdown(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
 
   const [periodMode, setPeriodMode] = useState<'annual' | 'quarterly'>('annual');
   const [periodCount, setPeriodCount] = useState(4);
