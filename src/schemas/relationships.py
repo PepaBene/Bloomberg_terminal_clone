@@ -6,6 +6,22 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+# P1-M-027: metadata_json was an unvalidated JSONB passthrough (raw `dict`).
+# The model's own inline comment documents the intended shape as
+# {"context": str, "notes": str, "tags": list[str], ...} -- a genuinely
+# open-ended bag of extra metadata, not a fixed record. This nested model
+# gives the known/expected keys real types while still tolerating
+# additional caller-supplied keys via `extra="allow"`, rather than
+# silently accepting any structure at all (e.g. lists, ints, wrong types
+# for known keys, which a bare `dict` field lets through untouched).
+class RelationshipMetadata(BaseModel):
+    context: str | None = None
+    notes: str | None = None
+    tags: list[str] | None = None
+
+    model_config = {"extra": "allow"}
+
+
 # --- Full relationship response ---
 class BusinessRelationshipResponse(BaseModel):
     relationship_id: uuid.UUID
@@ -28,7 +44,7 @@ class BusinessRelationshipResponse(BaseModel):
     effective_date: date | None = None
     termination_date: date | None = None
     is_active: bool = True
-    metadata_json: dict | None = None
+    metadata_json: RelationshipMetadata | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

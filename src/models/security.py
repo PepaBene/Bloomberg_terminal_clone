@@ -73,6 +73,10 @@ class Security(TimestampMixin, Base):
     )
     credit_ratings = relationship("CreditRating", backref="security", lazy="selectin", cascade="all, delete-orphan")
     call_put_schedule = relationship("CallPutSchedule", backref="security", lazy="selectin", cascade="all, delete-orphan")
+    # P1-M-012: price history — was missing entirely; EODPrice.security_id is the FK back to this table.
+    price_history = relationship(
+        "EODPrice", backref="security", lazy="selectin", cascade="all, delete-orphan"
+    )
 
 
 class SecurityIdentifier(Base):

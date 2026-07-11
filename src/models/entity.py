@@ -83,7 +83,10 @@ class Entity(TimestampMixin, Base):
 
     # Metadata
     source: Mapped[str] = mapped_column(String(50), nullable=False)
-    confidence_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    # P1-M-002: widened from Numeric(3,2) — matcher.py computes confidence to 4
+    # decimal places (e.g. round(composite / 100.0, 4)); the old (3,2) precision
+    # silently truncated it (0.8534 -> 0.85).
+    confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
 
     # Relationships
     identifiers = relationship(
@@ -204,7 +207,9 @@ class EntityHistory(Base):
     ultimate_parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     immediate_parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     source: Mapped[str] = mapped_column(String(50), nullable=False)
-    confidence_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    # P1-M-002: widened alongside Entity.confidence_score (PIT snapshot must
+    # preserve the same precision as the live row it was copied from).
+    confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
 
     # Temporal fields
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -229,7 +234,11 @@ class ResolutionQueue(Base):
     candidate_entity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("entities.entity_id")
     )
-    confidence_score: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False)
+    # P1-M-002: widened from Numeric(3,2) — this column is the direct sink for
+    # src/resolution/matcher.py's 4-decimal-place confidence scores
+    # (src/resolution/review_queue.py::add_to_queue), which previously
+    # truncated silently on insert (e.g. 0.8534 -> 0.85).
+    confidence_score: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     match_method: Mapped[str | None] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", index=True)
     reviewer: Mapped[str | None] = mapped_column(String(100))
