@@ -102,8 +102,13 @@ export function RatioDashboard({
   multiplesHistory,
   className,
 }: RatioDashboardProps) {
+  /* [Bug 79 fix] Guard against a non-array `multiplesHistory` (e.g. a raw
+     API object shape mismatch) so this degrades to an empty chart instead
+     of throwing on `.map()`. */
+  const safeMultiplesHistory = Array.isArray(multiplesHistory) ? multiplesHistory : [];
+
   /* Transform multiples for TimeSeriesChart */
-  const chartData = multiplesHistory.map((p) => ({
+  const chartData = safeMultiplesHistory.map((p) => ({
     date: p.period,
     value: p.pe,
     pe: p.pe,

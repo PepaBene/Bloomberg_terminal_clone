@@ -23,6 +23,12 @@ class ChangeClassification(StrEnum):
     # silently dropping into the else branch.
     NUMERICAL = "NUMERICAL"
     FORMATTING = "FORMATTING"
+    # Aggregate/section-level states used by ``SectionDiffResult.classification``
+    # (not returned by ``classify_change``, which only classifies a single
+    # paragraph pair).
+    STRUCTURAL = "STRUCTURAL"
+    MIXED = "MIXED"
+    UNCHANGED = "UNCHANGED"
 
 
 # ── Section Key Definitions ──────────────────────────────────────────────
@@ -313,11 +319,18 @@ def word_overlap_similarity(text_a: str, text_b: str) -> float:
     return len(intersection) / min_size if min_size else 0.0
 
 
+class AlignmentType(StrEnum):
+    ADDED = "ADDED"
+    REMOVED = "REMOVED"
+    MODIFIED = "MODIFIED"
+    UNCHANGED = "UNCHANGED"
+
+
 @dataclass
 class ParagraphAlignment:
     """Result of aligning a single paragraph."""
 
-    type: str  # ADDED, REMOVED, MODIFIED, UNCHANGED
+    type: AlignmentType
     old_text: str | None = None
     new_text: str | None = None
     old_idx: int | None = None
@@ -384,12 +397,12 @@ def align_paragraphs(
 
         if sim >= 0.95:
             results.append(ParagraphAlignment(
-                type="UNCHANGED", old_text=old_paras[i], new_text=new_paras[j],
+                type=AlignmentType.UNCHANGED, old_text=old_paras[i], new_text=new_paras[j],
                 old_idx=i, new_idx=j, similarity=sim,
             ))
         elif sim >= match_threshold:
             results.append(ParagraphAlignment(
-                type="MODIFIED", old_text=old_paras[i], new_text=new_paras[j],
+                type=AlignmentType.MODIFIED, old_text=old_paras[i], new_text=new_paras[j],
                 old_idx=i, new_idx=j, similarity=sim,
             ))
         # else: too different, treat as removed + added separately
@@ -398,14 +411,14 @@ def align_paragraphs(
     for i, para in enumerate(old_paras):
         if i not in matched_old:
             results.append(ParagraphAlignment(
-                type="REMOVED", old_text=para, old_idx=i,
+                type=AlignmentType.REMOVED, old_text=para, old_idx=i,
             ))
 
     # Unmatched new → ADDED
     for j, para in enumerate(new_paras):
         if j not in matched_new:
             results.append(ParagraphAlignment(
-                type="ADDED", new_text=para, new_idx=j,
+                type=AlignmentType.ADDED, new_text=para, new_idx=j,
             ))
 
     return results
@@ -455,19 +468,29 @@ def _is_boilerplate_change(old_text: str, new_text: str) -> bool:
     return boilerplate_hits >= len(changed_words) * 0.6
 
 
+def _strip_numbers(text: str) -> str:
+    """Remove numerical patterns and standalone numbers from text.
+
+    Handles hyphenated compound terms like "3-month" or "10-year": the
+    trailing hyphen is consumed along with the digits so the result is the
+    clean word ("month", "year") rather than a dangling "-month"/"-year"
+    artifact. Leaving the hyphen behind would turn a hyphen-prefixed word
+    into a token that no longer matches its un-hyphenated counterpart
+    elsewhere in the text, corrupting the numbers-only comparison.
+    """
+    result = text
+    for pat in NUMERICAL_PATTERNS:
+        result = pat.sub("", result)
+    # Also strip standalone numbers, including a trailing hyphen used in
+    # compound terms (e.g. "3-month" -> "month", not "-month").
+    result = re.sub(r"\b\d[\d,.]*-?\b", "", result)
+    return re.sub(r"\s+", " ", result).strip()
+
+
 def _is_numerical_only_change(old_text: str, new_text: str) -> bool:
     """Check if only numbers/dates changed between old and new text."""
-    # Remove all numerical patterns from both texts
-    def strip_numbers(text: str) -> str:
-        result = text
-        for pat in NUMERICAL_PATTERNS:
-            result = pat.sub("", result)
-        # Also strip standalone numbers
-        result = re.sub(r"\b\d[\d,.]*\b", "", result)
-        return re.sub(r"\s+", " ", result).strip()
-
-    stripped_old = strip_numbers(old_text)
-    stripped_new = strip_numbers(new_text)
+    stripped_old = _strip_numbers(old_text)
+    stripped_new = _strip_numbers(new_text)
 
     # If texts are the same after removing numbers, only numbers changed
     return jaccard_similarity(stripped_old, stripped_new) > 0.95
@@ -477,13 +500,13 @@ def classify_change(
     old_text: str | None,
     new_text: str | None,
     section_key: str,
-) -> str:
+) -> ChangeClassification:
     """Classify a paragraph change.
 
     Returns
     -------
-    str
-        One of: SUBSTANTIVE, BOILERPLATE, NUMERICAL, STRUCTURAL
+    ChangeClassification
+        One of: SUBSTANTIVE, BOILERPLATE, NUMERICAL, FORMATTING
     """
     if old_text is None or new_text is None:
         return ChangeClassification.SUBSTANTIVE  # Added or removed paragraphs are substantive
@@ -520,7 +543,7 @@ class SectionDiffResult:
     boilerplate_count: int = 0
     numerical_count: int = 0
     structural_count: int = 0
-    classification: str = "UNCHANGED"
+    classification: ChangeClassification = ChangeClassification.UNCHANGED
     materiality: str = "LOW"
     added_paragraphs: list[dict] = field(default_factory=list)
     removed_paragraphs: list[dict] = field(default_factory=list)
@@ -560,7 +583,7 @@ def compute_section_diff(
     result.total_paragraphs_new = len(new_paras)
 
     if not old_paras and not new_paras:
-        result.classification = "UNCHANGED"
+        result.classification = ChangeClassification.UNCHANGED
         return result
 
     # Align paragraphs
@@ -570,25 +593,25 @@ def compute_section_diff(
     for alignment in alignments:
         change_type = alignment.type
 
-        if change_type == "UNCHANGED":
+        if change_type == AlignmentType.UNCHANGED:
             result.unchanged_count += 1
             continue
 
-        if change_type == "ADDED":
+        if change_type == AlignmentType.ADDED:
             classification = classify_change(None, alignment.new_text, section_key)
             result.added_count += 1
             result.added_paragraphs.append({
                 "text": alignment.new_text,
                 "classification": classification,
             })
-        elif change_type == "REMOVED":
+        elif change_type == AlignmentType.REMOVED:
             classification = classify_change(alignment.old_text, None, section_key)
             result.removed_count += 1
             result.removed_paragraphs.append({
                 "text": alignment.old_text,
                 "classification": classification,
             })
-        elif change_type == "MODIFIED":
+        elif change_type == AlignmentType.MODIFIED:
             classification = classify_change(
                 alignment.old_text, alignment.new_text, section_key,
             )
@@ -600,16 +623,16 @@ def compute_section_diff(
                 "classification": classification,
             })
         else:
-            classification = "STRUCTURAL"
+            classification = ChangeClassification.STRUCTURAL
 
         # Count by classification
-        if classification == "SUBSTANTIVE":
+        if classification == ChangeClassification.SUBSTANTIVE:
             result.substantive_count += 1
-        elif classification == "BOILERPLATE":
+        elif classification == ChangeClassification.BOILERPLATE:
             result.boilerplate_count += 1
-        elif classification == "NUMERICAL":
+        elif classification == ChangeClassification.NUMERICAL:
             result.numerical_count += 1
-        elif classification == "STRUCTURAL":
+        elif classification == ChangeClassification.STRUCTURAL:
             result.structural_count += 1
 
     # Compute change percentage
@@ -618,20 +641,20 @@ def compute_section_diff(
     result.change_pct = round((changed / total_paras) * 100, 2)
 
     # Overall classification — majority wins, or MIXED
-    counts = {
-        "SUBSTANTIVE": result.substantive_count,
-        "BOILERPLATE": result.boilerplate_count,
-        "NUMERICAL": result.numerical_count,
-        "STRUCTURAL": result.structural_count,
+    counts: dict[ChangeClassification, int] = {
+        ChangeClassification.SUBSTANTIVE: result.substantive_count,
+        ChangeClassification.BOILERPLATE: result.boilerplate_count,
+        ChangeClassification.NUMERICAL: result.numerical_count,
+        ChangeClassification.STRUCTURAL: result.structural_count,
     }
     if changed == 0:
-        result.classification = "UNCHANGED"
+        result.classification = ChangeClassification.UNCHANGED
     else:
         max_class = max(counts, key=counts.get)  # type: ignore[arg-type]
         if counts[max_class] > changed * 0.6:
             result.classification = max_class
         else:
-            result.classification = "MIXED"
+            result.classification = ChangeClassification.MIXED
 
     # Materiality assessment
     result.materiality = _assess_section_materiality(

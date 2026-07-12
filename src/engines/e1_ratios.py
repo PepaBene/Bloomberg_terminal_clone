@@ -1272,6 +1272,7 @@ class RatioEngine(BaseEngine):
         def _mi(pairs: list[tuple[str, float | None]]) -> list[dict]:
             return [make_input(n, "fundamentals", v, s.period_label) for n, v in pairs]
 
+        # dividends_paid is typically negative (cash outflow); use absolute for yield
         div_abs = abs(float(dividends)) if dividends is not None else None
 
         # DPS for yield calculation

@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
 // Financial Statements — Income Statement, Balance Sheet, Cash Flow
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
-import { useIncomeStatements, useBalanceSheets, useCashFlows, useSegments, useRevenueBreakdown } from '@/hooks';
+import { useIncomeStatements, useBalanceSheets, useCashFlows, useSegments, useRevenueBreakdown, useEntity } from '@/hooks';
 import { PeriodSelector } from '@/components/financials/PeriodSelector';
 import { CommonSizeToggle } from '@/components/financials/CommonSizeToggle';
 import { StatementTable } from '@/components/financials/StatementTable';
@@ -12,9 +12,40 @@ import { LineItemChart } from '@/components/financials/LineItemChart';
 import type { StatementRowData } from '@/components/financials/StatementTable';
 import type { LineItemDataPoint } from '@/components/financials/LineItemChart';
 
+// --- API response shapes (subset of backend schemas actually read) ---------
+// Mirrors `SegmentDataResponse` (src/schemas/fundamentals.py:226) wrapped in
+// `PaginatedResponse` (src/schemas/common.py:52) — `GET /v1/entities/{id}/segments`
+// returns `{data: [...], meta: {...}}`, not a bare array.
+
+interface SegmentDataApi {
+  segment_name: string;
+  revenue: number | null;
+  operating_income: number | null;
+  operating_margin: number | null;
+}
+
+interface PaginatedSegmentsApi {
+  data?: SegmentDataApi[];
+}
+
+// Mirrors the fields we read from `EntityResponse` (src/schemas/entity.py:32).
+interface EntityDetailApi {
+  legal_name?: string | null;
+  short_name?: string | null;
+}
+
+// Shape this page expects from the income/balance/cash-flow hooks (annual vs.
+// quarterly statement rows). Declared explicitly instead of leaving the hook
+// result implicitly typed, which otherwise widens to `{}` and breaks the
+// `.annual`/`.quarterly` access below.
+interface StatementsApi {
+  annual?: StatementRowData[];
+  quarterly?: StatementRowData[];
+}
+
 // --- Mock Data ---------------------------------------------------------------
 
-const company = { name: 'Loading...', ticker: '' };
+const DEFAULT_COMPANY = { name: 'Loading...', ticker: '' };
 
 const ANNUAL_PERIODS = ['FY2025', 'FY2024', 'FY2023', 'FY2022'];
 const QUARTERLY_PERIODS = ['Q1 2026', 'Q4 2025', 'Q3 2025', 'Q2 2025'];
@@ -38,12 +69,28 @@ export default function FinancialStatements() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
+  // [P1-FP-006 fix] — Wire the header to the real current entity instead of a
+  // static "Loading..." constant. `Security` (the store's `primary`) already
+  // carries `name`/`ticker` directly; fall back to `useEntity`'s
+  // `legal_name`/`short_name` (no ticker on Entity) when the store hasn't been
+  // populated yet (e.g. direct navigation via the `entityId` route param).
+  const { data: apiEntity } = useEntity(resolvedId ?? '', { enabled: !!resolvedId && !primary }) as {
+    data: EntityDetailApi | undefined;
+  };
+  const company = {
+    name: primary?.name ?? apiEntity?.short_name ?? apiEntity?.legal_name ?? DEFAULT_COMPANY.name,
+    ticker: primary?.ticker ?? DEFAULT_COMPANY.ticker,
+  };
+
   // Wire to API hooks
-  const { data: apiIncome } = useIncomeStatements(resolvedId);
-  const { data: apiBalance } = useBalanceSheets(resolvedId);
-  const { data: apiCashFlow } = useCashFlows(resolvedId);
-  const { data: apiSegments } = useSegments(resolvedId);
-  const { data: apiRevBreakdown } = useRevenueBreakdown(resolvedId);
+  // (`resolvedId` is `string | undefined`; these hooks take a required
+  // `string` and internally guard on `enabled: !!entityId`, so passing `?? ''`
+  // is safe — it never fires a request when there's no resolved id.)
+  const { data: apiIncome } = useIncomeStatements(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiBalance } = useBalanceSheets(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiCashFlow } = useCashFlows(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiSegments } = useSegments(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
+  const { data: apiRevBreakdown } = useRevenueBreakdown(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
 
   const [periodMode, setPeriodMode] = useState<'annual' | 'quarterly'>('annual');
   const [periodCount, setPeriodCount] = useState(4);
@@ -67,6 +114,20 @@ export default function FinancialStatements() {
 
   // Revenue base for common-size
   const revenueBase = incomeRows[0]?.values[0] ?? 1;
+
+  const segmentRows: SegmentDataApi[] = useMemo(
+    () => (Array.isArray(apiSegments?.data) ? apiSegments!.data! : []),
+    [apiSegments],
+  );
+
+  const revenueBreakdownRows: (SegmentDataApi & { pctOfTotal: number | null })[] = useMemo(() => {
+    const rows = Array.isArray(apiRevBreakdown?.data) ? apiRevBreakdown!.data! : [];
+    const total = rows.reduce((sum, r) => sum + (r.revenue ?? 0), 0);
+    return rows.map((r) => ({
+      ...r,
+      pctOfTotal: total > 0 && r.revenue != null ? (r.revenue / total) * 100 : null,
+    }));
+  }, [apiRevBreakdown]);
 
   const handleRowClick = useCallback(
     (row: StatementRowData) => {
@@ -140,18 +201,23 @@ export default function FinancialStatements() {
         </div>
 
         {/* Segments */}
-        {(apiSegments ?? []).length > 0 && (
+        {/* [P1-FP-008 fix] `GET /v1/entities/{id}/segments` returns a
+            `PaginatedResponse` (`{data: [...], meta}`), and each row is a
+            `SegmentDataResponse` with snake_case fields (`segment_name`,
+            `operating_income`, `operating_margin`), not the camelCase
+            `{name, operatingIncome, margin}` shape this used to assume. */}
+        {segmentRows.length > 0 && (
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Business Segments</h2>
             <table className="terminal-table">
               <thead><tr><th>Segment</th><th className="right">Revenue ($M)</th><th className="right">Operating Income ($M)</th><th className="right">Margin</th></tr></thead>
               <tbody>
-                {(apiSegments as any[]).map((s: any) => (
-                  <tr key={s.name}>
-                    <td style={{ fontWeight: 500 }}>{s.name}</td>
+                {segmentRows.map((s) => (
+                  <tr key={s.segment_name}>
+                    <td style={{ fontWeight: 500 }}>{s.segment_name}</td>
                     <td className="right">{s.revenue?.toLocaleString() ?? '—'}</td>
-                    <td className="right">{s.operatingIncome?.toLocaleString() ?? '—'}</td>
-                    <td className="right">{s.margin != null ? `${(s.margin * 100).toFixed(1)}%` : '—'}</td>
+                    <td className="right">{s.operating_income?.toLocaleString() ?? '—'}</td>
+                    <td className="right">{s.operating_margin != null ? `${(s.operating_margin * 100).toFixed(1)}%` : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -160,20 +226,23 @@ export default function FinancialStatements() {
         )}
 
         {/* Revenue Breakdown */}
-        {(apiRevBreakdown ?? []).length > 0 && (
+        {/* [P1-FP-008 fix] Same `SegmentDataResponse`/`PaginatedResponse` shape
+            as segments above (this hook hits the same `/segments` endpoint
+            filtered to `segment_type=PRODUCT`). The backend has no
+            `pctOfTotal`/`growth` fields, so % of total is computed client-side
+            from the fetched rows and YoY growth (not available) shows '—'. */}
+        {revenueBreakdownRows.length > 0 && (
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Revenue Breakdown</h2>
             <table className="terminal-table">
               <thead><tr><th>Category</th><th className="right">Revenue ($M)</th><th className="right">% of Total</th><th className="right">YoY Growth</th></tr></thead>
               <tbody>
-                {(apiRevBreakdown as any[]).map((r: any) => (
-                  <tr key={r.category}>
-                    <td style={{ fontWeight: 500 }}>{r.category}</td>
+                {revenueBreakdownRows.map((r) => (
+                  <tr key={r.segment_name}>
+                    <td style={{ fontWeight: 500 }}>{r.segment_name}</td>
                     <td className="right">{r.revenue?.toLocaleString() ?? '—'}</td>
                     <td className="right">{r.pctOfTotal != null ? `${r.pctOfTotal.toFixed(1)}%` : '—'}</td>
-                    <td className="right" style={{ color: (r.growth ?? 0) >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)' }}>
-                      {r.growth != null ? `${r.growth >= 0 ? '+' : ''}${r.growth.toFixed(1)}%` : '—'}
-                    </td>
+                    <td className="right">—</td>
                   </tr>
                 ))}
               </tbody>

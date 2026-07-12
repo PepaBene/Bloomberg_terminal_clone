@@ -238,11 +238,10 @@ export function useDCFModel(secId: string | undefined) {
   });
 }
 
-export function useDCFSensitivity(secId: string | undefined) {
-  return useApiQuery(['analytics', secId, 'dcf', 'sensitivity'], ANALYTICS.dcfSensitivity(secId!), undefined, {
-    enabled: !!secId,
-  });
-}
+// [Bug 81 fix] `useDCFSensitivity` was removed — `GET /v2/analytics/dcf/{id}/sensitivity`
+// does not exist in the backend at all. The main DCF response (`useDCFModel`)
+// already carries `sensitivity_grid` (`{wacc_values, growth_values, implied_prices}`);
+// callers should read it from there instead (see ValuationDashboard.tsx).
 
 export function useFootballField(secId: string | undefined) {
   return useApiQuery(['analytics', secId, 'football-field'], ANALYTICS.footballField(secId!), undefined, {

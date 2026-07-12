@@ -27,7 +27,7 @@ export {
   useSecurityPricesIntraday,
   useSecurityPricesHistory,
   useSecurityBulkLookup,
-  useSecurityTranslate,
+  useTranslateSecurity,
   useInstitutionalHoldings,
   useInsiderHoldings,
   useOwnershipSummary,

@@ -359,7 +359,7 @@ async def get_bond_by_cusip(
     """Get a single corporate bond by CUSIP."""
     query = select(CorporateBond).where(CorporateBond.cusip == cusip)
     result = await session.execute(query)
-    bond = result.scalars().unique().one_or_none()
+    bond = result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -383,7 +383,7 @@ async def get_call_schedule(
     """Get the call schedule for a bond."""
     bond_q = select(CorporateBond).where(CorporateBond.cusip == cusip)
     bond_result = await session.execute(bond_q)
-    bond = bond_result.scalars().unique().one_or_none()
+    bond = bond_result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -415,7 +415,7 @@ async def get_latest_price(
     """Get the latest EOD price for a bond."""
     bond_q = select(CorporateBond).where(CorporateBond.cusip == cusip)
     bond_result = await session.execute(bond_q)
-    bond = bond_result.scalars().unique().one_or_none()
+    bond = bond_result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -456,7 +456,7 @@ async def get_price_history(
     """Get historical EOD prices for a bond."""
     bond_q = select(CorporateBond).where(CorporateBond.cusip == cusip)
     bond_result = await session.execute(bond_q)
-    bond = bond_result.scalars().unique().one_or_none()
+    bond = bond_result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -510,7 +510,7 @@ async def get_trades(
     """Get TRACE trades for a bond."""
     bond_q = select(CorporateBond).where(CorporateBond.cusip == cusip)
     bond_result = await session.execute(bond_q)
-    bond = bond_result.scalars().unique().one_or_none()
+    bond = bond_result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -564,7 +564,7 @@ async def get_spread_history(
     """Get G-spread history for a bond."""
     bond_q = select(CorporateBond).where(CorporateBond.cusip == cusip)
     bond_result = await session.execute(bond_q)
-    bond = bond_result.scalars().unique().one_or_none()
+    bond = bond_result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(
@@ -627,7 +627,7 @@ async def bond_analytics(
         .options(selectinload(CorporateBond.call_schedule))
     )
     result = await session.execute(query)
-    bond = result.scalars().unique().one_or_none()
+    bond = result.scalars().one_or_none()
 
     if bond is None:
         raise HTTPException(

@@ -67,6 +67,22 @@ def create_app() -> FastAPI:
     # the test suite and the open-by-default development workflow. Routes
     # that need user identity should depend on ``get_optional_user``
     # individually instead.
+    #
+    # [Bug 74] Flipping REQUIRE_AUTH's default to True was considered, since
+    # a real auth flow does exist (/auth/token issues JWTs, get_current_user
+    # validates them — see src/api/routers/auth.py). It was NOT flipped:
+    # ~88 tests under tests/test_api/ exercise the API via the `client`
+    # fixture (tests/test_api/conftest.py) with no Bearer token, and that
+    # fixture calls create_app() directly with no REQUIRE_AUTH override, so
+    # a flipped default would turn every one of those into a 401 regression.
+    # Fixing that properly means adding a test-only override in
+    # tests/conftest.py / tests/test_api/conftest.py, which is out of scope
+    # for this change. Until that's done, make the gap loud instead of silent.
+    if not settings.REQUIRE_AUTH:
+        logger.warning(
+            "REQUIRE_AUTH is False — API is running without authentication "
+            "enforcement. Do not use this configuration in production."
+        )
     global_deps = [Depends(get_current_user)] if settings.REQUIRE_AUTH else []
     app = FastAPI(
         title="Bloomberg Data Fabric API",
@@ -258,6 +274,13 @@ def create_app() -> FastAPI:
     # Pillar 2 Supplement – Part 3: Backtesting
     from src.api.routers.backtesting import router as backtesting_router
     app.include_router(backtesting_router, prefix="/v1")
+
+    from src.api.routers.backtesting import strategies_router as backtest_strategies_router
+    app.include_router(backtest_strategies_router)
+
+    # Pillar 2 Frontend Bugs 93-95: Benchmarks (standard indices + custom)
+    from src.api.routers.benchmarks import router as benchmarks_router
+    app.include_router(benchmarks_router, prefix="/v1")
 
     # Pillar 2 Supplement – Part 2: Default Risk Scoring
     from src.api.routers.default_risk import router as default_risk_router

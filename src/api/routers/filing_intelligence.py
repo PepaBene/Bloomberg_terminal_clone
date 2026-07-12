@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -110,7 +110,7 @@ async def get_entity_events(
     if to_date:
         stmt = stmt.where(EightKEvent.filing_date <= to_date)
 
-    stmt = stmt.order_by(EightKEvent.filing_date.desc())
+    stmt = stmt.order_by(desc(EightKEvent.filing_date))
     result = await session.execute(stmt)
     rows = result.scalars().all()
 
@@ -324,7 +324,7 @@ async def get_filing_diff_summary(
     ]
 
     ai_summaries = [r.ai_summary for r in rows if r.ai_summary]
-    combined_summary = " | ".join(ai_summaries[:3]) if ai_summaries else None
+    combined_summary = " /// ".join(ai_summaries[:3]) if ai_summaries else None
 
     return FilingDiffSummaryResponse(
         entity_id=entity_id,

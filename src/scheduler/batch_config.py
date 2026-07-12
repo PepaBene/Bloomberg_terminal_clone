@@ -53,14 +53,33 @@ BATCH_JOBS: list[BatchJob] = [
         domain="D3",
         description="Poll SEC EDGAR for new XBRL filings.",
     ),
+    BatchJob(
+        name="segments_ingest",
+        cron="0 */4 * * *",  # every 4 hours
+        script="scripts/ingest_segments.py",
+        sla_minutes=120,
+        domain="D3",
+        description=(
+            "SEC EDGAR XBRL company-facts dimensional segment members -> "
+            "segment_data (business/geographic revenue+income+assets). Was a "
+            "real, tested connector class with no script entry point at all "
+            "(Makefile's ingest-segments target pointed at a nonexistent "
+            "module) — now wired end-to-end."
+        ),
+    ),
     # ── Corporate Actions (D5) ────────────────────────────────────────
     BatchJob(
-        name="edgar_8k_ingest",
-        cron="*/15 * * * *",
+        name="corporate_actions_ingest",
+        cron="0 6 * * *",  # 6 AM daily
         script="scripts/ingest_corporate_actions.py",
         sla_minutes=120,
         domain="D5",
-        description="Poll SEC EDGAR for 8-K corporate event filings.",
+        description=(
+            "Dividends + splits from Polygon.io -> corporate_actions/"
+            "dividend_actions/split_actions, with real ex/record/pay dates "
+            "(replaces the prior Edgar8KConnector wiring, which actually "
+            "wrote to the unrelated eight_k_events table)."
+        ),
     ),
     # ── Ownership (D6) ────────────────────────────────────────────────
     BatchJob(
@@ -188,6 +207,121 @@ BATCH_JOBS: list[BatchJob] = [
         domain="FI",
         description="Compute + persist FIMarketBriefing (yield-curve + credit) from real FRED data.",
         depends_on=("treasury_yield_curve_ingest", "credit_spreads_ingest"),
+    ),
+    BatchJob(
+        name="money_market_ingest",
+        cron="45 18 * * 1-5",  # 6:45 PM ET weekdays
+        script="scripts/ingest_money_market.py",
+        sla_minutes=30,
+        domain="FI",
+        description=(
+            "SOFR / effective + target fed funds / T-bill / commercial paper "
+            "/ prime rates from FRED (reuses FRED_API_KEY) -> "
+            "money_market_rates. extract() was previously a stub returning "
+            "[]; now mirrors the fred_credit_spreads.py pattern."
+        ),
+    ),
+    BatchJob(
+        name="treasury_securities_ingest",
+        cron="0 7 * * *",  # 7 AM daily
+        script="scripts/ingest_treasury_securities.py",
+        sla_minutes=60,
+        domain="FI",
+        description="US Treasury marketable securities (Fiscal Data API, keyless) -> treasury_securities.",
+    ),
+    BatchJob(
+        name="capital_structure_ingest",
+        cron="0 5 * * *",  # 5 AM daily
+        script="scripts/ingest_capital_structure.py",
+        sla_minutes=240,
+        domain="FI",
+        description=(
+            "SEC EDGAR 10-K XBRL debt aggregates + footnote-parsed debt "
+            "tranches -> capital_structures/debt_tranches, plus (when a "
+            "matching traded FI security exists) fixed_income_details / "
+            "call_put_schedule."
+        ),
+    ),
+    BatchJob(
+        name="credit_ratings_ingest",
+        cron="15 5 * * *",  # 5:15 AM daily
+        script="scripts/ingest_credit_ratings.py",
+        sla_minutes=240,
+        domain="FI",
+        description=(
+            "SEC EDGAR 8-K rating-agency mentions -> credit_rating_events, "
+            "plus (when a rating was actually extracted) security-level "
+            "credit_ratings for the issuer's fixed-income securities."
+        ),
+    ),
+    # ── Pillar 1 Supplement: Executives + Macro Policy (real, tested
+    #    connectors that were only reachable via manual `make` targets —
+    #    the same "orphaned engine" pattern already fixed for Pillar 3) ──
+    BatchJob(
+        name="executives_ingest",
+        cron="0 7 * * 3",  # Wednesday 7 AM
+        script="scripts/ingest_executives.py",
+        sla_minutes=1440,
+        domain="P1S",
+        description="SEC EDGAR ownership filings -> executives/directors.",
+    ),
+    BatchJob(
+        name="fomc_meetings_ingest",
+        cron="20 5 * * *",  # 5:20 AM daily
+        script="scripts/ingest_fomc.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="FOMC rate decisions derived from FRED target-range series (reuses FRED_API_KEY).",
+    ),
+    BatchJob(
+        name="central_bank_policy_ingest",
+        cron="25 5 * * *",  # 5:25 AM daily
+        script="scripts/ingest_central_bank.py",
+        sla_minutes=30,
+        domain="P1S",
+        description=(
+            "Central-bank policy decisions (Fed/ECB/BOE) derived from FRED "
+            "policy-rate series. ECB/BOE series are present but, per the "
+            "connector's own docs, not yet validated against live payloads."
+        ),
+    ),
+    # ── Pillar 1 Supplement: Rollups (pure computation over already-
+    #    ingested data, no external calls — same orphaned pattern) ──────
+    BatchJob(
+        name="ownership_summary_compute",
+        cron="0 8 * * *",  # 8 AM daily (after 13F/Form4/short-interest ingest)
+        script="scripts/compute_ownership_summary.py",
+        sla_minutes=60,
+        domain="P1S",
+        description="Rolls up InstitutionalHolding/InsiderHolding/ShortInterest -> ownership_summaries.",
+        depends_on=("edgar_13f_ingest",),
+    ),
+    BatchJob(
+        name="technical_studies_compute",
+        cron="30 19 * * 1-5",  # 7:30 PM ET weekdays (after EOD prices)
+        script="scripts/compute_technicals.py",
+        sla_minutes=60,
+        domain="P1S",
+        description="Computes technical indicators from EODPrice history -> technical_study_values.",
+        depends_on=("polygon_eod_ingest",),
+    ),
+    BatchJob(
+        name="esg_temperature_compute",
+        cron="15 7 * * 1",  # Monday 7:15 AM (after weekly ESG ingest)
+        script="scripts/compute_esg_temperature.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="Paris-alignment ESG implied-temperature scoring -> esg_temperature_scores.",
+        depends_on=("esg_ingest",),
+    ),
+    BatchJob(
+        name="debt_maturity_compute",
+        cron="30 5 * * *",  # 5:30 AM daily (after capital structure ingest)
+        script="scripts/compute_debt_maturity.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="Buckets debt_tranches by maturity year -> debt_maturity_profiles/maturity_buckets.",
+        depends_on=("capital_structure_ingest",),
     ),
     # ── Pillar 3: Intelligence (added in 924e640, never scheduled —
     #    all keyless/free sources except earnings, which reuses

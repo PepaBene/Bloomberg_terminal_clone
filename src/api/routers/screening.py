@@ -471,7 +471,9 @@ async def get_screenable_fields(session: AsyncSession = Depends(get_session)):
     from src.engines.e4_screening import ScreeningEngine
     from src.models.analytics import AnalyticsResult
 
-    stmt = select(AnalyticsResult.metric_name).where(AnalyticsResult.engine_id.in_(["E1", "E2"])).distinct()
+    # [Bug 64 fix] Include E3 (quality scores: Piotroski/Altman/Beneish) so
+    # those live, populated fields are screenable too, not just E1/E2.
+    stmt = select(AnalyticsResult.metric_name).where(AnalyticsResult.engine_id.in_(["E1", "E2", "E3"])).distinct()
     result = await session.execute(stmt)
     live_fields = set(result.scalars().all())
 

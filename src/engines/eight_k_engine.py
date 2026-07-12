@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from html.parser import HTMLParser
 
 
@@ -530,7 +531,45 @@ def assess_event_materiality(
     return "LOW"
 
 
-def parse_eight_k_items(html_text: str) -> list[dict]:
+class EightKParseStatus(StrEnum):
+    """Signal distinguishing *why* ``parse_eight_k_items`` returned no items.
+
+    - ``OK``: one or more items were successfully extracted.
+    - ``NO_ITEMS_FOUND``: parsing completed normally, but no ``Item X.XX``
+      headers were present in the document (or the input was empty) — this
+      is a genuine "nothing to report" result, not an error.
+    - ``PARSE_FAILED``: the HTML/text could not be processed at all (e.g.
+      malformed input raised inside the HTML extractor). Callers should
+      treat this differently from a genuine no-items filing — most likely
+      the wrong document was fed in, or the extractor needs attention.
+    """
+
+    OK = "OK"
+    NO_ITEMS_FOUND = "NO_ITEMS_FOUND"
+    PARSE_FAILED = "PARSE_FAILED"
+
+
+@dataclass
+class EightKParseResult:
+    """Result of ``parse_eight_k_items``.
+
+    Parameters
+    ----------
+    items : list[dict]
+        Extracted items (empty unless ``status`` is ``OK``).
+    status : EightKParseStatus
+        Distinguishes a genuine no-items filing from an outright parse
+        failure (P1-E-014).
+    error : str | None
+        Exception message when ``status`` is ``PARSE_FAILED``.
+    """
+
+    items: list[dict] = field(default_factory=list)
+    status: EightKParseStatus = EightKParseStatus.OK
+    error: str | None = None
+
+
+def parse_eight_k_items(html_text: str) -> EightKParseResult:
     """Extract individual items from 8-K filing HTML.
 
     Scans for ``Item X.XX`` headers and captures the text between
@@ -543,12 +582,18 @@ def parse_eight_k_items(html_text: str) -> list[dict]:
 
     Returns
     -------
-    list[dict]
-        Each dict contains:
-        - item_number (str): e.g. "2.01".
-        - item_text (str): Cleaned text for that item section.
+    EightKParseResult
+        ``items``: list of dicts, each with:
+            - item_number (str): e.g. "2.01".
+            - item_text (str): Cleaned text for that item section.
+        ``status``: see ``EightKParseStatus`` — lets callers distinguish a
+        genuinely item-less filing from a parse failure instead of both
+        silently collapsing to an empty list.
     """
-    plain = _strip_html(html_text)
+    try:
+        plain = _strip_html(html_text)
+    except Exception as exc:  # noqa: BLE001 - surface any extractor failure
+        return EightKParseResult(items=[], status=EightKParseStatus.PARSE_FAILED, error=str(exc))
 
     # Find all item header positions
     boundaries: list[tuple[str, int]] = []
@@ -558,7 +603,7 @@ def parse_eight_k_items(html_text: str) -> list[dict]:
         boundaries.append((item_num, match.start()))
 
     if not boundaries:
-        return []
+        return EightKParseResult(items=[], status=EightKParseStatus.NO_ITEMS_FOUND)
 
     # Extract text between boundaries
     items: list[dict] = []
@@ -581,4 +626,7 @@ def parse_eight_k_items(html_text: str) -> list[dict]:
                 "item_text": text,
             })
 
-    return items
+    if not items:
+        return EightKParseResult(items=[], status=EightKParseStatus.NO_ITEMS_FOUND)
+
+    return EightKParseResult(items=items, status=EightKParseStatus.OK)

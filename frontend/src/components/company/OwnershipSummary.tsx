@@ -14,8 +14,12 @@ export interface Holder {
 
 export interface OwnershipSummaryProps {
   holders: Holder[];
-  insiderPct: number;
-  institutionalPct: number;
+  // [P1-FP-009 fix] Nullable — real ownership-breakdown percentages aren't
+  // always available from the backend (`OwnershipSummaryResponse.insider_percent`
+  // / `.institutional_percent`); render an honest "no data" state instead of
+  // fabricating numbers when they're missing.
+  insiderPct: number | null;
+  institutionalPct: number | null;
   className?: string;
 }
 
@@ -150,7 +154,19 @@ export function OwnershipSummary({
     <div className={clsx('terminal-panel flex flex-col gap-3', className)}>
       <h3 className="terminal-section-title">Ownership Summary</h3>
 
-      <OwnershipBar insiderPct={insiderPct} institutionalPct={institutionalPct} />
+      {insiderPct != null && institutionalPct != null ? (
+        <OwnershipBar insiderPct={insiderPct} institutionalPct={institutionalPct} />
+      ) : (
+        <div
+          style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          No ownership breakdown data available.
+        </div>
+      )}
 
       {/* Top holders table */}
       <div className="overflow-auto">

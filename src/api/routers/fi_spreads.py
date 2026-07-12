@@ -143,6 +143,44 @@ async def hy_spreads(
 
 
 @router.get(
+    "/fixed-income/spreads/ig-hy-differential",
+    response_model=IGHYDifferentialResponse,
+)
+async def ig_hy_differential(
+    session: AsyncSession = Depends(get_session),
+):
+    """Get the current IG vs HY OAS differential (ratio + spread)."""
+
+    async def _latest_spread(rating_category: str) -> float | None:
+        result = await session.execute(
+            select(CreditSpreadIndex.spread_bps)
+            .where(CreditSpreadIndex.rating_category == rating_category)
+            .order_by(CreditSpreadIndex.observation_date.desc())
+            .limit(1)
+        )
+        val = result.scalar_one_or_none()
+        return float(val) if val is not None else None
+
+    ig_oas = await _latest_spread("IG")
+    hy_oas = await _latest_spread("HY")
+
+    if ig_oas is None or hy_oas is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Insufficient IG/HY spread data to compute differential",
+        )
+
+    diff = compute_ig_hy_differential(ig_oas, hy_oas)
+
+    return IGHYDifferentialResponse(
+        ig_oas=ig_oas,
+        hy_oas=hy_oas,
+        ratio=diff["ratio"],
+        spread=diff["spread"],
+    )
+
+
+@router.get(
     "/fixed-income/spreads/regime",
     response_model=list[SpreadRegimeResponse],
 )

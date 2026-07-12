@@ -132,7 +132,10 @@ export const ANALYTICS = {
   ratioPercentile: (secId: string) => `/v2/analytics/ratios/${secId}/percentile`,
   ratioHistory: (secId: string) => `/v2/analytics/ratios/${secId}/history`,
 
-  // --- These have no backend yet — hooks disabled until endpoints exist ---
+  // --- sectorRelative / fairValue / seasonality still have no backend yet —
+  // hooks stay disabled until those endpoints exist. technicalSignals and
+  // factorExposure (Bug 87) and correlation (Bug 86) ARE wired to real
+  // backend endpoints — see src/api/routers/analytics.py. ---
   sectorRelative: (secId: string) => `/v2/analytics/sector-relative/${secId}`,
   fairValue: (secId: string) => `/v2/analytics/fair-value/${secId}`,
   technicalSignals: (secId: string) => `/v2/analytics/technical-signals/${secId}`,
@@ -277,20 +280,33 @@ export const FILING_INTELLIGENCE = {
   insiders: (entityId: string) => `/v3/filings/${entityId}/insiders`,
   detail: (entityId: string, filingId: string) => `/v3/filings/${entityId}/${filingId}`,
   summary: (entityId: string, filingId: string) => `/v3/filings/${entityId}/${filingId}/summary`,
-  riskFactors: (entityId: string) => `/v3/filings/${entityId}/risk-factors`,
+  // [P1-FP-010 fix] Path mismatch — backend route is `/filings/{id}/diff/risk-factors`
+  // (src/api/routers/filing_intelligence.py:236), not `/filings/{id}/risk-factors`.
+  riskFactors: (entityId: string) => `/v3/filings/${entityId}/diff/risk-factors`,
   mdna: (entityId: string) => `/v3/filings/${entityId}/mdna`,
   search: '/v3/filings/search',
 } as const;
 
 export const GOVERNANCE = {
   proxy: (entityId: string) => `/v3/filings/${entityId}/proxy`,
-  compensation: (entityId: string) => `/v3/filings/${entityId}/compensation`,
-  governance: (entityId: string) => `/v3/filings/${entityId}/governance`,
-  board: (entityId: string) => `/v3/filings/${entityId}/board`,
-  esg: (entityId: string) => `/v3/filings/${entityId}/esg`,
-  esgScores: (entityId: string) => `/v3/filings/${entityId}/esg/scores`,
-  esgHistory: (entityId: string) => `/v3/filings/${entityId}/esg/history`,
-  shareholderProposals: (entityId: string) => `/v3/filings/${entityId}/shareholder-proposals`,
+  // [P1-FP-014/016 fix] Path mismatches vs `src/api/routers/governance_intelligence.py`
+  // — these were all missing the `/proxy` segment (or, for `shareholderProposals`,
+  // used the wrong final segment entirely).
+  compensation: (entityId: string) => `/v3/filings/${entityId}/proxy/compensation`,
+  governance: (entityId: string) => `/v3/filings/${entityId}/proxy/governance`,
+  board: (entityId: string) => `/v3/filings/${entityId}/proxy/board`,
+  // [P1-FP-014/016 fix] Path mismatches vs `src/api/routers/esg.py` — the real
+  // ESG router is mounted at `/v1/entities/{id}/esg...`, not `/v3/filings/...`.
+  // There is no separate "history" endpoint; `ESGOverviewResponse` already
+  // bundles `scores`/`metrics`/`controversies` in the single `/esg` call, so
+  // `esgHistory` now points at the real `/esg/metrics` time-series endpoint
+  // (the closest real analog) instead of a path that never existed.
+  esg: (entityId: string) => `/v1/entities/${entityId}/esg`,
+  esgScores: (entityId: string) => `/v1/entities/${entityId}/esg/scores`,
+  esgHistory: (entityId: string) => `/v1/entities/${entityId}/esg/metrics`,
+  // [P1-FP-014/016 fix] Real route is `/filings/{id}/proxy/proposals`
+  // (governance_intelligence.py:358), not `/shareholder-proposals`.
+  shareholderProposals: (entityId: string) => `/v3/filings/${entityId}/proxy/proposals`,
 } as const;
 
 export const SENTIMENT = {
@@ -823,7 +839,7 @@ export const BENCHMARKS = {
   returns: (id: string) => `/v1/benchmarks/${id}/returns`,
   constituents: (id: string) => `/v1/benchmarks/${id}/constituents`,
   compare: '/v1/benchmarks/compare',
-  create: '/v1/benchmarks/create',
+  create: '/v1/benchmarks',
   factSheets: (id: string) => `/v1/benchmarks/${id}/fact-sheet`,
 } as const;
 

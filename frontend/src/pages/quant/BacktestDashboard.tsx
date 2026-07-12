@@ -1,10 +1,18 @@
 // ---------------------------------------------------------------------------
 // Backtest Dashboard — Strategy Backtesting, Results & History
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useBacktestHistory, useBacktestStrategies } from '@/hooks';
 import { api } from '@/api/client';
 import { BACKTESTING } from '@/api/endpoints';
+
+interface BacktestStrategyOption {
+  strategy_id: string;
+  name: string;
+  description?: string | null;
+  tags?: string[];
+  strategy_definition?: Record<string, unknown>;
+}
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -45,7 +53,7 @@ function signalColor(value: number): string {
 // Sharpe figures attributed to specific strategies. Live data populates
 // the lists when the API returns rows.
 
-const strategies: { id: string; name: string; universe: string; rebalance: string }[] = [];
+const strategies: BacktestStrategyOption[] = [];
 const backtestResults: { strategy: string; period: string; cagr: number; sharpe: number; maxDrawdown: number; winRate: number; alpha: number }[] = [];
 const recentBacktests: { id: string; strategy: string; ranAt: string; status: string; cagr: number | null; sharpe: number | null }[] = [];
 
@@ -75,17 +83,29 @@ const inputStyle: React.CSSProperties = {
 // --- Component ---------------------------------------------------------------
 
 export default function BacktestDashboard() {
-  const [selectedStrategy, setSelectedStrategy] = useState('Momentum Long/Short');
+  // [Bug 93 fix] No fabricated default -- real strategy names come from
+  // GET /v2/analytics/backtest/strategies (src/api/routers/backtesting.py,
+  // reusing the E4 prebuilt-screen library), so the selection starts empty
+  // and is set once real options load (below).
+  const [selectedStrategy, setSelectedStrategy] = useState('');
   const [universe, setUniverse] = useState('S&P 500');
   const [startDate, setStartDate] = useState('2019-01-01');
   const [endDate, setEndDate] = useState('2024-12-31');
 
-  const { data: apiStrategies } = useBacktestStrategies() as { data: any[] };
+  const { data: apiStrategies } = useBacktestStrategies() as { data: BacktestStrategyOption[] | undefined };
   const { data: apiHistory } = useBacktestHistory() as { data: any };
 
   const activeStrategies = apiStrategies ?? strategies;
   const activeResults = backtestResults; // Mocked until backend has true backtesting
   const activeHistory = (apiHistory as any)?.history ?? recentBacktests;
+
+  // Default the selector to the first real strategy once the library loads.
+  useEffect(() => {
+    const first = activeStrategies[0];
+    if (!selectedStrategy && first) {
+      setSelectedStrategy(first.name);
+    }
+  }, [activeStrategies, selectedStrategy]);
 
   // Dynamic KPIs (Bug 91 fix)
   const totalStrategies = activeStrategies?.length ?? 0;
@@ -151,8 +171,8 @@ export default function BacktestDashboard() {
               onChange={(e) => setSelectedStrategy(e.target.value)}
               style={inputStyle}
             >
-              {activeStrategies.map((s: any) => (
-                <option key={s.id ?? s.name} value={s.name}>{s.name}</option>
+              {activeStrategies.map((s) => (
+                <option key={s.strategy_id ?? s.name} value={s.name}>{s.name}</option>
               ))}
             </select>
           </div>

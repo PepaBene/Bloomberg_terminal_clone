@@ -78,10 +78,15 @@ export function MultiplesOverTime({ data, peerMedians }: MultiplesOverTimeProps)
     [visible],
   );
 
+  /* [Bug 79 fix] Guard against a non-array `data` prop (e.g. a raw API
+     object shape mismatch) so this degrades to an empty chart instead of
+     throwing on `.map()`. */
+  const safeData = Array.isArray(data) ? data : [];
+
   /* Recharts-compatible data (just pass through; keys match) */
   const chartData = useMemo(
     () =>
-      data.map((d) => ({
+      safeData.map((d) => ({
         date: d.date,
         value: d.pe,
         pe: d.pe,
@@ -89,7 +94,7 @@ export function MultiplesOverTime({ data, peerMedians }: MultiplesOverTimeProps)
         ps: d.ps,
         pbv: d.pbv,
       })),
-    [data],
+    [safeData],
   );
 
   return (

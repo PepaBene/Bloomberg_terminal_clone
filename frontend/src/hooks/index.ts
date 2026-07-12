@@ -98,7 +98,6 @@ export {
   useSavePeerGroup,
   useSectorRelative,
   useDCFModel,
-  useDCFSensitivity,
   useFootballField,
   useTechnicalSignals,
   useSeasonality,
@@ -336,6 +335,7 @@ export {
   useBenchmarkConstituents,
   useBenchmarkCompare,
   useBenchmarkFactSheet,
+  useCreateBenchmark,
 } from '@/api/hooks/useQuant';
 
 // Phase 0: Missing Domain Hooks

@@ -148,6 +148,13 @@ async def get_capital_structure_summary(
     as_of: date | None = Query(None, description="Point-in-time date"),
 ):
     """Return aggregate capital structure metrics (no tranche detail)."""
+    # First verify the entity exists
+    ent_result = await session.execute(
+        select(Entity.entity_id).where(Entity.entity_id == entity_id)
+    )
+    if not ent_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
+
     query = (
         select(CapitalStructure)
         .where(CapitalStructure.entity_id == entity_id)
@@ -160,5 +167,5 @@ async def get_capital_structure_summary(
     result = await session.execute(query)
     cs = result.scalar_one_or_none()
     if not cs:
-        raise HTTPException(status_code=404, detail=f"No capital structure found for entity '{entity_id}'")
+        raise HTTPException(status_code=404, detail=f"No capital structure data found for entity '{entity_id}'")
     return CapitalStructureSummaryResponse.model_validate(cs)

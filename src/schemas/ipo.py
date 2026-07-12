@@ -25,6 +25,14 @@ class IPOEventResponse(BaseModel):
     current_price: float | None = None
     return_vs_offer_pct: float | None = None
     lead_underwriters: list[str] | None = None
+    # P1-M-025: previously unvalidated JSONB and not even exposed here.
+    # co_managers follows the same shape convention as lead_underwriters
+    # (a list of underwriter/bank names). source_filings is a list of SEC
+    # accession-number strings -- confirmed against the one real writer,
+    # src/ingestion/edgar_ipo.py (`source_filings=[accession] if accession
+    # else None`), which never emits a richer object shape.
+    co_managers: list[str] | None = None
+    source_filings: list[str] | None = None
     company_description: str | None = None
     gics_sector: str | None = None
     gics_industry: str | None = None
