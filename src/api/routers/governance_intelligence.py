@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
 from src.engines import governance_scoring
+from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
+from src.models.fundamentals import FinancialPeriod
+from src.models.security import EODPrice, Security
 from src.models.governance_intelligence import (
     BoardMember,
     ExecutiveCompensation,
@@ -28,6 +31,51 @@ from src.schemas.governance_intelligence import (
 
 router = APIRouter(tags=["Governance Intelligence"])
 
+
+
+
+async def _load_pay_performance_metrics(session: AsyncSession, entity_id: uuid.UUID) -> dict:
+    """Load real TSR, revenue growth, and ROIC inputs for pay alignment."""
+    metrics: dict[str, float | None] = {"tsr_1y": None, "revenue_growth_pct": None, "roic": None}
+
+    security = (await session.execute(
+        select(Security)
+        .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+        .order_by(Security.status.desc().nulls_last())
+        .limit(1)
+    )).scalar_one_or_none()
+    if security:
+        prices = (await session.execute(
+            select(EODPrice.close)
+            .where(EODPrice.security_id == security.security_id, EODPrice.close.isnot(None))
+            .order_by(EODPrice.price_date.desc())
+            .limit(252)
+        )).scalars().all()
+        if len(prices) >= 2 and prices[-1]:
+            metrics["tsr_1y"] = (float(prices[0]) - float(prices[-1])) / abs(float(prices[-1])) * 100.0
+
+    periods = (await session.execute(
+        select(FinancialPeriod)
+        .where(FinancialPeriod.entity_id == entity_id)
+        .order_by(FinancialPeriod.period_end_date.desc())
+        .limit(2)
+    )).scalars().all()
+    if len(periods) >= 2 and periods[0].income_statement and periods[1].income_statement:
+        latest_rev = periods[0].income_statement.total_revenue
+        prior_rev = periods[1].income_statement.total_revenue
+        if latest_rev is not None and prior_rev:
+            metrics["revenue_growth_pct"] = (float(latest_rev) - float(prior_rev)) / abs(float(prior_rev)) * 100.0
+
+    roic = (await session.execute(
+        select(AnalyticsResult.value)
+        .where(AnalyticsResult.entity_id == entity_id, AnalyticsResult.metric_name == "roic")
+        .order_by(AnalyticsResult.as_of_date.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if roic is not None:
+        metrics["roic"] = float(roic) * (100.0 if abs(float(roic)) <= 1.0 else 1.0)
+
+    return {key: (0.0 if value is None else value) for key, value in metrics.items()}
 
 async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     result = await session.execute(
@@ -439,3 +487,82 @@ async def get_board_members(
         )
         for row in rows
     ]
+
+@router.get(
+    "/filings/{entity_id}/proxy/pay-alignment",
+    response_model=dict,
+)
+async def get_pay_alignment(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Expose pay-for-performance alignment from latest proxy compensation."""
+    await _get_entity(session, entity_id)
+    proxy = (await session.execute(
+        select(ProxyFiling).where(ProxyFiling.entity_id == entity_id).order_by(ProxyFiling.fiscal_year.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+    rows = (await session.execute(select(ExecutiveCompensation).where(ExecutiveCompensation.proxy_id == proxy.id))).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No executive compensation found for this entity")
+    ceo = next((r for r in rows if r.role and "CEO" in r.role.upper()), rows[0])
+    peer_comp = [
+        {"total_compensation": float(r.total_compensation)}
+        for r in rows
+        if r.id != ceo.id and r.total_compensation is not None
+    ]
+    return governance_scoring.compute_pay_alignment(
+        {
+            "total_compensation": float(ceo.total_compensation or 0),
+            "yoy_change_pct": float(ceo.yoy_change_pct or 0),
+        },
+        await _load_pay_performance_metrics(session, entity_id),
+        peer_comp,
+    )
+
+
+@router.get(
+    "/filings/{entity_id}/proxy/board-interlocks",
+    response_model=list[dict],
+)
+async def get_board_interlocks(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Expose board interlock detection from latest proxy board members."""
+    await _get_entity(session, entity_id)
+    proxy = (await session.execute(
+        select(ProxyFiling).where(ProxyFiling.entity_id == entity_id).order_by(ProxyFiling.fiscal_year.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+    rows = (await session.execute(select(BoardMember).where(BoardMember.proxy_id == proxy.id))).scalars().all()
+    members = [
+        {"person_name": r.person_name, "other_boards": (r.committees or {}).get("other_boards", []) if isinstance(r.committees, dict) else []}
+        for r in rows
+    ]
+    return governance_scoring.detect_board_interlocks(members)
+
+
+@router.get(
+    "/filings/{entity_id}/proxy/proposal-analysis",
+    response_model=dict,
+)
+async def get_shareholder_proposal_analysis(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Expose shareholder proposal voting analytics from latest proxy."""
+    await _get_entity(session, entity_id)
+    proxy = (await session.execute(
+        select(ProxyFiling).where(ProxyFiling.entity_id == entity_id).order_by(ProxyFiling.fiscal_year.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+    rows = (await session.execute(select(ShareholderProposal).where(ShareholderProposal.proxy_id == proxy.id))).scalars().all()
+    proposals = [
+        {"topic": r.topic, "vote_for_pct": float(r.vote_for_pct or 0), "management_recommendation": r.management_recommendation, "passed": r.passed}
+        for r in rows
+    ]
+    return governance_scoring.analyze_shareholder_proposals(proposals)

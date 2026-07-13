@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.base import Base, TimestampMixin
+from src.models.vector import Vector
 
 
 class SearchDocument(Base):
@@ -36,7 +37,7 @@ class SearchDocument(Base):
     # The audit (M-001) flagged this column as needing pgvector ``VECTOR``
     # type for true cosine similarity. Until a migration adds the
     # extension we keep the JSONB storage but document the limitation.
-    embedding_vector: Mapped[dict | None] = mapped_column(JSONB)
+    embedding_vector: Mapped[list[float] | None] = mapped_column(Vector(1536))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -61,8 +62,7 @@ class SearchQuery(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # TODO: Add ForeignKey("users.id") once the users table is created.
-    user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(100), ForeignKey("users.username"), nullable=True)
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     result_count: Mapped[int | None] = mapped_column(Integer)
     execution_time_ms: Mapped[int | None] = mapped_column(Integer)

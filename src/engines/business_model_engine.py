@@ -26,7 +26,8 @@ class RevenueQuality:
     deferred_revenue_trend: str = "UNKNOWN"  # GROWING/STABLE/DECLINING
     customer_concentration: float | None = None  # top customer %
     diversification_score: float = 0.0  # 0-100
-    cyclicality_score: float = 0.0  # 0-100 (higher = more cyclical)
+    cyclicality_score: float | None = None  # 0-100 (higher = more cyclical)
+    cyclicality_data_quality: str = "OK"  # OK/INSUFFICIENT_DATA
 
 
 @dataclass
@@ -116,7 +117,7 @@ def _compute_diversification_score(
     return min(score, 100.0)
 
 
-def _compute_cyclicality(revenue_history: list[float]) -> float:
+def _compute_cyclicality(revenue_history: list[float]) -> tuple[float | None, str]:
     """Score cyclicality 0-100 from revenue volatility.
 
     Higher volatility = higher cyclicality score.
@@ -127,7 +128,7 @@ def _compute_cyclicality(revenue_history: list[float]) -> float:
             "insufficient revenue history (%d periods, need >= 3)",
             len(revenue_history),
         )
-        return 50.0  # Insufficient data — neutral default
+        return None, "INSUFFICIENT_DATA"
 
     growth_rates = []
     for i in range(1, len(revenue_history)):
@@ -136,11 +137,11 @@ def _compute_cyclicality(revenue_history: list[float]) -> float:
             growth_rates.append(gr)
 
     if not growth_rates:
-        return 50.0
+        return None, "INSUFFICIENT_DATA"
 
     volatility = statistics.stdev(growth_rates) if len(growth_rates) > 1 else 0.0
     # Map volatility to 0-100: 0% vol → 0, 30%+ vol → 100
-    return min(volatility / 0.30 * 100.0, 100.0)
+    return min(volatility / 0.30 * 100.0, 100.0), "OK"
 
 
 def assess_revenue_quality(financials: dict) -> RevenueQuality:
@@ -167,14 +168,15 @@ def assess_revenue_quality(financials: dict) -> RevenueQuality:
     prod_segs = financials.get("product_segment_count", 1)
 
     div_score = _compute_diversification_score(geo_segs, prod_segs, top_customer)
-    cyc_score = _compute_cyclicality(financials.get("revenue_history", []))
+    cyc_score, cyc_quality = _compute_cyclicality(financials.get("revenue_history", []))
 
     return RevenueQuality(
         recurring_pct=recurring_pct,
         deferred_revenue_trend=deferred_trend,
         customer_concentration=top_customer,
         diversification_score=round(div_score, 2),
-        cyclicality_score=round(cyc_score, 2),
+        cyclicality_score=round(cyc_score, 2) if cyc_score is not None else None,
+        cyclicality_data_quality=cyc_quality,
     )
 
 

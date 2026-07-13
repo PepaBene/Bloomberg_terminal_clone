@@ -32,7 +32,7 @@ export default function SemanticSearch() {
     setSearching(true);
     try {
       const res = await api.post(RESEARCH.search.query, { query: searchQuery, filter: activeFilter });
-      setSearchResults((res as any)?.results ?? []);
+      setSearchResults(((res as { results?: unknown[] })?.results ?? []) as never[]);
     } catch (error) {
       console.error('Search failed:', error);
       setSearchResults([]);

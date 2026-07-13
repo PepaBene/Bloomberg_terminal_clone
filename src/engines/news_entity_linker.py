@@ -8,6 +8,7 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -213,7 +214,7 @@ def _simple_ratio(a: str, b: str) -> float:
 def fuzzy_match(
     text: str,
     entity_names: dict[str, str],
-    threshold: float = 0.85,
+    threshold: float | None = None,
 ) -> list[dict]:
     """Fuzzy name matching for entity resolution.
 
@@ -234,6 +235,9 @@ def fuzzy_match(
     list[dict]
         Each: {entity_id, mention_text, similarity, position, confidence}
     """
+    if threshold is None:
+        threshold = float(os.getenv("NEWS_ENTITY_FUZZY_THRESHOLD", "0.85"))
+
     # Try to use rapidfuzz for better matching
     try:
         from rapidfuzz import fuzz as _fuzz  # type: ignore[import-untyped]

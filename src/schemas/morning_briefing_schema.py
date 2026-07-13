@@ -23,7 +23,7 @@ class MorningBriefingResponse(BaseModel):
 
 
 class BriefingPreferenceRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
     portfolio_entity_ids: dict | None = None
     watchlist_entity_ids: dict | None = None
     sector_focus: dict | None = None

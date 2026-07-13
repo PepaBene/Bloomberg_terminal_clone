@@ -186,14 +186,15 @@ async def get_watchlist_digest(
 ):
     """Get watchlist-filtered daily news digest.
 
-    Pulls the entity IDs from every watchlist owned by the requesting user
-    (or the anonymous fallback) and returns only news articles linked to
-    those entities. Falls back to the general digest if the user has no
-    watchlists yet.
+    Pulls the entity IDs from every watchlist owned by the authenticated user
+    and returns only news articles linked to those entities. Anonymous requests,
+    or users without watchlists, fall back to the general digest.
     """
+    if not user:
+        return await get_daily_digest(session=session, target_date=target_date)
+
     d = target_date or date.today()
-    # Use the same anonymous fallback identity as the portfolio routers.
-    user_id = user or "default_user"
+    user_id = user
 
     entity_rows = (
         await session.execute(
@@ -207,15 +208,20 @@ async def get_watchlist_digest(
     ).all()
     entity_ids = [row[0] for row in entity_rows if row[0] is not None]
 
-    stmt = select(NewsArticle).where(NewsArticle.publish_date == d)
-    if entity_ids:
-        article_ids_stmt = (
-            select(ArticleEntityLink.article_id)
-            .where(ArticleEntityLink.entity_id.in_(entity_ids))
-        )
-        stmt = stmt.where(NewsArticle.id.in_(article_ids_stmt))
+    if not entity_ids:
+        return await get_daily_digest(session=session, target_date=target_date)
 
-    stmt = stmt.order_by(NewsArticle.sentiment_score.desc().nulls_last()).limit(50)
+    article_ids_stmt = (
+        select(ArticleEntityLink.article_id)
+        .where(ArticleEntityLink.entity_id.in_(entity_ids))
+    )
+    stmt = (
+        select(NewsArticle)
+        .where(NewsArticle.publish_date == d)
+        .where(NewsArticle.id.in_(article_ids_stmt))
+        .order_by(NewsArticle.sentiment_score.desc().nulls_last())
+        .limit(50)
+    )
     result = await session.execute(stmt)
     rows = result.scalars().all()
 

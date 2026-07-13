@@ -10,38 +10,42 @@ const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSi
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
 
-const briefingMeta = { date: 'March 27, 2026', time: '06:30 ET', confidence: 92 };
+type BriefingMeta = { date?: string; time?: string; confidence?: number };
+type MarketContextItem = { label: string; value: string };
+type BriefingTheme = { theme: string; impact: string; tickers: string[]; detail: string };
+type PortfolioImpactItem = { ticker: string; weight?: number; impact: string; reason: string };
+type BriefingHistoryItem = { id?: string; date?: string; title?: string; summary?: string; confidence?: number };
+type BriefingPayload = {
+  meta?: BriefingMeta;
+  marketContext?: MarketContextItem[];
+  themes?: BriefingTheme[];
+  portfolioImpact?: PortfolioImpactItem[];
+};
+type BriefingHistoryPayload = { briefings?: BriefingHistoryItem[] };
 
-const marketContext = [
-  { label: 'S&P 500 Futures', value: '+0.35%' },
-  { label: 'UST 10Y', value: '4.28% (-3bps)' },
-  { label: 'VIX', value: '17.8 (-1.2)' },
-  { label: 'DXY', value: '103.42 (-0.15)' },
-];
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object';
 
-const keyThemes = [
-  { theme: 'AI Infrastructure Spend Accelerating', impact: 'Positive', tickers: ['NVDA', 'AVGO', 'AMD'], detail: 'Hyperscaler CapEx guidance raised across board; NVDA data center revenue up 122% YoY' },
-  { theme: 'Fed Patience Narrative Strengthening', impact: 'Mixed', tickers: ['TLT', 'XLF'], detail: 'Powell reiterated no rush to cut; June pricing at 42% probability' },
-  { theme: 'Consumer Softening Signals', impact: 'Negative', tickers: ['XLY', 'WMT', 'TGT'], detail: 'Jobless claims rising; consumer sentiment declining for 3rd consecutive month' },
-];
+const briefingPayload = (value: unknown): BriefingPayload =>
+  isRecord(value) ? (value as BriefingPayload) : {};
 
-const portfolioImpact = [
-  { ticker: 'NVDA', weight: 8.2, impact: '+0.42%', reason: 'AI theme — data center beat' },
-  { ticker: 'AAPL', weight: 6.5, impact: '-0.08%', reason: 'iPhone seasonality weakness' },
-  { ticker: 'JPM', weight: 4.2, impact: '-0.12%', reason: 'CDS widening; credit concern' },
-  { ticker: 'TLT', weight: 3.8, impact: '+0.15%', reason: 'Duration rally on dovish shift' },
-];
+const historyPayload = (value: unknown): BriefingHistoryItem[] => {
+  if (Array.isArray(value)) return value as BriefingHistoryItem[];
+  if (isRecord(value) && Array.isArray(value.briefings)) return value.briefings as BriefingHistoryItem[];
+  return [];
+};
 
 export default function BriefingView() {
   const { data: apiBriefing, isLoading, isError } = useMorningBriefing();
   const { data: apiHistory } = useBriefingHistory();
   const [generating, setGenerating] = useState(false);
 
-  const activeMeta = (apiBriefing as any)?.meta ?? briefingMeta;
-  const activeContext = (apiBriefing as any)?.marketContext ?? marketContext;
-  const activeThemes = (apiBriefing as any)?.themes ?? keyThemes;
-  const activeImpact = (apiBriefing as any)?.portfolioImpact ?? portfolioImpact;
-  const briefingHistory = (apiHistory as any)?.briefings ?? (apiHistory as any[]) ?? [];
+  const payload = briefingPayload(apiBriefing);
+  const activeMeta = payload.meta ?? {};
+  const activeContext = payload.marketContext ?? [];
+  const activeThemes = payload.themes ?? [];
+  const activeImpact = payload.portfolioImpact ?? [];
+  const briefingHistory = historyPayload(apiHistory as BriefingHistoryPayload | BriefingHistoryItem[] | undefined);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -71,8 +75,8 @@ export default function BriefingView() {
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'baseline', gap: '12px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Morning Briefing</h1>
-        <span style={labelStyle}>{activeMeta.date} &mdash; {activeMeta.time}</span>
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)' }}>AI Confidence: {activeMeta.confidence}%</span>
+        <span style={labelStyle}>{activeMeta.date ?? "No briefing date"} &mdash; {activeMeta.time ?? "—"}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)' }}>AI Confidence: {activeMeta.confidence != null ? `${activeMeta.confidence}%` : "—"}</span>
         <button className="btn-primary" onClick={handleGenerate} disabled={generating} style={{ marginLeft: '8px' }}>
           {generating ? 'Generating…' : 'Generate Briefing'}
         </button>
@@ -89,7 +93,9 @@ export default function BriefingView() {
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Key Themes</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {activeThemes.map((t) => (
+            {activeThemes.length === 0 ? (
+              <p style={labelStyle}>No briefing themes available.</p>
+            ) : activeThemes.map((t) => (
               <div key={t.theme} style={{ padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{t.theme}</span>
@@ -114,11 +120,13 @@ export default function BriefingView() {
               ))}
             </tr></thead>
             <tbody>
-              {activeImpact.map((p) => (
+              {activeImpact.length === 0 ? (
+                <tr><td colSpan={4} style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>No portfolio impacts available.</td></tr>
+              ) : activeImpact.map((p) => (
                 <tr key={p.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{p.ticker}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.weight}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: p.impact.startsWith('+') ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 500 }}>{p.impact}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.weight != null ? `${p.weight}%` : "—"}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: p.impact?.startsWith('+') ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 500 }}>{p.impact}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{p.reason}</td>
                 </tr>
               ))}
@@ -132,7 +140,7 @@ export default function BriefingView() {
         <h2 style={sectionTitle}>Briefing History</h2>
         {briefingHistory.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {briefingHistory.map((b: any, i: number) => (
+            {briefingHistory.map((b, i: number) => (
               <div key={b.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                 <div>
                   <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 500 }}>{b.date ?? b.title}</span>

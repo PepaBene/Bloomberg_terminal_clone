@@ -64,7 +64,7 @@ export default function ThemesDashboard() {
 
   const { data: detail } = useThemeDetail(selectedTheme ?? '', { enabled: !!selectedTheme });
   const { data: securitiesRaw } = useThemeSecurities(selectedTheme ?? '', { enabled: !!selectedTheme });
-  const securities = Array.isArray(securitiesRaw) ? (securitiesRaw as any[]) : [];
+  const securities = Array.isArray(securitiesRaw) ? (securitiesRaw as unknown[]) : [];
   const themeDetail = detail as
     | { entity_count: number; avg_exposure_score: number | null; bullish_count: number; bearish_count: number; neutral_count: number; latest_as_of_date: string | null }
     | undefined;

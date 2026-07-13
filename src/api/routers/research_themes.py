@@ -8,7 +8,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines import macro_scenario_engine
+from src.engines import macro_scenario_engine, macro_thematic_engine
 from src.models.entity import Entity
 from src.models.fundamentals import FinancialPeriod  # noqa: F401 — relationships load IncomeStatement etc.
 from src.models.macro_themes import MacroThemeScore, MacroScenario
@@ -454,7 +454,7 @@ _THEME_SHOCK_LABELS = {
 
 
 def _quantify_theme_exposure(theme: str, sector: str, exp: dict, base_eps: float | None) -> str:
-    line = f"{_THEME_SHOCK_LABELS.get(theme, theme)} -> {sector} sector EPS {exp['exposure_score']:+.2f}%"
+    line = f"{_THEME_SHOCK_LABELS.get(theme, theme)} -> {sector} sector EPS {exp.get('exposure_score', exp.get('score', 0.0)):+.2f}%"
     if exp.get("scenario_eps") is not None and base_eps:
         line += f" (${base_eps:.2f} -> ${exp['scenario_eps']:.2f})"
     return line
@@ -478,7 +478,10 @@ async def _compute_theme_scores_for_entity(
     company = await _load_scenario_company(session, entity_id, gics_sector)
     base_eps = company["base_eps"] if company else None
 
-    exposures = macro_scenario_engine.compute_theme_exposures(sector, base_eps)
+    thematic_company = {"sector": sector}
+    if company:
+        thematic_company.update(company)
+    exposures = macro_thematic_engine.score_all_themes(thematic_company)
     today = date.today()
     for theme, exp in exposures.items():
         existing = (
@@ -491,11 +494,11 @@ async def _compute_theme_scores_for_entity(
             )
         ).scalar_one_or_none()
         values = dict(
-            exposure_score=exp["exposure_score"],
+            exposure_score=exp.get("exposure_score", exp.get("score")),
             sensitivity_direction=exp["direction"],
             evidence={
-                "sector": sector, "shock": exp["shock"],
-                "base_eps": base_eps, "scenario_eps": exp.get("scenario_eps"),
+                "sector": sector, "source": "macro_thematic_engine",
+                "base_eps": base_eps, "evidence": exp.get("evidence", []),
             },
             quantified_exposure=_quantify_theme_exposure(theme, sector, exp, base_eps),
         )

@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useAnomalies, useCriticalAnomalies } from '@/hooks';
 import { api } from '@/api/client';
+import type { DetectedAnomaly } from '@/types/research';
 import { RESEARCH } from '@/api/endpoints';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
@@ -17,38 +18,30 @@ function severityColor(s: string): string {
   return 'var(--color-signal-neutral)';
 }
 
-const anomalyStats = [
-  { label: 'Total Anomalies (24h)', value: '23' },
-  { label: 'Critical', value: '3' },
-  { label: 'High', value: '8' },
-  { label: 'Medium', value: '12' },
-  { label: 'Entities Affected', value: '18' },
-  { label: 'Avg Z-Score', value: '2.8\u03c3' },
-];
-
-const anomalies = [
-  { id: 1, time: '11:15', entity: 'AAPL', type: 'Volume', severity: 'Critical', zScore: 4.2, detail: 'Volume 3.8x 20-day average in 15-minute window' },
-  { id: 2, time: '10:48', entity: 'JPM', type: 'CDS Spread', severity: 'Critical', zScore: 3.8, detail: 'CDS 5Y widened 15 bps — 3.8 sigma event' },
-  { id: 3, time: '10:22', entity: 'TSLA', type: 'Sentiment', severity: 'High', zScore: 3.1, detail: 'News sentiment score dropped to -0.65 from +0.12 in 2 hours' },
-  { id: 4, time: '09:45', entity: 'META', type: 'Price', severity: 'High', zScore: 2.9, detail: 'Intraday drop of 2.8% with no corresponding news catalyst' },
-  { id: 5, time: '09:30', entity: 'XLE', type: 'Sector Flow', severity: 'High', zScore: 2.7, detail: 'Energy sector ETF outflows $450M in single session' },
-  { id: 6, time: '09:15', entity: 'UST 10Y', type: 'Yield', severity: 'Medium', zScore: 2.3, detail: 'Yield spike of 8 bps pre-market on no scheduled data' },
-  { id: 7, time: '08:42', entity: 'PFE', type: 'Insider', severity: 'Critical', zScore: 4.5, detail: 'CEO purchase $2.1M — largest insider buy in 2 years' },
-  { id: 8, time: '08:30', entity: 'VIX', type: 'Volatility', severity: 'High', zScore: 2.6, detail: 'VIX futures term structure inverted — backwardation signal' },
-];
+type AnomalyStat = { label: string; value: string };
+type AnomalyRow = DetectedAnomaly & {
+  time?: string;
+  entity?: string;
+  type?: string;
+  zScore?: number;
+  detail?: string;
+};
+type AnomalyPayload = { stats?: AnomalyStat[]; anomalies?: AnomalyRow[] };
 
 export default function AnomalyView() {
   const { data: apiActive, isLoading, isError } = useAnomalies();
-  const { data: apiCritical } = useCriticalAnomalies();
-  const [acknowledged, setAcknowledged] = useState<Set<number>>(new Set());
+  const { data: apiCritical, isLoading: criticalLoading, isError: criticalError } = useCriticalAnomalies();
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
 
-  const activeStats = (apiActive as any)?.stats ?? anomalyStats;
-  const activeAnomalies = (apiActive as any)?.anomalies ?? anomalies;
-  const criticalAnomalies = (apiCritical as any)?.anomalies ?? (apiCritical as any[]) ?? [];
+  const activePayload = apiActive as AnomalyPayload | undefined;
+  const criticalPayload = apiCritical as AnomalyPayload | AnomalyRow[] | undefined;
+  const activeStats = activePayload?.stats ?? [];
+  const activeAnomalies = activePayload?.anomalies ?? [];
+  const criticalAnomalies = Array.isArray(criticalPayload) ? criticalPayload : criticalPayload?.anomalies ?? [];
 
-  const handleAcknowledge = async (anomalyId: number) => {
+  const handleAcknowledge = async (anomalyId: string) => {
     try {
-      await api.post(RESEARCH.anomalies.acknowledge(String(anomalyId)), {});
+      await api.post(RESEARCH.anomalies.acknowledge(anomalyId), {});
       setAcknowledged(prev => new Set(prev).add(anomalyId));
     } catch (error) {
       console.error('Failed to acknowledge anomaly:', error);
@@ -84,11 +77,11 @@ export default function AnomalyView() {
         ))}
       </div>
       {/* Critical Anomalies */}
-      {criticalAnomalies.length > 0 && (
+      {!criticalLoading && !criticalError && criticalAnomalies.length > 0 && (
         <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)', borderLeft: '3px solid var(--color-signal-negative)' }}>
           <h2 style={sectionTitle}>Critical Anomalies</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {criticalAnomalies.map((c: any, i: number) => (
+            {criticalAnomalies.map((c: AnomalyRow, i: number) => (
               <div key={c.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                 <div>
                   <span style={{ ...dataStyle, fontWeight: 600, color: 'var(--color-accent-primary)', marginRight: '8px' }}>{c.entity ?? c.ticker}</span>
@@ -112,14 +105,14 @@ export default function AnomalyView() {
           <tbody>
             {activeAnomalies.map((a) => (
               <tr key={a.id} style={{ height: 'var(--table-row-height)' }}>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.time}</td>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{a.entity}</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.type}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.time ?? a.detected_at ?? "—"}</td>
+                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{a.entity ?? a.entity_id}</td>
+                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.type ?? a.anomaly_type}</td>
                 <td style={{ textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', fontWeight: 600, color: severityColor(a.severity), border: `1px solid ${severityColor(a.severity)}`, padding: '1px 5px', borderRadius: '3px' }}>{a.severity}</span>
+                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', fontWeight: 600, color: severityColor(String(a.severity)), border: `1px solid ${severityColor(String(a.severity))}`, padding: '1px 5px', borderRadius: '3px' }}>{a.severity}</span>
                 </td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.zScore.toFixed(1)}\u03c3</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.detail}</td>
+                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.zScore != null ? a.zScore.toFixed(1) : "—"}\u03c3</td>
+                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.detail ?? a.narrative}</td>
                 <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)', textAlign: 'right' }}>
                   {acknowledged.has(a.id) ? (
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-positive)' }}>Ack'd</span>

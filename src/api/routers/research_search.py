@@ -6,10 +6,10 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.entity import Entity
 from src.models.semantic_search import SearchDocument, SearchQuery
 from src.schemas.semantic_search_schema import (
@@ -49,6 +49,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 async def semantic_search(
     body: SearchRequest,
     session: AsyncSession = Depends(get_session),
+    user_id: str | None = Depends(get_optional_user),
 ):
     """Perform semantic search across indexed documents.
 
@@ -73,27 +74,33 @@ async def semantic_search(
             )
         )
 
-    # Over-fetch candidates when embedding re-ranking is possible, so the
-    # final top-N reflects true similarity rather than just recency.
     embedding_client = get_embedding_client()
-    fetch_limit = body.limit * 5 if embedding_client.is_configured else body.limit
-    stmt = stmt.order_by(SearchDocument.created_at.desc().nulls_last()).limit(fetch_limit)
-    result = await session.execute(stmt)
-    rows = list(result.scalars().all())
-
-    scores: dict[uuid.UUID, float | None] = {row.id: None for row in rows}
-    if query_text and embedding_client.is_configured and rows:
+    scores: dict[uuid.UUID, float | None] = {}
+    rows: list[SearchDocument]
+    query_embedding: list[float] | None = None
+    if query_text and embedding_client.is_configured:
         try:
             query_embedding = (
                 await asyncio.to_thread(embedding_client.embed_for_query, query_text)
             ).embedding
-            for row in rows:
-                if row.embedding_vector:
-                    scores[row.id] = _cosine_similarity(query_embedding, list(row.embedding_vector))
-            rows.sort(key=lambda r: scores[r.id] if scores[r.id] is not None else -1.0, reverse=True)
         except Exception:
-            # Embedding re-rank is best-effort; substring-matched rows still return.
-            pass
+            query_embedding = None
+
+    if query_embedding is not None:
+        vector_literal = "[" + ",".join(str(float(x)) for x in query_embedding) + "]"
+        distance = SearchDocument.embedding_vector.op("<=>")(text(f"'{vector_literal}'::vector"))
+        stmt = stmt.where(SearchDocument.embedding_vector.isnot(None)).order_by(distance).limit(body.limit)
+        vector_stmt = stmt.add_columns(distance.label("distance"))
+        result = await session.execute(vector_stmt)
+        pairs = list(result.all())
+        rows = [row for row, _distance in pairs]
+        for row, dist in pairs:
+            scores[row.id] = max(0.0, 1.0 - float(dist or 0.0))
+    else:
+        stmt = stmt.order_by(SearchDocument.created_at.desc().nulls_last()).limit(body.limit)
+        result = await session.execute(stmt)
+        rows = list(result.scalars().all())
+        scores = {row.id: None for row in rows}
 
     rows = rows[: body.limit]
     top_score = next((scores[r.id] for r in rows if scores[r.id] is not None), None)
@@ -102,7 +109,7 @@ async def semantic_search(
     # Record query
     query_record = SearchQuery(
         id=uuid.uuid4(),
-        user_id="default_user",
+        user_id=user_id,
         query_text=body.query,
         result_count=len(rows),
         top_result_relevance=round(top_score, 4) if top_score is not None else None,
@@ -138,11 +145,13 @@ async def semantic_search(
     response_model=list[SearchHistoryResponse],
 )
 async def get_search_history(
-    user_id: str = Query(default="default_user"),
     limit: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
+    user_id: str | None = Depends(get_optional_user),
 ):
     """Get search query history for a user."""
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Authentication required for search history")
     result = await session.execute(
         select(SearchQuery)
         .where(SearchQuery.user_id == user_id)

@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.llm_client import get_llm_client
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.analyst_qa import QASession, QAFeedback
 from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
@@ -25,6 +25,13 @@ from src.schemas.analyst_qa_schema import (
 )
 
 router = APIRouter(tags=["Research - Analyst Q&A"])
+
+
+def _require_user(user_id: str | None) -> str:
+    """Require an authenticated user for user-scoped Q&A data."""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user_id
 
 
 def _float(val):
@@ -120,9 +127,14 @@ def _qa_response(row: QASession) -> QAResponse:
 )
 async def ask_question(
     body: QARequest,
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Ask a question to the AI analyst Q&A engine."""
+    resolved_user_id = _require_user(user_id)
+    if body.user_id and body.user_id != resolved_user_id:
+        raise HTTPException(status_code=403, detail="Cannot create Q&A for another user")
+
     start = time.monotonic()
     llm = get_llm_client()
 
@@ -155,7 +167,7 @@ async def ask_question(
 
     qa = QASession(
         id=uuid.uuid4(),
-        user_id=body.user_id,
+        user_id=resolved_user_id,
         entity_id=body.entity_id,
         question=body.question,
         answer_text=answer_text,
@@ -177,11 +189,12 @@ async def ask_question(
     response_model=list[QAHistoryResponse],
 )
 async def get_qa_history(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     limit: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ):
     """Get Q&A history for a user."""
+    user_id = _require_user(user_id)
     result = await session.execute(
         select(QASession)
         .where(QASession.user_id == user_id)

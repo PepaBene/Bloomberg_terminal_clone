@@ -134,17 +134,17 @@ export default function CompanyIntelligence() {
   if (allError) return <ErrorBanner message="Failed to load company intelligence data. Please try again later." />;
 
   // Extract data from API responses (no mock fallbacks)
-  const activeModules = (apiIntel as Record<string, any>)?.modules as IntelModule[] | undefined;
-  const activeBizModel = apiBizModel as any[] | undefined;
-  const activeCapAlloc = apiCapAlloc as any[] | undefined;
-  const activeMgmtScores = (apiMgmt as Record<string, any>)?.scores as any[] | undefined;
-  const activeBSRisk = apiBSRisk as any[] | undefined;
-  const drivers = (apiRevDrivers as Record<string, any>)?.drivers as any[] | undefined;
-  const costs = (apiCostStruct as Record<string, any>)?.items as any[] | undefined;
-  const margins = (apiMargins as Record<string, any>)?.margins as any[] | undefined;
-  const moat = apiMoat as Record<string, any> | undefined;
-  const swot = apiSWOT as Record<string, any> | undefined;
-  const forces = (apiPorter as Record<string, any>)?.forces as any[] | undefined;
+  const activeModules = (apiIntel as Record<string, unknown>)?.modules as IntelModule[] | undefined;
+  const activeBizModel = apiBizModel as unknown[] | undefined;
+  const activeCapAlloc = apiCapAlloc as unknown[] | undefined;
+  const activeMgmtScores = (apiMgmt as Record<string, unknown>)?.scores as unknown[] | undefined;
+  const activeBSRisk = apiBSRisk as unknown[] | undefined;
+  const drivers = (apiRevDrivers as Record<string, unknown>)?.drivers as unknown[] | undefined;
+  const costs = (apiCostStruct as Record<string, unknown>)?.items as unknown[] | undefined;
+  const margins = (apiMargins as Record<string, unknown>)?.margins as unknown[] | undefined;
+  const moat = apiMoat as Record<string, unknown> | undefined;
+  const swot = apiSWOT as Record<string, unknown> | undefined;
+  const forces = (apiPorter as Record<string, unknown>)?.forces as unknown[] | undefined;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>

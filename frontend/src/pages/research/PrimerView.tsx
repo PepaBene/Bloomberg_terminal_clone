@@ -35,12 +35,12 @@ export default function PrimerView() {
   const { data: apiRecent, isLoading: recentLoading } = useRecentPrimers();
   const [refreshing, setRefreshing] = useState(false);
 
-  const primerData = apiPrimer as Record<string, any> | undefined;
-  const activeSections = primerData?.sections as any[] | undefined;
-  const activeQuality = primerData?.dataQuality as any[] | undefined;
-  const activeCompany = primerData?.company as Record<string, any> | undefined;
+  const primerData = apiPrimer as Record<string, unknown> | undefined;
+  const activeSections = primerData?.sections as unknown[] | undefined;
+  const activeQuality = primerData?.dataQuality as unknown[] | undefined;
+  const activeCompany = primerData?.company as Record<string, unknown> | undefined;
 
-  const recentPrimers = (apiRecent as any[] | undefined) ?? [];
+  const recentPrimers = (apiRecent as unknown[] | undefined) ?? [];
 
   const handleRefresh = async () => {
     if (!resolvedId) return;

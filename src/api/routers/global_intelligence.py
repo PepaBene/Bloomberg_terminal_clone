@@ -26,6 +26,7 @@ from src.models.commodity_intelligence import (
     CommodityCompanyExposure,
     CommodityPrice,
     CommodityProfile,
+    CommoditySupplyDemandBalance,
 )
 from src.models.political_intelligence import (
     LegislativeBill,
@@ -53,6 +54,7 @@ from src.schemas.commodity_intelligence import (
     CommodityProfileResponse,
     CommodityScenarioRequest,
     CommodityScenarioResponse,
+    CommoditySupplyDemandResponse,
 )
 from src.schemas.political_intelligence import (
     LegislativeBillResponse,
@@ -944,42 +946,34 @@ async def get_commodity_companies(
 
 @router.get(
     "/global/commodities/{code}/supply-demand",
-    response_model=dict,
+    response_model=CommoditySupplyDemandResponse,
 )
 async def get_commodity_supply_demand(
     code: str,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get supply/demand balance for a commodity (derived from price trends)."""
-    result = await session.execute(
-        select(CommodityPrice)
-        .where(CommodityPrice.commodity_code == code.upper())
-        .order_by(CommodityPrice.price_date.desc())
-        .limit(30)
-    )
-    rows = result.scalars().all()
-    if not rows:
-        raise HTTPException(status_code=404, detail="No price data found for commodity")
-    prices = [float(r.close_price) for r in rows if r.close_price is not None]
-    avg_price = sum(prices) / len(prices) if prices else None
-    latest_price = prices[0] if prices else None
-    trend = "NEUTRAL"
-    if latest_price and avg_price:
-        # PLACEHOLDER: Supply/demand signal is a naive heuristic based on
-        # price deviation from the 30-day average.  A real implementation
-        # should incorporate actual supply/demand data (e.g. EIA inventory
-        # reports, USDA crop estimates, exchange warehouse stocks).
-        if latest_price > avg_price * 1.05:
-            trend = "DEFICIT"
-        elif latest_price < avg_price * 0.95:
-            trend = "SURPLUS"
-    return {
-        "commodity_code": code.upper(),
-        "latest_price": latest_price,
-        "avg_30d_price": round(avg_price, 4) if avg_price else None,
-        "supply_demand_indicator": trend,
-        "data_points": len(prices),
-    }
+    """Get the latest real supply/demand balance for a commodity."""
+    profile = (await session.execute(
+        select(CommodityProfile).where(CommodityProfile.commodity_code == code.upper())
+    )).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Commodity not found")
+
+    row = (await session.execute(
+        select(CommoditySupplyDemandBalance)
+        .where(CommoditySupplyDemandBalance.commodity_code == code.upper())
+        .order_by(CommoditySupplyDemandBalance.as_of_date.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="No supply/demand data found for commodity")
+
+    if not row.balance_classification:
+        row.balance_classification = commodity_intelligence.compute_supply_demand_balance(
+            {"total": float(row.supply_value or 0)},
+            {"total": float(row.demand_value or 0)},
+        )
+    return CommoditySupplyDemandResponse.model_validate(row)
 
 
 @router.post(

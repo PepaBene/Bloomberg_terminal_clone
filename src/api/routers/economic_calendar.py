@@ -4,7 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, and_, nullslast
+from sqlalchemy import select, and_, nullslast, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
@@ -16,6 +16,24 @@ from src.schemas.economic_calendar import (
 )
 
 router = APIRouter(tags=["Economic Calendar"])
+
+
+async def _validated_event_types(session: AsyncSession, requested: list[str]) -> list[str]:
+    """Return requested CalendarEvent types after validating against stored values.
+
+    Empty calendar tables are allowed during fresh installs; once event rows
+    exist, a stale hardcoded type list fails clearly instead of silently
+    filtering for values that can never match.
+    """
+    existing = set((await session.execute(select(func.distinct(CalendarEvent.event_type)))).scalars().all())
+    if existing:
+        missing = sorted(set(requested) - existing)
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported calendar event types: {', '.join(missing)}",
+            )
+    return requested
 
 
 # ── Static routes (MUST be before parametric) ────────────────────────
@@ -44,8 +62,14 @@ async def get_economic_calendar(
     )
 
     if category:
+        valid_categories = set((await session.execute(select(func.distinct(EconomicRelease.release_category)))).scalars().all())
+        if category not in valid_categories:
+            raise HTTPException(status_code=400, detail=f"Unsupported economic release category: {category}")
         stmt = stmt.where(EconomicRelease.release_category == category)
     if importance:
+        valid_importance = set((await session.execute(select(func.distinct(EconomicRelease.importance)))).scalars().all())
+        if importance not in valid_importance:
+            raise HTTPException(status_code=400, detail=f"Unsupported economic release importance: {importance}")
         stmt = stmt.where(EconomicRelease.importance == importance)
 
     stmt = stmt.order_by(EconomicRelease.release_date)
@@ -136,10 +160,10 @@ async def get_central_bank_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
+                CalendarEvent.event_type.in_(await _validated_event_types(session, [
                     "FOMC", "FOMC_MEETING", "CENTRAL_BANK",
                     "ECB_MEETING", "BOJ_MEETING", "BOE_MEETING",
-                ]),
+                ])),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -177,7 +201,7 @@ async def get_earnings_calendar_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_(["EARNINGS", "EARNINGS_RELEASE"]),
+                CalendarEvent.event_type.in_(await _validated_event_types(session, ["EARNINGS", "EARNINGS_RELEASE"])),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -215,9 +239,9 @@ async def get_regulatory_calendar(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
+                CalendarEvent.event_type.in_(await _validated_event_types(session, [
                     "REGULATORY", "SEC_FILING_DEADLINE", "REGULATORY_HEARING",
-                ]),
+                ])),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -255,10 +279,10 @@ async def get_corporate_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
+                CalendarEvent.event_type.in_(await _validated_event_types(session, [
                     "DIVIDEND", "STOCK_SPLIT", "MERGER", "ACQUISITION",
                     "SPINOFF", "IPO", "SECONDARY_OFFERING",
-                ]),
+                ])),
             )
         )
         .order_by(CalendarEvent.event_date)

@@ -156,11 +156,17 @@ export default function FilingsView() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
-  const { data: apiFilings } = useFilingEvents(resolvedId) as { data: FilingEventsListApi | undefined };
-  const { data: apiDiffs } = useFilingDiffs(resolvedId) as { data: FilingDiffResponseApi | undefined };
-  const { data: apiInsiders } = useFilingInsiders(resolvedId) as { data: InsiderSummaryApi | undefined };
-  const { data: apiRiskFactors } = useFilingRiskFactors(resolvedId) as { data: RiskFactorsDiffApi | undefined };
-  const { data: apiMDNA } = useFilingMDNA(resolvedId) as { data: MDNAItemApi[] | { items?: MDNAItemApi[] } | undefined };
+  const { data: apiFilings, isLoading: filingsLoading, isError: filingsError } = useFilingEvents(resolvedId) as { data: FilingEventsListApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiDiffs, isLoading: diffsLoading, isError: diffsError } = useFilingDiffs(resolvedId) as { data: FilingDiffResponseApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiInsiders, isLoading: insidersLoading, isError: insidersError } = useFilingInsiders(resolvedId) as { data: InsiderSummaryApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiRiskFactors, isLoading: riskLoading, isError: riskError } = useFilingRiskFactors(resolvedId) as { data: RiskFactorsDiffApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiMDNA, isLoading: mdnaLoading, isError: mdnaError } = useFilingMDNA(resolvedId) as { data: MDNAItemApi[] | { items?: MDNAItemApi[] } | undefined; isLoading: boolean; isError: boolean };
+
+  const isLoading = filingsLoading || diffsLoading || insidersLoading || riskLoading || mdnaLoading;
+  const isError = filingsError || diffsError || insidersError || riskError || mdnaError;
+
+  if (isLoading) return <div style={{ padding: '16px' }}>Loading filing intelligence...</div>;
+  if (isError) return <div style={{ padding: '16px', color: 'var(--color-signal-negative)' }}>Failed to load filing intelligence.</div>;
 
   // [P1-FP-010 fix] `EightKEventsListResponse` is `{events: [...], total_count}`,
   // not a bare array. Field names differ from the "Recent Filings" table's

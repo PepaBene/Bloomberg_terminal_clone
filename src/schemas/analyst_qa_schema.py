@@ -9,7 +9,7 @@ class QARequest(BaseModel):
     question: str
     context: dict | None = None
     entity_id: UUID | None = None
-    user_id: str = "default_user"
+    user_id: str | None = None
 
 
 class QAResponse(BaseModel):

@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,3 +69,25 @@ class CommodityCompanyExposure(TimestampMixin, Base):
     sensitivity_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     historical_correlation: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     source: Mapped[str | None] = mapped_column(String(20))
+
+
+class CommoditySupplyDemandBalance(TimestampMixin, Base):
+    """Observed commodity supply, demand, and inventory balance."""
+
+    __tablename__ = "commodity_supply_demand_balances"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    commodity_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    supply_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    demand_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    inventory_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    unit: Mapped[str | None] = mapped_column(String(30))
+    source: Mapped[str | None] = mapped_column(String(50))
+    balance_classification: Mapped[str | None] = mapped_column(String(20))
+
+    __table_args__ = (
+        Index("idx_commodity_supply_demand_code_date", "commodity_code", "as_of_date"),
+    )

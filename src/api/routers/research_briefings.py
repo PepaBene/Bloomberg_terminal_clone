@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.llm_client import get_llm_client
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.entity import Entity
 from src.models.investment_thesis import InvestmentThesis
 from src.models.macro import MacroIndicator, MacroValue
@@ -21,6 +21,13 @@ from src.schemas.morning_briefing_schema import (
 )
 
 router = APIRouter(tags=["Research - Morning Briefings"])
+
+
+def _require_user(user_id: str | None) -> str:
+    """Require an authenticated user for user-scoped briefing data."""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user_id
 
 # Headline series shown in every macro-context section, mirroring the FRED
 # seed set in src/ingestion/fred_macro.py.
@@ -181,10 +188,11 @@ def _briefing_response(row: MorningBriefing) -> MorningBriefingResponse:
     response_model=list[MorningBriefingResponse],
 )
 async def get_todays_briefing(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get today's morning briefing."""
+    user_id = _require_user(user_id)
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
@@ -201,11 +209,12 @@ async def get_todays_briefing(
     response_model=list[MorningBriefingResponse],
 )
 async def get_briefing_history(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     limit: int = Query(default=30, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ):
     """Get past briefings for a user."""
+    user_id = _require_user(user_id)
     result = await session.execute(
         select(MorningBriefing)
         .where(MorningBriefing.user_id == user_id)
@@ -221,10 +230,11 @@ async def get_briefing_history(
     response_model=BriefingPreferenceResponse | None,
 )
 async def get_briefing_preferences(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get briefing preferences for a user."""
+    user_id = _require_user(user_id)
     result = await session.execute(
         select(BriefingPreference)
         .where(BriefingPreference.user_id == user_id)
@@ -253,12 +263,17 @@ async def get_briefing_preferences(
 )
 async def update_briefing_preferences(
     body: BriefingPreferenceRequest,
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Create or update briefing preferences."""
+    resolved_user_id = _require_user(user_id)
+    if body.user_id and body.user_id != resolved_user_id:
+        raise HTTPException(status_code=403, detail="Cannot update another user's preferences")
+
     result = await session.execute(
         select(BriefingPreference)
-        .where(BriefingPreference.user_id == body.user_id)
+        .where(BriefingPreference.user_id == resolved_user_id)
     )
     pref = result.scalar_one_or_none()
 
@@ -274,7 +289,7 @@ async def update_briefing_preferences(
     else:
         pref = BriefingPreference(
             id=uuid.uuid4(),
-            user_id=body.user_id,
+            user_id=resolved_user_id,
             portfolio_entity_ids=body.portfolio_entity_ids,
             watchlist_entity_ids=body.watchlist_entity_ids,
             sector_focus=body.sector_focus,
@@ -307,10 +322,11 @@ async def update_briefing_preferences(
     response_model=dict,
 )
 async def get_portfolio_impact(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get portfolio impact section from today's briefing."""
+    user_id = _require_user(user_id)
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
@@ -334,10 +350,11 @@ async def get_portfolio_impact(
     response_model=dict,
 )
 async def get_macro_summary(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get macro context section from today's briefing."""
+    user_id = _require_user(user_id)
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
@@ -361,10 +378,11 @@ async def get_macro_summary(
     response_model=MorningBriefingResponse,
 )
 async def generate_briefing(
-    user_id: str = Query(default="default_user"),
+    user_id: str | None = Depends(get_optional_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Generate an on-demand briefing from real portfolio/watchlist/macro data."""
+    user_id = _require_user(user_id)
     today = date.today()
     llm = get_llm_client()
 

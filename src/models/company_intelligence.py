@@ -3,12 +3,22 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TypedDict
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.base import Base, TimestampMixin
+
+
+class FixedIncomeProfile(TypedDict, total=False):
+    issuer_rating: str
+    net_debt_to_ebitda: float
+    interest_coverage: float
+    maturity_wall_years: list[int]
+    refinancing_risk: str
+
 
 
 class CompanyBriefing(TimestampMixin, Base):
@@ -192,7 +202,7 @@ class BalanceSheetRiskAssessment(TimestampMixin, Base):
     # Credit
     z_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     covenant_analysis: Mapped[dict | None] = mapped_column(JSONB)
-    fi_profile: Mapped[dict | None] = mapped_column(JSONB)
+    fi_profile: Mapped[FixedIncomeProfile | None] = mapped_column(JSONB)
 
     # AI
     ai_summary: Mapped[str | None] = mapped_column(Text)

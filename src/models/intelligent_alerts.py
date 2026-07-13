@@ -58,7 +58,7 @@ class ConsolidatedAlert(Base):
         # M-012: index supports burst-deduplication checks on
         # (entity_id, primary_type, created_at) without enforcing a hard
         # unique constraint that would block legitimate retries.
-        Index("idx_consolidated_alert_dedup", "entity_id", "primary_type", "created_at"),
+        Index("uq_consolidated_alert_dedup", "entity_id", "primary_type", "primary_headline", unique=True),
     )
 
 

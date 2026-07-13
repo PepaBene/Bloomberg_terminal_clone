@@ -62,3 +62,17 @@ class CommodityScenarioResponse(BaseModel):
     commodity_code: str
     scenario_price_change_pct: float
     affected_companies: list[dict] = []
+
+
+class CommoditySupplyDemandResponse(BaseModel):
+    id: UUID
+    commodity_code: str
+    as_of_date: date
+    supply_value: float | None = None
+    demand_value: float | None = None
+    inventory_value: float | None = None
+    unit: str | None = None
+    source: str | None = None
+    balance_classification: str | None = None
+
+    model_config = {"from_attributes": True}

@@ -22,7 +22,7 @@ class NewsArticle(TimestampMixin, Base):
     source_url: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    body_text: Mapped[str | None] = mapped_column(Text)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
     publish_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     ingest_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)

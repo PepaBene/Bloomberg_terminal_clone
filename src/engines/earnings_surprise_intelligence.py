@@ -323,8 +323,8 @@ def analyze_stock_reaction(
 
 
 def compute_revision_implications(
-    eps_surprise_pct: float,
-    revenue_surprise_pct: float,
+    eps_surprise_pct: float | None,
+    revenue_surprise_pct: float | None,
     guidance_direction: str = "maintained",
 ) -> RevisionImplication:
     """Compute estimate revision implications.
@@ -339,9 +339,12 @@ def compute_revision_implications(
     -------
     RevisionImplication
     """
-    # Combined signal strength
-    combined = abs(eps_surprise_pct) + abs(revenue_surprise_pct)
-    positive_signal = eps_surprise_pct > 0 and revenue_surprise_pct >= 0
+    eps = eps_surprise_pct or 0.0
+    revenue = revenue_surprise_pct or 0.0
+    # EPS is weighted highest, matching the materiality weighting used by
+    # earnings_surprise_engine.py rather than treating all surprises equally.
+    combined = abs(eps) * 0.6 + abs(revenue) * 0.4
+    positive_signal = eps > 0 and revenue >= 0
 
     # Guidance amplifies/dampens
     if guidance_direction == "raised":

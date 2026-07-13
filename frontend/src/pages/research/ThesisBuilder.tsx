@@ -40,11 +40,11 @@ export default function ThesisBuilder() {
   const [newDirection, setNewDirection] = useState('Long');
   const [newTarget, setNewTarget] = useState('');
 
-  const thesisData = apiThesis as Record<string, any> | undefined;
+  const thesisData = apiThesis as Record<string, unknown> | undefined;
   const activeThesis = thesisData?.thesis;
-  const activeDrivers = thesisData?.drivers as any[] | undefined;
-  const activeRisks = thesisData?.risks as any[] | undefined;
-  const activeCatalysts = thesisData?.catalysts as any[] | undefined;
+  const activeDrivers = thesisData?.drivers as unknown[] | undefined;
+  const activeRisks = thesisData?.risks as unknown[] | undefined;
+  const activeCatalysts = thesisData?.catalysts as unknown[] | undefined;
 
   const handleGenerate = async () => {
     if (!newTicker.trim()) return;
@@ -63,7 +63,7 @@ export default function ThesisBuilder() {
     setValidating(true);
     try {
       const res = await api.post(RESEARCH.thesis.validate(activeThesis.id ?? resolvedId ?? ''), {});
-      const data = res as Record<string, any>;
+      const data = res as Record<string, unknown>;
       setValidationResult(data?.summary ?? 'Thesis validated successfully');
     } catch (err) {
       console.error('Thesis validation failed:', err);

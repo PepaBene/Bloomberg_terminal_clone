@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from src.api.auth.dependencies import get_current_user
 from src.api.middleware import RequestContextMiddleware
@@ -57,6 +58,18 @@ async def lifespan(app: FastAPI):
 
     yield
     logger.info("Bloomberg Data Fabric API shutting down")
+
+
+def _assert_route_precedes(app: FastAPI, first_path: str, second_path: str) -> None:
+    """Fail startup when a specific route would be shadowed by a catch-all."""
+    route_paths = [getattr(route, "path", None) for route in app.routes]
+    try:
+        first_index = route_paths.index(first_path)
+        second_index = route_paths.index(second_path)
+    except ValueError as exc:
+        raise RuntimeError(f"Required route missing while validating order: {exc}") from exc
+    if first_index > second_index:
+        raise RuntimeError(f"Route {first_path} must be registered before {second_path}")
 
 
 def create_app() -> FastAPI:
@@ -106,6 +119,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(AuditLogMiddleware)
     app.add_middleware(FieldSelectionMiddleware)
+    app.state.router_import_errors = []
 
     # ------------------------------------------------------------------
     # Authentication
@@ -161,6 +175,7 @@ def create_app() -> FastAPI:
 
     from src.api.routers.securities import router as securities_router
     app.include_router(securities_router, prefix="/v1")
+    _assert_route_precedes(app, "/v1/securities/find", "/v1/securities/{security_id}")
 
     from src.api.routers.resolution import router as resolution_router
     app.include_router(resolution_router, prefix="/v1")
@@ -365,26 +380,27 @@ def create_app() -> FastAPI:
 
     # ------------------------------------------------------------------
     # Pillar 3: Research & Intelligence
-    # Each import is wrapped in try/except for graceful degradation --
-    # if a module fails to load the rest of the API still starts.
+    # Imports are collected with context and then treated as required: any
+    # Pillar 3 router import failure aborts startup instead of silently
+    # exposing a partial research API.
     # ------------------------------------------------------------------
     try:
         from src.api.routers.filing_intelligence import router as filing_intel_router
         app.include_router(filing_intel_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router filing_intelligence: {e}")
+        app.state.router_import_errors.append(f"filing_intelligence: {e}")
 
     try:
         from src.api.routers.governance_intelligence import router as governance_intel_router
         app.include_router(governance_intel_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router governance_intelligence: {e}")
+        app.state.router_import_errors.append(f"governance_intelligence: {e}")
 
     try:
         from src.api.routers.news import router as news_router
         app.include_router(news_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router news: {e}")
+        app.state.router_import_errors.append(f"news: {e}")
 
     # NOTE: Alerts Expansion must be registered BEFORE Alerts to avoid
     # /alerts/quality-scores being captured by /alerts/{entity_id}
@@ -392,116 +408,120 @@ def create_app() -> FastAPI:
         from src.api.routers.alerts_expansion import router as alerts_exp_router
         app.include_router(alerts_exp_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router alerts_expansion: {e}")
+        app.state.router_import_errors.append(f"alerts_expansion: {e}")
 
     try:
         from src.api.routers.alerts import router as alerts_router
         app.include_router(alerts_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router alerts: {e}")
+        app.state.router_import_errors.append(f"alerts: {e}")
 
     # Pillar 3 Phase 2: Earnings, Sentiment, Economic Calendar, Company Intel
     try:
         from src.api.routers.earnings_p2 import router as earnings_p2_router
         app.include_router(earnings_p2_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router earnings_p2: {e}")
+        app.state.router_import_errors.append(f"earnings_p2: {e}")
 
     try:
         from src.api.routers.sentiment_p2 import router as sentiment_p2_router
         app.include_router(sentiment_p2_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router sentiment_p2: {e}")
+        app.state.router_import_errors.append(f"sentiment_p2: {e}")
 
     try:
         from src.api.routers.economic_calendar import router as economic_calendar_router
         app.include_router(economic_calendar_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router economic_calendar: {e}")
+        app.state.router_import_errors.append(f"economic_calendar: {e}")
 
     try:
         from src.api.routers.company_intel_p2 import router as company_intel_p2_router
         app.include_router(company_intel_p2_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router company_intel_p2: {e}")
+        app.state.router_import_errors.append(f"company_intel_p2: {e}")
 
     # Pillar 3 Phase 3A: Industry & Competitive Intelligence
     try:
         from src.api.routers.industry import router as industry_router
         app.include_router(industry_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router industry: {e}")
+        app.state.router_import_errors.append(f"industry: {e}")
 
     try:
         from src.api.routers.competitive import router as competitive_router
         app.include_router(competitive_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router competitive: {e}")
+        app.state.router_import_errors.append(f"competitive: {e}")
 
     # Pillar 3 Phase 3B: Global Intelligence
     try:
         from src.api.routers.global_intelligence import router as global_intel_router
         app.include_router(global_intel_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router global_intelligence: {e}")
+        app.state.router_import_errors.append(f"global_intelligence: {e}")
 
     # Pillar 3 Phase 3C: FI Intelligence
     try:
         from src.api.routers.fi_intelligence import router as fi_intel_router
         app.include_router(fi_intel_router, prefix="/v3")
     except Exception as e:
-        logger.warning(f"Failed to import router fi_intelligence: {e}")
+        app.state.router_import_errors.append(f"fi_intelligence: {e}")
 
     # Pillar 3 Phase 4A: AI Research Layer
     try:
         from src.api.routers.research_primers import router as research_primers_router
         app.include_router(research_primers_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_primers: {e}")
+        app.state.router_import_errors.append(f"research_primers: {e}")
 
     try:
         from src.api.routers.research_briefings import router as research_briefings_router
         app.include_router(research_briefings_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_briefings: {e}")
+        app.state.router_import_errors.append(f"research_briefings: {e}")
 
     try:
         from src.api.routers.research_anomalies import router as research_anomalies_router
         app.include_router(research_anomalies_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_anomalies: {e}")
+        app.state.router_import_errors.append(f"research_anomalies: {e}")
 
     # Pillar 3 Phase 4B: Semantic Search, Investment Thesis, Analyst Q&A
     try:
         from src.api.routers.research_search import router as research_search_router
         app.include_router(research_search_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_search: {e}")
+        app.state.router_import_errors.append(f"research_search: {e}")
 
     try:
         from src.api.routers.research_thesis import router as research_thesis_router
         app.include_router(research_thesis_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_thesis: {e}")
+        app.state.router_import_errors.append(f"research_thesis: {e}")
 
     try:
         from src.api.routers.research_qa import router as research_qa_router
         app.include_router(research_qa_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_qa: {e}")
+        app.state.router_import_errors.append(f"research_qa: {e}")
 
     # Pillar 3 Phase 4C: Macro Themes, Scenarios, Intelligent Alerts, Earnings Intelligence
     try:
         from src.api.routers.research_themes import router as research_themes_router
         app.include_router(research_themes_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_themes: {e}")
+        app.state.router_import_errors.append(f"research_themes: {e}")
 
     try:
         from src.api.routers.research_alerts_p4 import router as research_alerts_p4_router
         app.include_router(research_alerts_p4_router, prefix="/v4")
     except Exception as e:
-        logger.warning(f"Failed to import router research_alerts_p4: {e}")
+        app.state.router_import_errors.append(f"research_alerts_p4: {e}")
+
+    if app.state.router_import_errors:
+        details = "; ".join(app.state.router_import_errors)
+        raise RuntimeError(f"Required Pillar 3 router imports failed: {details}")
 
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
@@ -561,7 +581,13 @@ def create_app() -> FastAPI:
         try:
             async with get_session_factory()() as session:
                 await session.execute(text("SELECT 1"))
-            return {"status": "ok", "database": "connected"}
+            router_errors = getattr(app.state, "router_import_errors", [])
+            if router_errors:
+                return JSONResponse(
+                    status_code=503,
+                    content={"status": "degraded", "database": "connected", "router_import_errors": router_errors},
+                )
+            return {"status": "ok", "database": "connected", "router_import_errors": []}
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return JSONResponse(
@@ -596,6 +622,31 @@ def create_app() -> FastAPI:
             status_code=422,
             content=error_response.model_dump(mode="json"),
         )
+
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        start_time = getattr(request.state, "start_time", time.perf_counter())
+        processing_time = int((time.perf_counter() - start_time) * 1000)
+        logger.warning("IntegrityError on %s %s: %s", request.method, request.url.path, exc)
+        error_response = ErrorResponse(
+            errors=[ErrorDetail(code="CONFLICT", message="Request conflicts with existing data.")],
+            meta=ResponseMeta(request_id=request_id, processing_time_ms=processing_time),
+        )
+        return JSONResponse(status_code=409, content=error_response.model_dump(mode="json"))
+
+    @app.exception_handler(RuntimeError)
+    async def runtime_error_handler(request: Request, exc: RuntimeError) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        start_time = getattr(request.state, "start_time", time.perf_counter())
+        processing_time = int((time.perf_counter() - start_time) * 1000)
+        logger.error("RuntimeError on %s %s: %s", request.method, request.url.path, exc)
+        error_response = ErrorResponse(
+            errors=[ErrorDetail(code="SERVICE_UNAVAILABLE", message=str(exc))],
+            meta=ResponseMeta(request_id=request_id, processing_time_ms=processing_time),
+        )
+        return JSONResponse(status_code=503, content=error_response.model_dump(mode="json"))
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:

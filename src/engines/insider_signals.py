@@ -10,6 +10,9 @@ No database access — all functions accept and return plain data.
 from __future__ import annotations
 
 from datetime import date, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -257,7 +260,11 @@ def compute_rolling_aggregates(
         open_market_buy_count_90d, insider_count_buying_30d,
         insider_count_selling_30d.
     """
-    as_of = date.fromisoformat(as_of_date_str)
+    try:
+        as_of = date.fromisoformat(as_of_date_str)
+    except ValueError:
+        logger.warning("Invalid as_of_date_str %r; falling back to today", as_of_date_str)
+        as_of = date.today()
 
     windows = {
         "30d": timedelta(days=30),
