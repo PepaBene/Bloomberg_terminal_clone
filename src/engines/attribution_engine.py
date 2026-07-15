@@ -8,7 +8,23 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+# Fraction of total active return that the Brinson residual (interaction
+# noise / non-additivity between the arithmetic effects) may consume before
+# it's flagged as suspiciously large — usually signals a data mismatch
+# between portfolio and benchmark sector definitions.
+RESIDUAL_WARNING_RATIO = 0.10
+# Absolute floor for the same check when total_active_return is ~0 (a ratio
+# would be meaningless/undefined there).
+RESIDUAL_WARNING_ABS_FLOOR = 0.005
+
+# Tolerance for validating that portfolio/benchmark sector weights sum to
+# ~1.0 (100%) before running Brinson attribution.
+WEIGHT_SUM_TOLERANCE = 0.01
 
 
 # ── Dataclasses ─────────────────────────────────────────────────────────
@@ -181,6 +197,24 @@ def compute_brinson_attribution(
 
     Each sector dict: {sector: str, weight: float, return: float}.
     """
+    # Sanity-check that weights are actual portfolio/benchmark fractions
+    # (should sum to ~1.0) rather than, e.g., raw dollar amounts or a
+    # subset of sectors — a silent mismatch here would skew every effect.
+    port_weight_sum = sum(s["weight"] for s in portfolio_sectors)
+    if portfolio_sectors and abs(port_weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+        logger.warning(
+            "Brinson attribution: portfolio sector weights sum to %.4f, "
+            "expected ~1.0",
+            port_weight_sum,
+        )
+    bench_weight_sum = sum(s["weight"] for s in benchmark_sectors)
+    if benchmark_sectors and abs(bench_weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+        logger.warning(
+            "Brinson attribution: benchmark sector weights sum to %.4f, "
+            "expected ~1.0",
+            bench_weight_sum,
+        )
+
     # Build lookup maps
     port_map = {s["sector"]: s for s in portfolio_sectors}
     bench_map = {s["sector"]: s for s in benchmark_sectors}
@@ -225,6 +259,18 @@ def compute_brinson_attribution(
 
     total_active = total_port_return - total_benchmark_return
     residual = total_active - (total_alloc + total_select + total_interact)
+
+    residual_threshold = max(
+        abs(total_active) * RESIDUAL_WARNING_RATIO, RESIDUAL_WARNING_ABS_FLOOR
+    )
+    if abs(residual) > residual_threshold:
+        logger.warning(
+            "Brinson attribution residual %.6f is large relative to total "
+            "active return %.6f (allocation=%.6f, selection=%.6f, "
+            "interaction=%.6f) — check sector coverage/weight consistency "
+            "between portfolio and benchmark",
+            residual, total_active, total_alloc, total_select, total_interact,
+        )
 
     return BrinsonResult(
         total_portfolio_return=total_port_return,
@@ -292,6 +338,13 @@ def compute_factor_attribution(
     """
     all_factors = set(portfolio_exposures.keys()) | set(benchmark_exposures.keys())
     # Only include factors that have returns
+    dropped_factors = all_factors - set(factor_returns.keys())
+    if dropped_factors:
+        logger.warning(
+            "Factor attribution: dropping factor(s) with no entry in "
+            "factor_returns: %s",
+            sorted(dropped_factors),
+        )
     all_factors &= set(factor_returns.keys())
 
     factors: list[FactorAttribution] = []
@@ -337,7 +390,15 @@ def link_multi_period_attribution(
 ) -> BrinsonResult:
     """Link multiple single-period Brinson results.
 
-    Uses summation (approximate geometric linking for attribution).
+    NOTE — arithmetic (not geometric/Carino) linking: each period's
+    allocation/selection/interaction effects are simply summed. This is a
+    documented approximation, not a bug: true multi-period Brinson linking
+    requires a Carino (or GRAP) log-scaling adjustment per period so effects
+    compound consistently with the geometrically-linked total return.
+    Arithmetic linking is exact only when returns are small/period count is
+    low; for long/volatile periods it can drift from the geometrically
+    linked total active return (the ``residual`` field captures this gap —
+    see the large-residual warning in ``compute_brinson_attribution``).
     """
     if not period_results:
         return BrinsonResult(

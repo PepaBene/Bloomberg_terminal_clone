@@ -74,7 +74,7 @@ async def _get_watchlist_entities(
     return [
         WatchlistEntityResponse(
             entity_id=entry.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
             added_date=entry.added_date,
         )
         for entry, entity in rows
@@ -428,7 +428,7 @@ async def get_watchlist_earnings_calendar(
     entries = [
         EarningsCalendarEntry(
             entity_id=ev.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
             report_date=ev.event_date,
             fiscal_quarter=None,
         )
@@ -460,7 +460,7 @@ async def get_watchlist_dashboard(
     entities = [
         WatchlistDashboardEntity(
             entity_id=entry.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
         )
         for entry, entity in rows
     ]

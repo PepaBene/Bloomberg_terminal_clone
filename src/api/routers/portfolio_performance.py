@@ -1,5 +1,7 @@
 """Portfolio Performance & Attribution API endpoints (Pillar 4 Phase 2)."""
 
+import csv
+import io
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -45,6 +47,15 @@ from src.schemas.reporting import (
 )
 
 router = APIRouter(tags=["Portfolio Performance"])
+
+
+def _rows_to_csv(header: list[str], rows: list[list]) -> str:
+    """Render a header + rows into a properly escaped/quoted CSV string."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buf.getvalue()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -806,6 +817,140 @@ async def generate_holdings_report(
     return await _generate_report(session, portfolio, "HOLDINGS", body)
 
 
+async def _build_report_data(
+    session: AsyncSession, portfolio: Portfolio, report_type: str
+) -> dict:
+    """Assemble real report data via reporting_engine from actual DB state."""
+    from src.engines import reporting_engine
+
+    pos_rows = (
+        await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio.id, Position.status == "OPEN"
+            )
+        )
+    ).scalars().all()
+    positions = [
+        {
+            "ticker": p.ticker,
+            "shares": _opt_float(p.shares) or 0.0,
+            "market_value": _opt_float(p.market_value) or 0.0,
+            "weight": _opt_float(p.weight) or 0.0,
+            "cost_basis": _opt_float(p.cost_basis_total) or 0.0,
+            "unrealized_pnl": _opt_float(p.unrealized_pnl) or 0.0,
+        }
+        for p in pos_rows
+    ]
+
+    nav_snap = (
+        await session.execute(
+            select(NAVSnapshot)
+            .where(NAVSnapshot.portfolio_id == portfolio.id)
+            .order_by(NAVSnapshot.snapshot_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    nav = {
+        "nav": _opt_float(nav_snap.nav) if nav_snap else 0.0,
+        "market_value": _opt_float(nav_snap.market_value) if nav_snap else 0.0,
+        "cash_balance": _opt_float(nav_snap.cash_balance) if nav_snap else 0.0,
+        "unrealized_pnl": _opt_float(nav_snap.unrealized_pnl) if nav_snap else 0.0,
+    }
+
+    perf_snap = (
+        await session.execute(
+            select(PerformanceSnapshot)
+            .where(PerformanceSnapshot.portfolio_id == portfolio.id)
+            .order_by(PerformanceSnapshot.period_end.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    performance = None
+    if perf_snap:
+        performance = {
+            "twr_return": _opt_float(perf_snap.twr_return) or 0.0,
+            "annualized_return": _opt_float(perf_snap.twr_return) or 0.0,
+            "benchmark_return": _opt_float(perf_snap.benchmark_return),
+            "active_return": _opt_float(perf_snap.active_return),
+            "volatility": _opt_float(perf_snap.volatility) or 0.0,
+            "sharpe_ratio": _opt_float(perf_snap.sharpe_ratio) or 0.0,
+            "sortino_ratio": _opt_float(perf_snap.sortino_ratio),
+            "max_drawdown": _opt_float(perf_snap.max_drawdown) or 0.0,
+            "beta": _opt_float(perf_snap.beta),
+            "alpha": _opt_float(perf_snap.alpha),
+            "tracking_error": _opt_float(perf_snap.tracking_error),
+            "information_ratio": _opt_float(perf_snap.information_ratio),
+            "positive_days": perf_snap.positive_days or 0,
+            "negative_days": perf_snap.negative_days or 0,
+            "best_day": _opt_float(perf_snap.best_day) or 0.0,
+            "worst_day": _opt_float(perf_snap.worst_day) or 0.0,
+        }
+
+    if report_type == "SUMMARY":
+        portfolio_dict = {
+            "id": str(portfolio.id),
+            "name": portfolio.portfolio_name,
+            "inception_date": portfolio.inception_date.isoformat()
+            if portfolio.inception_date else "",
+            "strategy": portfolio.portfolio_type or "",
+        }
+        return reporting_engine.build_portfolio_summary_report(
+            portfolio_dict, positions, nav, performance
+        )
+
+    attr = (
+        await session.execute(
+            select(AttributionResult)
+            .where(AttributionResult.portfolio_id == portfolio.id)
+            .order_by(AttributionResult.period_end.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if report_type == "PERFORMANCE":
+        attribution = None
+        if attr is not None:
+            attribution = {
+                "total_allocation": _opt_float(attr.total_allocation) or 0.0,
+                "total_selection": _opt_float(attr.total_selection) or 0.0,
+                "total_interaction": _opt_float(attr.total_interaction) or 0.0,
+            }
+        return reporting_engine.build_performance_report(
+            performance or {}, attribution=attribution, benchmark_name=portfolio.benchmark_id
+        )
+
+    if report_type == "ATTRIBUTION":
+        if attr is None:
+            return reporting_engine.build_attribution_report()
+        sector_detail = attr.sector_detail if isinstance(attr.sector_detail, list) else []
+        factor_detail = attr.factor_detail if isinstance(attr.factor_detail, list) else []
+        security_detail = [
+            s for s in (attr.security_detail if isinstance(attr.security_detail, list) else [])
+            if isinstance(s, dict)
+        ]
+        sorted_sec = sorted(
+            security_detail, key=lambda x: x.get("contribution", 0.0), reverse=True
+        )
+        brinson = {
+            "total_allocation": _opt_float(attr.total_allocation) or 0.0,
+            "total_selection": _opt_float(attr.total_selection) or 0.0,
+            "total_interaction": _opt_float(attr.total_interaction) or 0.0,
+            "residual": _opt_float(attr.residual) or 0.0,
+            "sector_detail": sector_detail,
+        }
+        factor = {"factors": factor_detail}
+        contributors = {
+            "top": sorted_sec[:5],
+            "bottom": sorted_sec[-5:] if len(sorted_sec) >= 5 else sorted_sec,
+        }
+        return reporting_engine.build_attribution_report(
+            brinson=brinson, factor=factor, contributors=contributors
+        )
+
+    # HOLDINGS
+    return reporting_engine.build_holdings_report(positions)
+
+
 async def _generate_report(
     session: AsyncSession,
     portfolio: Portfolio,
@@ -814,6 +959,7 @@ async def _generate_report(
 ) -> ReportResponse:
     """Internal helper to create a ReportRequest record."""
     fmt = body.format if body else "json"
+    result_data = await _build_report_data(session, portfolio, report_type)
     report = ReportRequest(
         id=uuid.uuid4(),
         portfolio_id=portfolio.id,
@@ -823,7 +969,7 @@ async def _generate_report(
         period_end=body.period_end if body else None,
         parameters=None,
         status="COMPLETED",
-        result_data={"report_type": report_type, "portfolio_name": portfolio.portfolio_name},
+        result_data=result_data,
     )
     session.add(report)
     await session.commit()
@@ -860,14 +1006,17 @@ async def export_holdings(
     )
     rows = result.scalars().all()
 
-    lines = ["ticker,shares,cost_basis_per_share,cost_basis_total,market_value"]
-    for pos in rows:
-        lines.append(
-            f"{pos.ticker},{_opt_float(pos.shares)},"
-            f"{_opt_float(pos.cost_basis_per_share)},{_opt_float(pos.cost_basis_total)},"
-            f"{_opt_float(pos.market_value)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["ticker", "shares", "cost_basis_per_share", "cost_basis_total", "market_value"],
+        [
+            [
+                pos.ticker, _opt_float(pos.shares),
+                _opt_float(pos.cost_basis_per_share), _opt_float(pos.cost_basis_total),
+                _opt_float(pos.market_value),
+            ]
+            for pos in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -887,15 +1036,18 @@ async def export_transactions(
     )
     rows = result.scalars().all()
 
-    lines = ["date,ticker,type,shares,price,gross,commission,net,cash_impact"]
-    for t in rows:
-        lines.append(
-            f"{t.transaction_date},{t.ticker},{t.transaction_type},"
-            f"{_opt_float(t.shares)},{_opt_float(t.price_per_share)},"
-            f"{_opt_float(t.gross_amount)},{_opt_float(t.commission)},"
-            f"{_opt_float(t.net_amount)},{_opt_float(t.cash_impact)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["date", "ticker", "type", "shares", "price", "gross", "commission", "net", "cash_impact"],
+        [
+            [
+                t.transaction_date, t.ticker, t.transaction_type,
+                _opt_float(t.shares), _opt_float(t.price_per_share),
+                _opt_float(t.gross_amount), _opt_float(t.commission),
+                _opt_float(t.net_amount), _opt_float(t.cash_impact),
+            ]
+            for t in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -915,14 +1067,17 @@ async def export_nav(
     )
     rows = result.scalars().all()
 
-    lines = ["date,nav,market_value,cash_balance,daily_return,cumulative_return"]
-    for snap in rows:
-        lines.append(
-            f"{snap.snapshot_date},{_opt_float(snap.nav)},"
-            f"{_opt_float(snap.market_value)},{_opt_float(snap.cash_balance)},"
-            f"{_opt_float(snap.daily_return)},{_opt_float(snap.cumulative_return)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["date", "nav", "market_value", "cash_balance", "daily_return", "cumulative_return"],
+        [
+            [
+                snap.snapshot_date, _opt_float(snap.nav),
+                _opt_float(snap.market_value), _opt_float(snap.cash_balance),
+                _opt_float(snap.daily_return), _opt_float(snap.cumulative_return),
+            ]
+            for snap in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -942,14 +1097,17 @@ async def export_returns(
     )
     rows = result.scalars().all()
 
-    lines = ["period_end,period_type,twr_return,benchmark_return,active_return"]
-    for snap in rows:
-        lines.append(
-            f"{snap.period_end},{snap.period_type},"
-            f"{_opt_float(snap.twr_return)},{_opt_float(snap.benchmark_return)},"
-            f"{_opt_float(snap.active_return)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["period_end", "period_type", "twr_return", "benchmark_return", "active_return"],
+        [
+            [
+                snap.period_end, snap.period_type,
+                _opt_float(snap.twr_return), _opt_float(snap.benchmark_return),
+                _opt_float(snap.active_return),
+            ]
+            for snap in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -973,6 +1131,7 @@ def _parse_sector_detail(data: dict | list | None) -> list[SectorAttributionEntr
             total_effect=item.get("total_effect", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]
 
 
@@ -988,6 +1147,7 @@ def _parse_security_detail(data: dict | list | None) -> list[SecurityContributio
             contribution=item.get("contribution", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]
 
 
@@ -1004,4 +1164,5 @@ def _parse_factor_detail(data: dict | list | None) -> list[FactorAttributionEntr
             contribution=item.get("contribution", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]

@@ -3,7 +3,7 @@
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 
 class PositionDriftEntry(BaseModel):
@@ -12,7 +12,9 @@ class PositionDriftEntry(BaseModel):
     ticker: str
     target_weight: float = 0.0
     current_weight: float = 0.0
-    drift_pct: float = 0.0
+    # Optional: an explicit JSON null in stored drift data must not raise a
+    # ValidationError when this entry is constructed (P4-R-023).
+    drift_pct: float | None = 0.0
 
 
 class SectorDriftEntry(BaseModel):
@@ -46,6 +48,10 @@ class RebalanceSuggestionResponse(BaseModel):
     rebalance_needed: bool = False
     total_drift_pct: float | None = None
     suggestions: list[dict] = []
+
+
+class TargetAllocationRequest(RootModel[dict[str, float]]):
+    """Target allocation as a mapping of ticker -> target weight (0.0-1.0)."""
 
 
 class DriftAlertResponse(BaseModel):
