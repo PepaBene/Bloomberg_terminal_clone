@@ -20,9 +20,11 @@ class ThesisCreateRequest(BaseModel):
 
     Any section not in this shape is simply omitted from the slide outline
     rather than rejected -- the CRUD endpoints accept any dict.
+
+    analyst_id is no longer part of the request body -- it's derived from
+    the authenticated caller (Depends(get_current_active_user)).
     """
 
-    analyst_id: str
     thesis_title: str | None = None
     investment_horizon: str | None = None
     conviction_level: str | None = None
@@ -36,7 +38,7 @@ class ThesisCreateRequest(BaseModel):
 class ThesisResponse(BaseModel):
     id: UUID
     entity_id: UUID
-    analyst_id: str
+    analyst_id: UUID
     version: int
     thesis_title: str | None = None
     investment_horizon: str | None = None
@@ -80,7 +82,7 @@ class ThesisDiffResponse(BaseModel):
 class ThesisListResponse(BaseModel):
     id: UUID
     entity_id: UUID
-    analyst_id: str
+    analyst_id: UUID
     version: int
     thesis_title: str | None = None
     conviction_level: str | None = None

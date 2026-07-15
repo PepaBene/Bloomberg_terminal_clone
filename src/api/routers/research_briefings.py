@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.llm_client import get_llm_client
+from src.api.auth.dependencies import get_current_active_user
 from src.api.deps import get_session
+from src.models.auth import User
 from src.models.entity import Entity
 from src.models.investment_thesis import InvestmentThesis
 from src.models.macro import MacroIndicator, MacroValue
@@ -181,14 +183,14 @@ def _briefing_response(row: MorningBriefing) -> MorningBriefingResponse:
     response_model=list[MorningBriefingResponse],
 )
 async def get_todays_briefing(
-    user_id: str = Query(default="default_user"),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get today's morning briefing."""
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
-        .where(MorningBriefing.user_id == user_id)
+        .where(MorningBriefing.user_id == current_user.user_id)
         .where(MorningBriefing.briefing_date == today)
         .order_by(MorningBriefing.briefing_date.desc())
     )
@@ -201,14 +203,14 @@ async def get_todays_briefing(
     response_model=list[MorningBriefingResponse],
 )
 async def get_briefing_history(
-    user_id: str = Query(default="default_user"),
     limit: int = Query(default=30, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get past briefings for a user."""
     result = await session.execute(
         select(MorningBriefing)
-        .where(MorningBriefing.user_id == user_id)
+        .where(MorningBriefing.user_id == current_user.user_id)
         .order_by(MorningBriefing.briefing_date.desc())
         .limit(limit)
     )
@@ -221,13 +223,13 @@ async def get_briefing_history(
     response_model=BriefingPreferenceResponse | None,
 )
 async def get_briefing_preferences(
-    user_id: str = Query(default="default_user"),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get briefing preferences for a user."""
     result = await session.execute(
         select(BriefingPreference)
-        .where(BriefingPreference.user_id == user_id)
+        .where(BriefingPreference.user_id == current_user.user_id)
     )
     row = result.scalar_one_or_none()
     if not row:
@@ -253,12 +255,13 @@ async def get_briefing_preferences(
 )
 async def update_briefing_preferences(
     body: BriefingPreferenceRequest,
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Create or update briefing preferences."""
     result = await session.execute(
         select(BriefingPreference)
-        .where(BriefingPreference.user_id == body.user_id)
+        .where(BriefingPreference.user_id == current_user.user_id)
     )
     pref = result.scalar_one_or_none()
 
@@ -274,7 +277,7 @@ async def update_briefing_preferences(
     else:
         pref = BriefingPreference(
             id=uuid.uuid4(),
-            user_id=body.user_id,
+            user_id=current_user.user_id,
             portfolio_entity_ids=body.portfolio_entity_ids,
             watchlist_entity_ids=body.watchlist_entity_ids,
             sector_focus=body.sector_focus,
@@ -307,14 +310,14 @@ async def update_briefing_preferences(
     response_model=dict,
 )
 async def get_portfolio_impact(
-    user_id: str = Query(default="default_user"),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get portfolio impact section from today's briefing."""
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
-        .where(MorningBriefing.user_id == user_id)
+        .where(MorningBriefing.user_id == current_user.user_id)
         .where(MorningBriefing.briefing_date == today)
         .order_by(MorningBriefing.briefing_date.desc())
         .limit(1)
@@ -334,14 +337,14 @@ async def get_portfolio_impact(
     response_model=dict,
 )
 async def get_macro_summary(
-    user_id: str = Query(default="default_user"),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get macro context section from today's briefing."""
     today = date.today()
     result = await session.execute(
         select(MorningBriefing)
-        .where(MorningBriefing.user_id == user_id)
+        .where(MorningBriefing.user_id == current_user.user_id)
         .where(MorningBriefing.briefing_date == today)
         .order_by(MorningBriefing.briefing_date.desc())
         .limit(1)
@@ -361,7 +364,7 @@ async def get_macro_summary(
     response_model=MorningBriefingResponse,
 )
 async def generate_briefing(
-    user_id: str = Query(default="default_user"),
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Generate an on-demand briefing from real portfolio/watchlist/macro data."""
@@ -370,7 +373,7 @@ async def generate_briefing(
 
     pref = (
         await session.execute(
-            select(BriefingPreference).where(BriefingPreference.user_id == user_id)
+            select(BriefingPreference).where(BriefingPreference.user_id == current_user.user_id)
         )
     ).scalar_one_or_none()
 
@@ -402,7 +405,7 @@ async def generate_briefing(
 
     briefing = MorningBriefing(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=current_user.user_id,
         briefing_date=today,
         regional_context="US",
         executive_summary=executive_summary,
@@ -427,6 +430,7 @@ async def generate_briefing(
 )
 async def get_briefing_by_id(
     briefing_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a specific briefing by ID."""

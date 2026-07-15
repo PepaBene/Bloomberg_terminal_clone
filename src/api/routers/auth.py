@@ -1,16 +1,18 @@
-"""Authentication endpoints for login and user info."""
+"""Authentication endpoints for registration, login, and user info."""
 
 import logging
+import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.auth.dependencies import get_current_user
 from src.api.auth.jwt import create_access_token
+from src.api.auth.security import hash_password, verify_password
 from src.api.deps import get_session
 from src.config import settings
 from src.models.auth import User
@@ -32,7 +34,56 @@ class UserInfo(BaseModel):
     role: str
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+    full_name: str | None = None
+
+
+class RegisterResponse(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    email: str
+    role: str
+
+    model_config = {"from_attributes": True}
+
+
 # -- Endpoints ---------------------------------------------------------------
+
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+async def register(
+    body: RegisterRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a new user account with a bcrypt-hashed password.
+
+    New accounts default to the VIEWER role -- promoting to ANALYST/ADMIN
+    is an out-of-band admin action, not self-service.
+    """
+    existing = await session.execute(
+        select(User).where(or_(User.username == body.username, User.email == body.email))
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Username or email already registered")
+
+    user = User(
+        user_id=uuid.uuid4(),
+        username=body.username,
+        email=body.email,
+        hashed_password=hash_password(body.password),
+        full_name=body.full_name,
+        role="VIEWER",
+        is_active=True,
+    )
+    session.add(user)
+    await session.commit()
+    logger.info("User '%s' registered.", user.username)
+    return RegisterResponse(
+        user_id=user.user_id, username=user.username, email=user.email, role=user.role,
+    )
+
 
 @router.post("/token", response_model=TokenResponse)
 async def login(
@@ -49,16 +100,7 @@ async def login(
     )
     user = result.scalar_one_or_none()
 
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # NOTE: In production, replace this plaintext comparison with bcrypt
-    # verification (e.g., bcrypt.checkpw(password, user.hashed_password)).
-    if user.hashed_password != form_data.password:
+    if not user or not user.is_active or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",

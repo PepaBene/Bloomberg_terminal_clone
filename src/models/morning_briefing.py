@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,7 +19,11 @@ class MorningBriefing(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    # M-004: real FK to the authenticated users table (was a bare, FK-less
+    # String(100) -- see migration 088 for the real-auth wiring).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, index=True
+    )
     briefing_date: Mapped[date] = mapped_column(Date, nullable=False)
     regional_context: Mapped[str | None] = mapped_column(String(10))
     executive_summary: Mapped[str | None] = mapped_column(Text)
@@ -44,7 +48,10 @@ class BriefingPreference(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    # M-004: real FK to users (see migration 088).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, unique=True
+    )
     portfolio_entity_ids: Mapped[dict | None] = mapped_column(JSONB)
     watchlist_entity_ids: Mapped[dict | None] = mapped_column(JSONB)
     sector_focus: Mapped[dict | None] = mapped_column(JSONB)
