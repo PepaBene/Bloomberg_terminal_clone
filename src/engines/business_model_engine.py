@@ -27,6 +27,11 @@ class RevenueQuality:
     customer_concentration: float | None = None  # top customer %
     diversification_score: float = 0.0  # 0-100
     cyclicality_score: float = 0.0  # 0-100 (higher = more cyclical)
+    # E-017: True when cyclicality_score is a real volatility measurement;
+    # False when it's the 50.0 neutral default because revenue_history had
+    # fewer than 3 periods. Lets callers distinguish "neutral" from
+    # "no data" instead of reading 50.0 as a genuine mid-cyclicality score.
+    cyclicality_data_sufficient: bool = True
 
 
 @dataclass
@@ -116,10 +121,16 @@ def _compute_diversification_score(
     return min(score, 100.0)
 
 
-def _compute_cyclicality(revenue_history: list[float]) -> float:
+def _compute_cyclicality(revenue_history: list[float]) -> tuple[float, bool]:
     """Score cyclicality 0-100 from revenue volatility.
 
     Higher volatility = higher cyclicality score.
+
+    Returns
+    -------
+    tuple[float, bool]
+        (score, data_sufficient) — E-017: data_sufficient is False when the
+        50.0 neutral default was used in place of a real measurement.
     """
     if len(revenue_history) < 3:
         logger.warning(
@@ -127,7 +138,7 @@ def _compute_cyclicality(revenue_history: list[float]) -> float:
             "insufficient revenue history (%d periods, need >= 3)",
             len(revenue_history),
         )
-        return 50.0  # Insufficient data — neutral default
+        return 50.0, False  # Insufficient data — neutral default
 
     growth_rates = []
     for i in range(1, len(revenue_history)):
@@ -136,11 +147,11 @@ def _compute_cyclicality(revenue_history: list[float]) -> float:
             growth_rates.append(gr)
 
     if not growth_rates:
-        return 50.0
+        return 50.0, False
 
     volatility = statistics.stdev(growth_rates) if len(growth_rates) > 1 else 0.0
     # Map volatility to 0-100: 0% vol → 0, 30%+ vol → 100
-    return min(volatility / 0.30 * 100.0, 100.0)
+    return min(volatility / 0.30 * 100.0, 100.0), True
 
 
 def assess_revenue_quality(financials: dict) -> RevenueQuality:
@@ -167,7 +178,7 @@ def assess_revenue_quality(financials: dict) -> RevenueQuality:
     prod_segs = financials.get("product_segment_count", 1)
 
     div_score = _compute_diversification_score(geo_segs, prod_segs, top_customer)
-    cyc_score = _compute_cyclicality(financials.get("revenue_history", []))
+    cyc_score, cyc_sufficient = _compute_cyclicality(financials.get("revenue_history", []))
 
     return RevenueQuality(
         recurring_pct=recurring_pct,
@@ -175,6 +186,7 @@ def assess_revenue_quality(financials: dict) -> RevenueQuality:
         customer_concentration=top_customer,
         diversification_score=round(div_score, 2),
         cyclicality_score=round(cyc_score, 2),
+        cyclicality_data_sufficient=cyc_sufficient,
     )
 
 

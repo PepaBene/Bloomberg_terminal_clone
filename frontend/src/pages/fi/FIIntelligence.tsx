@@ -1,8 +1,6 @@
 // ---------------------------------------------------------------------------
 // FI Intelligence — Cross-Asset Signals, Fallen Angel Watch, Issuance Intel
 // ---------------------------------------------------------------------------
-import { EarningsSurpriseChart, TranscriptViewer } from '@/components/intelligence';
-import type { EarningsSurprise, TranscriptSection } from '@/components/intelligence';
 import { useFIBriefing, useCreditSpreads, useNewIssuance, useDistressedCredit } from '@/hooks';
 
 const panelStyle: React.CSSProperties = {
@@ -56,39 +54,19 @@ const issuanceIntel = [
   { issuer: 'UnitedHealth Grp', size: '$2.5B', tenor: '10Y', spread: 'Talk T+80', status: 'Pipeline', date: '2026-03-28' },
 ];
 
-// --- Earnings & Transcript Mock Data -----------------------------------------
-
-const earningsSurprises: EarningsSurprise[] = [
-  { quarter: 'Q2 2024', actual: 1.40, estimate: 1.35, surprise_pct: 3.7 },
-  { quarter: 'Q3 2024', actual: 1.46, estimate: 1.42, surprise_pct: 2.8 },
-  { quarter: 'Q4 2024', actual: 1.64, estimate: 1.58, surprise_pct: 3.8 },
-  { quarter: 'Q1 2025', actual: 2.18, estimate: 2.10, surprise_pct: 3.8 },
-  { quarter: 'Q2 2025', actual: 1.52, estimate: 1.48, surprise_pct: 2.7 },
-  { quarter: 'Q3 2025', actual: 1.58, estimate: 1.62, surprise_pct: -2.5 },
-  { quarter: 'Q4 2025', actual: 1.72, estimate: 1.68, surprise_pct: 2.4 },
-  { quarter: 'Q1 2026', actual: 2.35, estimate: 2.22, surprise_pct: 5.9 },
-];
-
-const transcriptSections: TranscriptSection[] = [
-  {
-    title: 'Prepared Remarks',
-    paragraphs: [
-      { speaker: 'Tim Cook', role: 'CEO', text: 'Good afternoon and thank you for joining us. We are pleased to report record quarterly revenue of $119.5 billion, driven by strong performance across our product lineup and continued momentum in Services.', sentiment: 'positive' },
-      { speaker: 'Luca Maestri', role: 'CFO', text: 'Gross margin expanded to 46.8%, up 180 basis points year-over-year, primarily driven by the favorable mix shift toward Services and operational efficiencies in our supply chain.', sentiment: 'positive' },
-    ],
-  },
-  {
-    title: 'Q&A',
-    paragraphs: [
-      { speaker: 'Toni Sacconaghi', role: 'Analyst', text: 'Can you discuss the trajectory of Vision Pro and how you see the spatial computing market evolving over the next 2-3 years?', sentiment: 'neutral' },
-      { speaker: 'Tim Cook', role: 'CEO', text: 'We are very encouraged by the developer ecosystem forming around Vision Pro. We see spatial computing as a generational platform shift, though we remain measured in our near-term expectations.', sentiment: 'hedging' },
-      { speaker: 'Samik Chatterjee', role: 'Analyst', text: 'Given the macro uncertainty, how are you thinking about capital allocation priorities for the next fiscal year?', sentiment: 'neutral' },
-      { speaker: 'Luca Maestri', role: 'CFO', text: 'Our capital return program remains a top priority. We expect to return over $100 billion to shareholders through buybacks and dividends this fiscal year, while continuing to invest in R&D at record levels.', sentiment: 'positive' },
-    ],
-  },
-];
-
 // --- Component ---------------------------------------------------------------
+//
+// The "Earnings Call Transcript" and "Earnings Surprise Chart" panels that
+// used to live here were removed rather than fixed: they rendered a
+// fabricated Apple/Tim Cook transcript with invented quotes and a made-up
+// EPS-surprise series, backed by zero API call of any kind. Wiring them for
+// real would need a specific entity in context (a per-company transcript
+// makes no sense on this market-wide, entity-agnostic FI dashboard, which
+// has no security selector), and even then the real transcript endpoint
+// (`TranscriptResponse`) only exposes aggregate tone scores, not
+// paragraph-level speaker/text content the transcript viewer needs — so
+// there's no real data this page could show here without fabricating it
+// again. Removed rather than faked.
 
 export default function FIIntelligence() {
   const { data: apiBriefing } = useFIBriefing();
@@ -155,20 +133,6 @@ export default function FIIntelligence() {
               ))}
             </tbody>
           </table>
-        </div>
-
-        {/* Earnings Surprise Chart */}
-        <div style={panelStyle}>
-          <EarningsSurpriseChart surprises={earningsSurprises} height={260} />
-        </div>
-
-        {/* Earnings Transcript Viewer */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Earnings Call Transcript</h2>
-          <TranscriptViewer
-            sections={transcriptSections}
-            toneScores={{ confidence: 72, hedging: 28, forwardLooking: 65 }}
-          />
         </div>
 
         {/* Issuance Intelligence */}

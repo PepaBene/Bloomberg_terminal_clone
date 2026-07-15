@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16
+    # pgvector/pgvector:pg16 is vanilla postgres:16 plus the pgvector
+    # extension (M-001: real VECTOR column for semantic-search embeddings
+    # instead of JSONB + pure-Python cosine similarity).
+    image: pgvector/pgvector:pg16
     container_name: bloomberg-postgres
     environment:
       POSTGRES_DB: bloomberg

@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
@@ -21,6 +22,17 @@ def get_engine():
             pool_pre_ping=True,
             echo=False,
         )
+        if _engine.dialect.name == "postgresql":
+            # M-001: register the pgvector asyncpg codec on every new
+            # connection so SearchDocument.embedding round-trips as a
+            # real list[float] instead of asyncpg raising on the
+            # unrecognized `vector` OID.
+            @event.listens_for(_engine.sync_engine, "connect")
+            def _register_vector_codec(dbapi_connection, connection_record):
+                from pgvector.asyncpg import register_vector
+
+                dbapi_connection.run_async(lambda conn: register_vector(conn))
+
     return _engine
 
 

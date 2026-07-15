@@ -6,10 +6,31 @@ import { useAnomalies, useCriticalAnomalies } from '@/hooks';
 import { api } from '@/api/client';
 import { RESEARCH } from '@/api/endpoints';
 
+interface AnomalyResponse {
+  id: string;
+  entity_id: string;
+  anomaly_type: string;
+  severity_score: number;
+  detected_at: string | null;
+  z_score: number | null;
+  observed_value: number | null;
+  expected_value: number | null;
+  ai_narrative: string | null;
+  is_acknowledged: boolean;
+}
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
+
+// Display-only bucketing of the real severity_score (0-100) into a label —
+// no fabricated data, just a presentation grouping of a real number.
+function severityLabel(score: number): 'Critical' | 'High' | 'Medium' {
+  if (score >= 80) return 'Critical';
+  if (score >= 60) return 'High';
+  return 'Medium';
+}
 
 function severityColor(s: string): string {
   if (s === 'Critical') return 'var(--color-signal-negative)';
@@ -17,38 +38,57 @@ function severityColor(s: string): string {
   return 'var(--color-signal-neutral)';
 }
 
-const anomalyStats = [
-  { label: 'Total Anomalies (24h)', value: '23' },
-  { label: 'Critical', value: '3' },
-  { label: 'High', value: '8' },
-  { label: 'Medium', value: '12' },
-  { label: 'Entities Affected', value: '18' },
-  { label: 'Avg Z-Score', value: '2.8\u03c3' },
-];
+function formatTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
-const anomalies = [
-  { id: 1, time: '11:15', entity: 'AAPL', type: 'Volume', severity: 'Critical', zScore: 4.2, detail: 'Volume 3.8x 20-day average in 15-minute window' },
-  { id: 2, time: '10:48', entity: 'JPM', type: 'CDS Spread', severity: 'Critical', zScore: 3.8, detail: 'CDS 5Y widened 15 bps — 3.8 sigma event' },
-  { id: 3, time: '10:22', entity: 'TSLA', type: 'Sentiment', severity: 'High', zScore: 3.1, detail: 'News sentiment score dropped to -0.65 from +0.12 in 2 hours' },
-  { id: 4, time: '09:45', entity: 'META', type: 'Price', severity: 'High', zScore: 2.9, detail: 'Intraday drop of 2.8% with no corresponding news catalyst' },
-  { id: 5, time: '09:30', entity: 'XLE', type: 'Sector Flow', severity: 'High', zScore: 2.7, detail: 'Energy sector ETF outflows $450M in single session' },
-  { id: 6, time: '09:15', entity: 'UST 10Y', type: 'Yield', severity: 'Medium', zScore: 2.3, detail: 'Yield spike of 8 bps pre-market on no scheduled data' },
-  { id: 7, time: '08:42', entity: 'PFE', type: 'Insider', severity: 'Critical', zScore: 4.5, detail: 'CEO purchase $2.1M — largest insider buy in 2 years' },
-  { id: 8, time: '08:30', entity: 'VIX', type: 'Volatility', severity: 'High', zScore: 2.6, detail: 'VIX futures term structure inverted — backwardation signal' },
-];
+function shortEntity(entityId: string): string {
+  return entityId.slice(0, 8);
+}
+
+function anomalyDetail(a: AnomalyResponse): string {
+  if (a.ai_narrative) return a.ai_narrative;
+  if (a.observed_value != null && a.expected_value != null) {
+    return `Observed ${a.observed_value.toFixed(2)} vs expected ${a.expected_value.toFixed(2)}`;
+  }
+  return a.anomaly_type;
+}
 
 export default function AnomalyView() {
   const { data: apiActive, isLoading, isError } = useAnomalies();
-  const { data: apiCritical } = useCriticalAnomalies();
-  const [acknowledged, setAcknowledged] = useState<Set<number>>(new Set());
+  // F-012: destructure isError here too (was previously ignored) so a
+  // failed critical-anomalies fetch is distinguishable from "none critical".
+  const { data: apiCritical, isError: isCriticalError } = useCriticalAnomalies();
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
 
-  const activeStats = (apiActive as any)?.stats ?? anomalyStats;
-  const activeAnomalies = (apiActive as any)?.anomalies ?? anomalies;
-  const criticalAnomalies = (apiCritical as any)?.anomalies ?? (apiCritical as any[]) ?? [];
+  // F-001: GET /v4/research/anomalies/active and /critical both return a
+  // bare list[AnomalyResponse] — there is no {stats, anomalies} wrapper.
+  // Reading .stats/.anomalies off that array was always undefined, so the
+  // page silently fell back to hardcoded mock data even when the API call
+  // succeeded.
+  const activeAnomalies: AnomalyResponse[] = Array.isArray(apiActive) ? (apiActive as AnomalyResponse[]) : [];
+  const criticalAnomalies: AnomalyResponse[] = Array.isArray(apiCritical) ? (apiCritical as AnomalyResponse[]) : [];
 
-  const handleAcknowledge = async (anomalyId: number) => {
+  const activeStats = [
+    { label: 'Total Anomalies', value: String(activeAnomalies.length) },
+    { label: 'Critical', value: String(activeAnomalies.filter(a => severityLabel(a.severity_score) === 'Critical').length) },
+    { label: 'High', value: String(activeAnomalies.filter(a => severityLabel(a.severity_score) === 'High').length) },
+    { label: 'Medium', value: String(activeAnomalies.filter(a => severityLabel(a.severity_score) === 'Medium').length) },
+    { label: 'Entities Affected', value: String(new Set(activeAnomalies.map(a => a.entity_id)).size) },
+    {
+      label: 'Avg Z-Score',
+      value: activeAnomalies.length
+        ? `${(activeAnomalies.reduce((sum, a) => sum + Math.abs(a.z_score ?? 0), 0) / activeAnomalies.length).toFixed(1)}σ`
+        : '—',
+    },
+  ];
+
+  const handleAcknowledge = async (anomalyId: string) => {
     try {
-      await api.post(RESEARCH.anomalies.acknowledge(String(anomalyId)), {});
+      await api.post(RESEARCH.anomalies.acknowledge(anomalyId), {});
       setAcknowledged(prev => new Set(prev).add(anomalyId));
     } catch (error) {
       console.error('Failed to acknowledge anomaly:', error);
@@ -84,17 +124,20 @@ export default function AnomalyView() {
         ))}
       </div>
       {/* Critical Anomalies */}
+      {isCriticalError && (
+        <p style={{ ...labelStyle, color: 'var(--color-signal-negative)', marginBottom: 'var(--panel-gap)' }}>Failed to load critical anomalies.</p>
+      )}
       {criticalAnomalies.length > 0 && (
         <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)', borderLeft: '3px solid var(--color-signal-negative)' }}>
           <h2 style={sectionTitle}>Critical Anomalies</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {criticalAnomalies.map((c: any, i: number) => (
-              <div key={c.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+            {criticalAnomalies.map((c) => (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                 <div>
-                  <span style={{ ...dataStyle, fontWeight: 600, color: 'var(--color-accent-primary)', marginRight: '8px' }}>{c.entity ?? c.ticker}</span>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>{c.detail ?? c.description ?? c.type}</span>
+                  <span style={{ ...dataStyle, fontWeight: 600, color: 'var(--color-accent-primary)', marginRight: '8px' }}>{shortEntity(c.entity_id)}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>{anomalyDetail(c)}</span>
                 </div>
-                <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-signal-negative)' }}>{c.zScore != null ? `${Number(c.zScore).toFixed(1)}\u03c3` : ''}</span>
+                <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-signal-negative)' }}>{c.z_score != null ? `${Number(c.z_score).toFixed(1)}σ` : ''}</span>
               </div>
             ))}
           </div>
@@ -103,6 +146,9 @@ export default function AnomalyView() {
 
       <div style={panelStyle}>
         <h2 style={sectionTitle}>Detected Anomalies</h2>
+        {activeAnomalies.length === 0 ? (
+          <p style={labelStyle}>No anomalies detected.</p>
+        ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             {['Time', 'Entity', 'Type', 'Severity', 'Z-Score', 'Detail', 'Action'].map((h) => (
@@ -110,27 +156,31 @@ export default function AnomalyView() {
             ))}
           </tr></thead>
           <tbody>
-            {activeAnomalies.map((a) => (
-              <tr key={a.id} style={{ height: 'var(--table-row-height)' }}>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{a.time}</td>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{a.entity}</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.type}</td>
-                <td style={{ textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', fontWeight: 600, color: severityColor(a.severity), border: `1px solid ${severityColor(a.severity)}`, padding: '1px 5px', borderRadius: '3px' }}>{a.severity}</span>
-                </td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.zScore.toFixed(1)}\u03c3</td>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.detail}</td>
-                <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)', textAlign: 'right' }}>
-                  {acknowledged.has(a.id) ? (
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-positive)' }}>Ack'd</span>
-                  ) : (
-                    <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '2px 8px' }} onClick={() => handleAcknowledge(a.id)}>Ack</button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {activeAnomalies.map((a) => {
+              const severity = severityLabel(a.severity_score);
+              return (
+                <tr key={a.id} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{formatTime(a.detected_at)}</td>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{shortEntity(a.entity_id)}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.anomaly_type}</td>
+                  <td style={{ textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', fontWeight: 600, color: severityColor(severity), border: `1px solid ${severityColor(severity)}`, padding: '1px 5px', borderRadius: '3px' }}>{severity}</span>
+                  </td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{a.z_score != null ? `${a.z_score.toFixed(1)}σ` : '—'}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{anomalyDetail(a)}</td>
+                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)', textAlign: 'right' }}>
+                    {(a.is_acknowledged || acknowledged.has(a.id)) ? (
+                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-positive)' }}>Ack'd</span>
+                    ) : (
+                      <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '2px 8px' }} onClick={() => handleAcknowledge(a.id)}>Ack</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

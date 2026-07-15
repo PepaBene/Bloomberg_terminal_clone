@@ -203,7 +203,12 @@ async def _compute_and_persist_intelligence(session: AsyncSession, entity_id: uu
         switching_cost_score=bm.durability.switching_cost_score,
         moat_type=bm.durability.moat_type,
         disruption_vulnerability=bm.durability.disruption_vulnerability,
-        revenue_decomposition={"segments": financials.get("segments", [])},
+        # E-017: surface whether cyclicality_score is a real measurement or
+        # the 50.0 neutral default (< 3 periods of revenue_history).
+        revenue_decomposition={
+            "segments": financials.get("segments", []),
+            "cyclicality_data_sufficient": bm.revenue_quality.cyclicality_data_sufficient,
+        },
         ai_enabled=False,
     ))
 

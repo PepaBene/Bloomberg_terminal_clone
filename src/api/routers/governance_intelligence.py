@@ -1,7 +1,7 @@
 """Governance Intelligence API endpoints (Pillar 3 Phase 1)."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
 from src.engines import governance_scoring
+from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
+from src.models.fundamentals import FinancialPeriod
 from src.models.governance_intelligence import (
     BoardMember,
     ExecutiveCompensation,
@@ -17,6 +19,7 @@ from src.models.governance_intelligence import (
     ProxyFiling,
     ShareholderProposal,
 )
+from src.models.security import EODPrice, Security
 from src.schemas.governance_intelligence import (
     BoardMemberResponse,
     ExecutiveCompensationResponse,
@@ -395,6 +398,203 @@ async def get_shareholder_proposals(
         )
         for row in rows
     ]
+
+
+# R-005: three of six governance_scoring functions had no router at all.
+# board-interlocks and proposals/analysis are pure aggregations over
+# already-ingested proxy data. pay-alignment additionally sources ROIC
+# (AnalyticsResult), revenue growth (FinancialPeriod), and a 1-year price
+# return (EODPrice) as real company_performance inputs — peer_comp is
+# omitted rather than fabricated, since no peer-compensation ingestion
+# source exists.
+
+
+@router.get(
+    "/filings/{entity_id}/proxy/board-interlocks",
+    response_model=list[dict],
+)
+async def get_board_interlocks(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Find directors on 2+ external boards, from the latest proxy filing."""
+    await _get_entity(session, entity_id)
+
+    proxy_result = await session.execute(
+        select(ProxyFiling)
+        .where(ProxyFiling.entity_id == entity_id)
+        .order_by(ProxyFiling.fiscal_year.desc())
+        .limit(1)
+    )
+    proxy = proxy_result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+
+    board_rows = (
+        await session.execute(
+            select(BoardMember).where(BoardMember.proxy_id == proxy.id)
+        )
+    ).scalars().all()
+    board_members = [
+        {"person_name": m.person_name, "other_boards": m.other_boards or []}
+        for m in board_rows
+    ]
+    return governance_scoring.detect_board_interlocks(board_members)
+
+
+@router.get(
+    "/filings/{entity_id}/proxy/proposals/analysis",
+    response_model=dict,
+)
+async def get_shareholder_proposals_analysis(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Aggregate voting-result analysis for the latest proxy's proposals."""
+    await _get_entity(session, entity_id)
+
+    proxy_result = await session.execute(
+        select(ProxyFiling)
+        .where(ProxyFiling.entity_id == entity_id)
+        .order_by(ProxyFiling.fiscal_year.desc())
+        .limit(1)
+    )
+    proxy = proxy_result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+
+    rows = (
+        await session.execute(
+            select(ShareholderProposal).where(ShareholderProposal.proxy_id == proxy.id)
+        )
+    ).scalars().all()
+    proposals = [
+        {
+            "topic": r.topic,
+            "vote_for_pct": float(r.vote_for_pct) if r.vote_for_pct is not None else 0.0,
+            "management_recommendation": r.management_recommendation,
+            "passed": r.passed,
+        }
+        for r in rows
+    ]
+    return governance_scoring.analyze_shareholder_proposals(proposals)
+
+
+@router.get(
+    "/filings/{entity_id}/proxy/pay-alignment",
+    response_model=dict,
+)
+async def get_pay_alignment(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Assess CEO pay-for-performance alignment from real comp/fundamentals/price data."""
+    await _get_entity(session, entity_id)
+
+    proxy_result = await session.execute(
+        select(ProxyFiling)
+        .where(ProxyFiling.entity_id == entity_id)
+        .order_by(ProxyFiling.fiscal_year.desc())
+        .limit(1)
+    )
+    proxy = proxy_result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail="No proxy filings found for this entity")
+
+    exec_rows = (
+        await session.execute(
+            select(ExecutiveCompensation).where(ExecutiveCompensation.proxy_id == proxy.id)
+        )
+    ).scalars().all()
+    ceo_row = next(
+        (r for r in exec_rows if "CEO" in r.role.upper() or "CHIEF EXECUTIVE" in r.role.upper()),
+        None,
+    )
+    if ceo_row is None:
+        raise HTTPException(
+            status_code=404, detail="No CEO compensation record found in the latest proxy filing"
+        )
+    ceo_comp = {
+        "total_compensation": float(ceo_row.total_compensation) if ceo_row.total_compensation is not None else 0.0,
+        "yoy_change_pct": float(ceo_row.yoy_change_pct) if ceo_row.yoy_change_pct is not None else 0.0,
+    }
+
+    # ROIC — latest batch-computed value.
+    roic_row = (
+        await session.execute(
+            select(AnalyticsResult.value)
+            .where(AnalyticsResult.entity_id == entity_id, AnalyticsResult.metric_name == "roic")
+            .order_by(AnalyticsResult.as_of_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    # Revenue growth — most recent two fiscal periods' reported revenue.
+    periods = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity_id)
+            .order_by(FinancialPeriod.period_end_date.desc())
+            .limit(2)
+        )
+    ).scalars().all()
+    revenue_growth_pct = None
+    if len(periods) == 2 and periods[0].income_statement and periods[1].income_statement:
+        rev_new = periods[0].income_statement.total_revenue
+        rev_old = periods[1].income_statement.total_revenue
+        if rev_new is not None and rev_old and float(rev_old) != 0:
+            revenue_growth_pct = round((float(rev_new) - float(rev_old)) / abs(float(rev_old)) * 100, 2)
+
+    # TSR proxy — 1-year price return on the entity's primary equity
+    # security (price-only; excludes dividends, since dividend-adjusted
+    # total-return series aren't ingested — a real but partial proxy).
+    tsr_1y = None
+    security_id = (
+        await session.execute(
+            select(Security.security_id)
+            .where(Security.issuer_entity_id == entity_id, Security.asset_class == "EQUITY")
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if security_id is not None:
+        latest_price_row = (
+            await session.execute(
+                select(EODPrice.price_date, EODPrice.close_adjusted)
+                .where(EODPrice.security_id == security_id, EODPrice.close_adjusted.isnot(None))
+                .order_by(EODPrice.price_date.desc())
+                .limit(1)
+            )
+        ).first()
+        if latest_price_row is not None:
+            latest_date, latest_close = latest_price_row
+            prior_row = (
+                await session.execute(
+                    select(EODPrice.close_adjusted)
+                    .where(
+                        EODPrice.security_id == security_id,
+                        EODPrice.close_adjusted.isnot(None),
+                        EODPrice.price_date <= latest_date - timedelta(days=365),
+                    )
+                    .order_by(EODPrice.price_date.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if prior_row is not None and float(prior_row) != 0:
+                tsr_1y = round((float(latest_close) - float(prior_row)) / abs(float(prior_row)) * 100, 2)
+
+    company_performance = {
+        "roic": float(roic_row) if roic_row is not None else 0.0,
+        "revenue_growth_pct": revenue_growth_pct or 0.0,
+        "tsr_1y": tsr_1y or 0.0,
+    }
+    result = governance_scoring.compute_pay_alignment(ceo_comp, company_performance, peer_comp=None)
+    result["data_coverage"] = {
+        "roic_available": roic_row is not None,
+        "revenue_growth_available": revenue_growth_pct is not None,
+        "tsr_1y_available": tsr_1y is not None,
+        "tsr_1y_excludes_dividends": True,
+    }
+    return result
 
 
 @router.get(
