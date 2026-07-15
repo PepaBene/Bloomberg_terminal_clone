@@ -15,6 +15,7 @@ from src.api.deps import get_optional_user, get_session
 from src.engines import performance_engine
 from src.models.portfolio import Portfolio
 from src.models.position import Position
+from src.models.security import EODPrice, SecurityIdentifier
 from src.models.transaction import Transaction
 from src.models.nav_snapshot import NAVSnapshot
 from src.models.performance import PerformanceSnapshot
@@ -187,6 +188,151 @@ def _dec_or_none(val: float | None, places: int = 6) -> Decimal | None:
     return Decimal(str(round(val, places))) if val is not None else None
 
 
+async def _resolve_benchmark_security_id(
+    session: AsyncSession, ticker: str
+) -> uuid.UUID | None:
+    """Resolve a free-text benchmark ticker (Portfolio.benchmark_id, e.g.
+    "SPY"/"^GSPC") to a real Security via its TICKER identifier.
+
+    Reuses the exact same TICKER-identifier lookup already established for
+    position tickers (src.api.routers.portfolios._resolve_security_id) and
+    for benchmark tickers elsewhere (src.api.routers.risk
+    ._resolve_benchmark_security_id) rather than inventing a new pattern.
+    Returns None (rather than raising) when the ticker isn't registered as a
+    SecurityIdentifier — an unresolvable benchmark is an honest gap, not an
+    error that should break the rest of performance computation.
+    """
+    result = await session.execute(
+        select(SecurityIdentifier.security_id).where(
+            SecurityIdentifier.identifier_type == "TICKER",
+            SecurityIdentifier.identifier_value == ticker.upper(),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _build_benchmark_history(
+    session: AsyncSession, security_id: uuid.UUID, nav_dates: list[date]
+) -> list[dict] | None:
+    """Build a benchmark price series aligned 1:1 to ``nav_dates``.
+
+    performance_engine.build_performance_summary() only computes
+    benchmark-relative metrics when ``len(benchmark_history) ==
+    len(nav_history)`` and zips the two lists index-by-index — so this only
+    returns a series when *every* NAV date has a matching EODPrice row for
+    the resolved benchmark security. A partial/gappy match would silently
+    misalign dates to the wrong daily return, which is worse than no
+    benchmark data at all. When coverage is incomplete, returns None so the
+    caller leaves benchmark-relative fields null (an honest gap) instead of
+    fabricating a misaligned comparison.
+    """
+    if not nav_dates:
+        return None
+    rows = (
+        await session.execute(
+            select(EODPrice.price_date, EODPrice.close).where(
+                EODPrice.security_id == security_id,
+                EODPrice.price_date >= nav_dates[0],
+                EODPrice.price_date <= nav_dates[-1],
+                EODPrice.close.isnot(None),
+            )
+        )
+    ).all()
+    price_by_date = {r.price_date: float(r.close) for r in rows}
+    if not all(d in price_by_date for d in nav_dates):
+        return None
+    return [{"date": d.isoformat(), "nav": price_by_date[d]} for d in nav_dates]
+
+
+async def _resolve_benchmark_history(
+    session: AsyncSession, portfolio: Portfolio, nav_dates: list[date]
+) -> list[dict] | None:
+    """End-to-end: Portfolio.benchmark_id ticker -> Security -> EODPrice
+    series aligned to ``nav_dates``, or None when unresolvable/incomplete.
+    """
+    if not portfolio.benchmark_id:
+        return None
+    security_id = await _resolve_benchmark_security_id(session, portfolio.benchmark_id)
+    if security_id is None:
+        return None
+    return await _build_benchmark_history(session, security_id, nav_dates)
+
+
+def _summary_to_fields(summary: performance_engine.PerformanceSummary) -> dict:
+    """Map a PerformanceSummary onto PerformanceSnapshot column values.
+
+    Shared by the live per-request computation below and the historical
+    backfill script (scripts/backfill_performance_snapshots.py) so both
+    write identical column semantics from the same engine output.
+    """
+    return dict(
+        twr_return=_dec_or_none(summary.twr_return, 8),
+        mwr_return=_dec_or_none(summary.mwr_return, 8),
+        benchmark_return=_dec_or_none(summary.benchmark_return, 8),
+        active_return=_dec_or_none(summary.active_return, 8),
+        max_drawdown=_dec_or_none(summary.drawdown.max_drawdown),
+        sharpe_ratio=_dec_or_none(summary.risk_metrics.sharpe_ratio),
+        sortino_ratio=_dec_or_none(summary.risk_metrics.sortino_ratio),
+        information_ratio=_dec_or_none(summary.risk_metrics.information_ratio),
+        tracking_error=_dec_or_none(summary.risk_metrics.tracking_error),
+        calmar_ratio=_dec_or_none(summary.risk_metrics.calmar_ratio),
+        beta=_dec_or_none(summary.risk_metrics.beta),
+        alpha=_dec_or_none(summary.risk_metrics.alpha),
+        volatility=_dec_or_none(summary.risk_metrics.volatility),
+        up_capture=_dec_or_none(summary.risk_metrics.up_capture),
+        down_capture=_dec_or_none(summary.risk_metrics.down_capture),
+        batting_average=_dec_or_none(summary.risk_metrics.batting_average),
+        best_day=_dec_or_none(summary.best_day, 8),
+        worst_day=_dec_or_none(summary.worst_day, 8),
+        positive_days=summary.positive_days,
+        negative_days=summary.negative_days,
+    )
+
+
+async def _upsert_performance_snapshot(
+    session: AsyncSession,
+    portfolio_id: uuid.UUID,
+    period_type: str,
+    period_start: date,
+    period_end: date,
+    fields: dict,
+) -> PerformanceSnapshot:
+    """Idempotent upsert keyed on (portfolio_id, period_type, period_end) —
+    matches the model's own uq_perf_portfolio_type_end constraint, so this
+    is safe to call repeatedly for the same day (or the same historical day
+    during a backfill re-run) without creating duplicate rows.
+
+    Does not commit — callers control transaction boundaries (a single
+    request vs. a multi-portfolio/multi-day backfill batch).
+    """
+    existing = (
+        await session.execute(
+            select(PerformanceSnapshot).where(
+                PerformanceSnapshot.portfolio_id == portfolio_id,
+                PerformanceSnapshot.period_type == period_type,
+                PerformanceSnapshot.period_end == period_end,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.period_start = period_start
+        snap = existing
+    else:
+        snap = PerformanceSnapshot(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio_id,
+            period_type=period_type,
+            period_start=period_start,
+            period_end=period_end,
+            **fields,
+        )
+        session.add(snap)
+    return snap
+
+
 async def _compute_and_persist_performance(
     session: AsyncSession, portfolio_id: uuid.UUID
 ) -> PerformanceSnapshot | None:
@@ -196,11 +342,22 @@ async def _compute_and_persist_performance(
     Returns None when there's fewer than two NAV snapshots (not enough
     history yet to derive a return series) rather than fabricating one.
 
+    Because this runs once per calendar day (period_end tracks "today",
+    which advances with each new NAVSnapshot), repeated calls upsert the
+    *same* row for a given day but a *new* row each subsequent day — so
+    DAILY history genuinely accumulates one row per day over time. Prior
+    days are backfilled in bulk by scripts/backfill_performance_snapshots.py
+    (see src/scheduler/batch_config.py's performance_snapshot_backfill job)
+    rather than here, since re-deriving the whole history on every request
+    would be wasteful.
+
     Benchmark-relative metrics (benchmark_return, beta, alpha, tracking
-    error, information ratio, up/down capture, batting average) are left
-    null: Portfolio.benchmark_id is a free-text ticker, not a resolved
-    security with a real price series wired here, so those remain an
-    honest gap rather than a guess.
+    error, information ratio, up/down capture, batting average) are
+    computed for real when Portfolio.benchmark_id resolves to a Security
+    with full EODPrice coverage over the NAV date range (see
+    _resolve_benchmark_history). When it doesn't resolve, or coverage is
+    incomplete, those fields are left null — an honest gap rather than a
+    guess.
 
     The sole external cash flow modeled is the portfolio's initial_cash at
     inception — this portfolio model has no deposit/withdrawal transaction
@@ -222,54 +379,25 @@ async def _compute_and_persist_performance(
         return None
 
     nav_history = [{"date": r.snapshot_date.isoformat(), "nav": float(r.nav)} for r in nav_rows]
+    nav_dates = [r.snapshot_date for r in nav_rows]
 
     cash_flows = None
     if portfolio.initial_cash is not None and float(portfolio.initial_cash) > 0:
         cash_flows = [{"date_offset": 0, "amount": -float(portfolio.initial_cash)}]
 
-    summary = performance_engine.build_performance_summary(nav_history, cash_flows=cash_flows)
+    benchmark_history = await _resolve_benchmark_history(session, portfolio, nav_dates)
+
+    summary = performance_engine.build_performance_summary(
+        nav_history, benchmark_history=benchmark_history, cash_flows=cash_flows
+    )
 
     period_start = nav_rows[0].snapshot_date
     period_end = nav_rows[-1].snapshot_date
 
-    existing = (
-        await session.execute(
-            select(PerformanceSnapshot).where(
-                PerformanceSnapshot.portfolio_id == portfolio_id,
-                PerformanceSnapshot.period_type == "DAILY",
-                PerformanceSnapshot.period_end == period_end,
-            )
-        )
-    ).scalar_one_or_none()
-
-    fields = dict(
-        twr_return=_dec_or_none(summary.twr_return, 8),
-        mwr_return=_dec_or_none(summary.mwr_return, 8),
-        max_drawdown=_dec_or_none(summary.drawdown.max_drawdown),
-        sharpe_ratio=_dec_or_none(summary.risk_metrics.sharpe_ratio),
-        sortino_ratio=_dec_or_none(summary.risk_metrics.sortino_ratio),
-        calmar_ratio=_dec_or_none(summary.risk_metrics.calmar_ratio),
-        volatility=_dec_or_none(summary.risk_metrics.volatility),
-        best_day=_dec_or_none(summary.best_day, 8),
-        worst_day=_dec_or_none(summary.worst_day, 8),
-        positive_days=summary.positive_days,
-        negative_days=summary.negative_days,
+    fields = _summary_to_fields(summary)
+    snap = await _upsert_performance_snapshot(
+        session, portfolio_id, "DAILY", period_start, period_end, fields
     )
-
-    if existing:
-        for k, v in fields.items():
-            setattr(existing, k, v)
-        snap = existing
-    else:
-        snap = PerformanceSnapshot(
-            id=uuid.uuid4(),
-            portfolio_id=portfolio_id,
-            period_type="DAILY",
-            period_start=period_start,
-            period_end=period_end,
-            **fields,
-        )
-        session.add(snap)
 
     await session.commit()
     await session.refresh(snap)

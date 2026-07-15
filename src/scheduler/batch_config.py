@@ -582,6 +582,23 @@ BATCH_JOBS: list[BatchJob] = [
             "run_scheduler.py's no-args subprocess convention."
         ),
     ),
+    BatchJob(
+        name="performance_snapshot_backfill",
+        cron="0 22 * * 1-5",  # 10 PM ET weekdays (after NAV/EOD prices settle)
+        script="scripts/backfill_performance_snapshots.py",
+        sla_minutes=60,
+        domain="P4",
+        description=(
+            "Derives historical DAILY (since-inception-to-date) + MONTHLY "
+            "(single-month) PerformanceSnapshot rows from each portfolio's "
+            "existing NAVSnapshot history -- pure local re-derivation via "
+            "performance_engine.build_performance_summary(), no external "
+            "calls. Fixes GET .../returns/calendar and .../returns/rolling "
+            "returning empty grids for portfolios whose NAV history predates "
+            "the live per-request DAILY snapshot write path, or that are "
+            "rarely queried."
+        ),
+    ),
 ]
 
 # Lookup by name for programmatic access
