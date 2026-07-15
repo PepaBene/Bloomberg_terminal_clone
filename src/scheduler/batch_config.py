@@ -359,6 +359,20 @@ BATCH_JOBS: list[BatchJob] = [
         description="FRED commodity prices -> commodity_profiles/commodity_prices.",
     ),
     BatchJob(
+        name="eia_commodity_inventory_ingest",
+        cron="30 10 * * 3",  # Wednesday 10:30 AM ET, after EIA's Wed AM petroleum
+                              # status + natural gas storage report releases
+        script="scripts/ingest_eia_commodity_inventory.py",
+        sla_minutes=30,
+        domain="P3",
+        description=(
+            "EIA weekly US petroleum/natural-gas stock levels (WTI, GASOLINE, "
+            "NATGAS) -> commodity_inventories. Real supply/demand data source "
+            "for GET /global/commodities/{code}/supply-demand (R-023 fix) -- "
+            "requires EIA_API_KEY (free)."
+        ),
+    ),
+    BatchJob(
         name="legislative_bills_ingest",
         cron="0 8 * * *",  # 8 AM daily
         script="scripts/ingest_legislative_bills.py",

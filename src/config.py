@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # EPA Envirofacts (secondary ESG environmental-score input; free, no key)
     EPA_ENVIROFACTS_BASE_URL: str = "https://data.epa.gov/efservice"
 
+    # EIA (US Energy Information Administration) -- free API key, same signup
+    # model as FRED. Powers real commodity supply/demand stock-level data
+    # (weekly petroleum/natural-gas/gasoline stocks) for
+    # GET /global/commodities/{code}/supply-demand.
+    EIA_API_KEY: str = ""
+    EIA_RATE_LIMIT: int = 30  # requests per minute (documented EIA v2 default)
+
     # Agency (GSE) bonds -- FHLB Office of Finance publishes free CSV/XML
     # consolidated-obligation data with no formal API; override if the feed
     # URL changes.

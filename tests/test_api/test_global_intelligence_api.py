@@ -22,6 +22,7 @@ from src.models.global_macro import (
 )
 from src.models.commodity_intelligence import (
     CommodityCompanyExposure,
+    CommodityInventory,
     CommodityPrice,
     CommodityProfile,
 )
@@ -574,6 +575,92 @@ async def test_get_commodity_supply_demand_seeded(client: AsyncClient, session: 
     assert resp.status_code == 200
     data = resp.json()
     assert "supply_demand_indicator" in data
+
+
+@pytest.mark.asyncio
+async def test_get_commodity_supply_demand_price_only_is_labeled_fallback(
+    client: AsyncClient, session: AsyncSession
+):
+    """R-023: with only price data (no ingested inventory), the response
+    must honestly disclose it's the price-heuristic proxy, not a real
+    supply/demand measurement."""
+    await _seed_commodity_price(session, "PL")
+    resp = await client.get("/v3/global/commodities/PL/supply-demand")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["signal_source"] == "PRICE_HEURISTIC_FALLBACK"
+    assert "latest_stock_level" not in data
+
+
+@pytest.mark.asyncio
+async def test_get_commodity_supply_demand_uses_real_inventory_signal(
+    client: AsyncClient, session: AsyncSession
+):
+    """R-023: with ingested EIA stock data, the endpoint must use the real
+    YoY inventory comparison, not the price heuristic."""
+    session.add(
+        CommodityInventory(
+            id=uuid.uuid4(),
+            commodity_code="WTI",
+            as_of_date=date(2024, 5, 10),
+            stock_level=Decimal("420000"),  # down from prior year -> DEFICIT
+            stock_unit="MBBL",
+            metric_name="US Commercial Crude Oil Stocks (excl. SPR)",
+            source="EIA",
+        )
+    )
+    session.add(
+        CommodityInventory(
+            id=uuid.uuid4(),
+            commodity_code="WTI",
+            as_of_date=date(2023, 5, 12),  # ~363 days prior, within the 350-380 day window
+            stock_level=Decimal("460000"),
+            stock_unit="MBBL",
+            metric_name="US Commercial Crude Oil Stocks (excl. SPR)",
+            source="EIA",
+        )
+    )
+    await session.flush()
+
+    resp = await client.get("/v3/global/commodities/WTI/supply-demand")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["signal_source"] == "INVENTORY_YOY"
+    assert data["latest_stock_level"] == 420000.0
+    assert data["latest_stock_unit"] == "MBBL"
+    assert data["latest_stock_as_of"] == "2024-05-10"
+    assert data["stock_source"] == "EIA"
+    # (420000 - 460000) / 460000 * 100 ≈ -8.70%
+    assert data["stock_yoy_change_pct"] == pytest.approx(-8.70, abs=0.01)
+    assert data["supply_demand_indicator"] == "DEFICIT"
+
+
+@pytest.mark.asyncio
+async def test_get_commodity_supply_demand_inventory_no_prior_year_is_neutral(
+    client: AsyncClient, session: AsyncSession
+):
+    """A single inventory report with no prior-year comparison point still
+    returns the real signal_source, just with a NEUTRAL/unknown trend
+    rather than a fabricated comparison."""
+    session.add(
+        CommodityInventory(
+            id=uuid.uuid4(),
+            commodity_code="NATGAS",
+            as_of_date=date(2024, 5, 10),
+            stock_level=Decimal("2100"),
+            stock_unit="Bcf",
+            metric_name="Lower-48 Natural Gas Working Underground Storage",
+            source="EIA",
+        )
+    )
+    await session.flush()
+
+    resp = await client.get("/v3/global/commodities/NATGAS/supply-demand")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["signal_source"] == "INVENTORY_YOY"
+    assert data["supply_demand_indicator"] == "NEUTRAL"
+    assert data["stock_yoy_change_pct"] is None
 
 
 @pytest.mark.asyncio

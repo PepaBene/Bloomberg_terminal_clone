@@ -85,6 +85,7 @@ The connectors are split into three tiers based on what they unlock.
 | `FINNHUB_API_KEY` | Index constituents (S&P 500, Russell 1000) — needed before EOD ingest can decide which tickers to fetch | <https://finnhub.io/register> |
 | `OPENFIGI_API_KEY` | Cross-identifier mapping (CUSIP↔ISIN↔FIGI↔ticker). Optional — without a key you get 25 req/min vs 250 with. | <https://www.openfigi.com/api> |
 | `ALPHA_VANTAGE_API_KEY` | Forward consensus EPS/revenue estimates (`ingest_consensus_estimates.py`) — Finnhub's free tier 403s on the equivalent endpoints | <https://www.alphavantage.co/support/#api-key> (free tier: 25 requests/day, 5/min — the script's default `--limit` respects this) |
+| `EIA_API_KEY` | Real commodity supply/demand data — weekly US petroleum/natural-gas stock levels (`ingest_eia_commodity_inventory.py`), backing `GET /global/commodities/{code}/supply-demand` | <https://www.eia.gov/opendata/register.php> (free, instant, same signup model as FRED) |
 
 ### 3.3 — Optional (AI features)
 
@@ -314,6 +315,19 @@ python scripts/ingest_econ_calendar.py
 # Commodity prices — FRED (WTI/Brent/gold/etc; a full commodity universe
 # would need a paid data vendor, this covers what FRED tracks)
 python scripts/ingest_commodities.py
+
+# Commodity supply/demand — EIA weekly US petroleum/natural-gas stock levels
+# (EIA_API_KEY, see §3.2). Covers WTI (US commercial crude stocks ex-SPR),
+# GASOLINE (US total gasoline stocks), and NATGAS (Lower-48 working gas in
+# storage) -- the commodities that have a genuine US-stocks concept. BRENT
+# (an international/UK benchmark) and metals/agriculture are NOT covered --
+# no free/keyless equivalent source is wired up for those (LME/COMEX
+# warehouse stocks and USDA NASS Quick Stats would be the real sources, both
+# left as an open gap). This backs the real (non-heuristic) branch of
+# GET /global/commodities/{code}/supply-demand; without this ingested, that
+# endpoint still works but honestly reports signal_source:
+# "PRICE_HEURISTIC_FALLBACK" instead of "INVENTORY_YOY".
+python scripts/ingest_eia_commodity_inventory.py
 
 # Political intelligence — all free, keyless government sources
 python scripts/ingest_legislative_bills.py      # Congress.gov bills RSS (GovInfo)
@@ -603,6 +617,7 @@ python scripts/run_scheduler.py --validate
 | `ingest_finra_trace.py` logs "no FINRA_TRACE_LOCAL_FILE or FINRA_TRACE_FEED_URL configured" and loads 0 trades | Expected — TRACE has no keyless live feed; you must obtain a local bulk extract first | Register for FINRA Academic/Historical TRACE (or use a WRDS subscription), download an extract, then set `FINRA_TRACE_LOCAL_FILE=/path/to/file` or pass `--file`; see the Pillar 3 Supplement in §6 |
 | `ingest_finra_trace.py` loads far fewer trades than the source file has rows | Most CUSIPs in an Academic TRACE extract won't already exist in `corporate_bonds` — the connector intentionally skips trades for unresolvable CUSIPs rather than fabricating a bond/issuer | Run `ingest_bond_issuances.py`, `ingest_agency_bonds.py`, and/or `ingest_capital_structure.py` first to populate `corporate_bonds` for the issuers you care about, then re-run the TRACE ingest |
 | `ingest_esg_controversies.py` / `ingest_esg_environmental.py` results look thin or inconsistent | Both are heuristic/proxy scores (GDELT keyword+tone matching; 10-K disclosure-text regex extraction), not authoritative third-party ratings — see the module docstrings and the Pillar 3 Supplement in §6 for exactly what's real vs. estimated | Treat as directional signals; validate against the source filing/articles before trusting a specific score |
+| `GET /global/commodities/{code}/supply-demand` returns `"signal_source": "PRICE_HEURISTIC_FALLBACK"` instead of real data | No `commodity_inventories` row exists for that `commodity_code` — either `ingest_eia_commodity_inventory.py` hasn't run, or the commodity isn't one of the 3 it covers (WTI/GASOLINE/NATGAS; BRENT and metals/agriculture have no wired-up free source) | Run `python scripts/ingest_eia_commodity_inventory.py` (needs `EIA_API_KEY`) for a covered commodity; for an uncovered one, the fallback is the honest answer, not a bug |
 
 ---
 
