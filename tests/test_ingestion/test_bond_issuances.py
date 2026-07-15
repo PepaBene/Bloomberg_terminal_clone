@@ -269,6 +269,64 @@ async def test_load_resolves_issuer_and_dedupes(session):
 
 
 @pytest.mark.asyncio
+async def test_load_also_feeds_new_issuance_event(session):
+    """Same real deal should also populate fi_intelligence.NewIssuanceEvent
+    (the Pillar 3 FI Intelligence dashboard's issuance table), which
+    previously had zero producers anywhere."""
+    from src.models.entity import Entity, EntityIdentifier
+    from src.models.fi_intelligence import NewIssuanceEvent
+
+    entity_id = uuid.uuid4()
+    session.add(Entity(
+        entity_id=entity_id, entity_type="PUBLIC_COMPANY",
+        legal_name="Example Issuer Corp", status="ACTIVE", source="TEST",
+    ))
+    session.add(EntityIdentifier(
+        id=uuid.uuid4(), entity_id=entity_id,
+        identifier_type="CIK", identifier_value="0000320193",
+    ))
+    await session.flush()
+
+    conn = BondIssuancesConnector()
+    raw = [
+        {
+            "issuer_cik": "0000320193",
+            "pricing_date": "2025-06-20",
+            "maturity_date": "2035-07-15",
+            "coupon_rate": "5.250",
+            "issued_size_mm": "750",
+            "final_spread_bps": "120",
+            "initial_talk_low_bps": "137",
+            "initial_talk_high_bps": "150",
+            "use_of_proceeds": "REFINANCING",
+            "currency": "USD",
+        }
+    ]
+    recs = await conn.transform(await conn.validate(raw))
+    await conn.load(recs, session)
+    await session.flush()
+
+    events = (await session.execute(select(NewIssuanceEvent))).scalars().all()
+    assert len(events) == 1
+    event = events[0]
+    assert event.entity_id == entity_id
+    assert event.issue_date == date(2025, 6, 20)
+    assert event.maturity_date == date(2035, 7, 15)
+    assert event.coupon_rate == Decimal("5.250")
+    assert event.size_mm == Decimal("750")
+    assert event.spread_at_issue_bps == Decimal("120")
+    assert event.initial_talk_bps == Decimal("143.5")  # midpoint(137, 150)
+    assert event.use_of_proceeds == "REFINANCING"
+
+    # Re-running the same deal doesn't duplicate the NewIssuanceEvent either.
+    recs2 = await conn.transform(await conn.validate(raw))
+    await conn.load(recs2, session)
+    await session.flush()
+    events2 = (await session.execute(select(NewIssuanceEvent))).scalars().all()
+    assert len(events2) == 1
+
+
+@pytest.mark.asyncio
 async def test_load_skips_unresolved_issuer(session):
     conn = BondIssuancesConnector()
     raw = [

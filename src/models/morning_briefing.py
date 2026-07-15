@@ -27,10 +27,24 @@ class MorningBriefing(TimestampMixin, Base):
     briefing_date: Mapped[date] = mapped_column(Date, nullable=False)
     regional_context: Mapped[str | None] = mapped_column(String(10))
     executive_summary: Mapped[str | None] = mapped_column(Text)
+    # M-014: JSONB shape documentation (research_briefings.py builds these).
+    # {entity_id_str: {entity_name: str, price_change_1d_pct: float}}, from
+    # real EODPrice 1-day closes for the user's tracked entities.
     portfolio_impact: Mapped[dict | None] = mapped_column(JSONB)
+    # Never assembled by any endpoint today -- no news-digest step exists in
+    # the briefing-generation path. Always null until one is built.
     key_news: Mapped[dict | None] = mapped_column(JSONB)
+    # {"updates": [{entity_id: str, thesis_title: str|None,
+    #   conviction_level: str|None, version: int, updated_at: str|None}]},
+    # from InvestmentThesis rows updated in the last 7 days.
     thesis_updates: Mapped[dict | None] = mapped_column(JSONB)
+    # {indicator_code: {name: str, value: float, observation_date: str,
+    #   yoy_change_pct: float|None}}, latest reading per fixed headline
+    # macro indicator (FRED-sourced MacroIndicator/MacroValue).
     macro_context: Mapped[dict | None] = mapped_column(JSONB)
+    # Never assembled by any endpoint today -- no recommendation-generation
+    # step exists in the briefing-generation path. Always null until one is
+    # built.
     actionable_insights: Mapped[dict | None] = mapped_column(JSONB)
     delivery_format: Mapped[str | None] = mapped_column(String(15))
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

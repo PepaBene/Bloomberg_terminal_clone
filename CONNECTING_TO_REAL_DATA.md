@@ -412,6 +412,9 @@ python scripts/ingest_esg_environmental.py --limit 20
 # multi-tranche deals and year-only maturities are left partially/un-parsed
 # rather than guessed. Set BOND_ISSUANCES_FEED_URL to override with a paid
 # new-issue-monitor feed (Bloomberg, Ipreo/IHS Markit, etc.) instead.
+# Also dual-writes fi_intelligence.NewIssuanceEvent from the same parsed
+# deal, which backs the Pillar 3 FI Intelligence dashboard's
+# GET /v3/fi/issuance/* endpoints (previously had zero producers).
 python scripts/ingest_bond_issuances.py --limit 20
 # python scripts/ingest_bond_issuances.py --days-back 365  # widen the EDGAR lookback window
 

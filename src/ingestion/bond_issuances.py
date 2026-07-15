@@ -509,6 +509,7 @@ class BondIssuancesConnector(BaseConnector):
     ) -> dict[str, int]:
         from src.models.bond_issuance import BondIssuance
         from src.models.entity import Entity, EntityIdentifier
+        from src.models.fi_intelligence import NewIssuanceEvent
 
         counts = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
         if getattr(self, "dry_run", False):
@@ -569,6 +570,48 @@ class BondIssuancesConnector(BaseConnector):
                     )
                 )
                 counts["inserted"] += 1
+
+                # Also feed the Pillar 3 FI Intelligence dashboard's
+                # NewIssuanceEvent table (src/api/routers/fi_intelligence.py
+                # /fi/issuance/*), which previously had zero producers. Same
+                # underlying real EDGAR-extracted deal, reshaped for that
+                # table's narrower field set -- no new data invented.
+                issue_date = rec["pricing_date"] or rec["announcement_date"]
+                talk_low = rec["initial_talk_low_bps"]
+                talk_high = rec["initial_talk_high_bps"]
+                if talk_low is not None and talk_high is not None:
+                    initial_talk_bps = Decimal(talk_low + talk_high) / 2
+                elif talk_low is not None:
+                    initial_talk_bps = Decimal(talk_low)
+                else:
+                    initial_talk_bps = None
+                existing_event = (
+                    await session.execute(
+                        select(NewIssuanceEvent).where(
+                            NewIssuanceEvent.entity_id == issuer_entity_id,
+                            NewIssuanceEvent.issue_date == issue_date,
+                            NewIssuanceEvent.maturity_date == rec["maturity_date"],
+                        )
+                    )
+                ).scalar_one_or_none()
+                if not existing_event:
+                    session.add(
+                        NewIssuanceEvent(
+                            id=uuid.uuid4(),
+                            entity_id=issuer_entity_id,
+                            issue_date=issue_date,
+                            coupon_rate=rec["coupon_rate"],
+                            maturity_date=rec["maturity_date"],
+                            size_mm=rec["issued_size_mm"] or rec["announced_size_mm"],
+                            spread_at_issue_bps=(
+                                Decimal(rec["final_spread_bps"])
+                                if rec["final_spread_bps"] is not None
+                                else None
+                            ),
+                            initial_talk_bps=initial_talk_bps,
+                            use_of_proceeds=rec["use_of_proceeds"],
+                        )
+                    )
             except Exception:  # pragma: no cover - defensive
                 logger.exception("[%s] failed to load issuance", self.name)
                 counts["errors"] += 1
