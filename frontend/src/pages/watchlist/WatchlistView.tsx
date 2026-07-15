@@ -7,6 +7,17 @@ import type { WatchlistEntity, EarningsEvent } from '@/components/alerts';
 import { useWatchlists, useWatchlistPerformance } from '@/hooks';
 import { api } from '@/api/client';
 import { WATCHLISTS } from '@/api/endpoints';
+import { useToastStore } from '@/stores/toastStore';
+
+// WatchlistResponse (src/schemas/watchlist_schema.py) -- real shape returned
+// by GET /v4/portfolios/watchlists (src/api/routers/portfolio_watchlists.py)
+// (P4-F-022 fix). Replaces the `as any` cast that read a nonexistent
+// `.watchlists` wrapper -- the real route returns a plain array.
+interface ApiWatchlist {
+  id: string;
+  name: string;
+  description: string | null;
+}
 
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
@@ -41,9 +52,9 @@ export default function WatchlistView() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // --- Backend sync via usePortfolioWatchlists hooks -------------------------
-  const { data: apiWatchlists } = useWatchlists() as { data: any };
-  const defaultWatchlistId = (apiWatchlists as any)?.watchlists?.[0]?.id;
-  const { data: apiPerformance } = useWatchlistPerformance(defaultWatchlistId) as { data: any };
+  const { data: apiWatchlists } = useWatchlists() as { data: ApiWatchlist[] | undefined };
+  const defaultWatchlistId = apiWatchlists?.[0]?.id;
+  const { data: apiPerformance } = useWatchlistPerformance(defaultWatchlistId) as { data: unknown };
 
   // Focus input when dialog opens
   useEffect(() => {
@@ -70,7 +81,12 @@ export default function WatchlistView() {
     setShowSearch(false);
     setSearchQuery('');
     if (defaultWatchlistId) {
-      try { await api.post(WATCHLISTS.addItem(defaultWatchlistId), { ticker, name }); } catch {}
+      try {
+        await api.post(WATCHLISTS.addItem(defaultWatchlistId), { ticker, name });
+      } catch (err) {
+        console.error('[WatchlistView] Failed to add watchlist item', err);
+        useToastStore.getState().showToast(`Failed to save ${ticker} to your watchlist.`);
+      }
     }
   }, [defaultWatchlistId]);
 
@@ -81,7 +97,12 @@ export default function WatchlistView() {
   const handleRemove = useCallback(async (id: string) => {
     setEntities((prev) => prev.filter((e) => e.id !== id));
     if (defaultWatchlistId) {
-      try { await api.delete(WATCHLISTS.removeItem(defaultWatchlistId, id)); } catch {}
+      try {
+        await api.delete(WATCHLISTS.removeItem(defaultWatchlistId, id));
+      } catch (err) {
+        console.error('[WatchlistView] Failed to remove watchlist item', err);
+        useToastStore.getState().showToast('Failed to remove item from your watchlist.');
+      }
     }
   }, [defaultWatchlistId]);
 

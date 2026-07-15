@@ -6,6 +6,7 @@ import { AppRouter } from '@/router';
 import { useSyncListener } from '@/sync/useSyncListener';
 import { api } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
+import { ToastContainer } from '@/components/feedback';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +34,7 @@ function AppInner() {
   return (
     <Shell>
       <AppRouter />
+      <ToastContainer />
     </Shell>
   );
 }

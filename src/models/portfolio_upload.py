@@ -25,4 +25,13 @@ class PortfolioUpload(TimestampMixin, Base):
     unmatched_rows: Mapped[int | None] = mapped_column(Integer)
     mapping_results: Mapped[dict | None] = mapped_column(JSONB)
     parsed_holdings: Mapped[dict | None] = mapped_column(JSONB)
+    # P4-M-019: ownership so an upload can eventually be scoped/authorized
+    # per caller. Mirrors Portfolio.user_id (src/models/portfolio.py): a
+    # free-form identity string resolved from the JWT ``sub`` claim, or the
+    # shared anonymous fallback identity when no Bearer token is present
+    # (ANONYMOUS_USER/_resolve_user in src/api/routers/portfolios.py) --
+    # not a hard FK to ``users``, for the same reason Portfolio.user_id
+    # (src/models/portfolio.py) isn't one: this identity isn't guaranteed
+    # to correspond to a real ``users`` row.
+    user_id: Mapped[str | None] = mapped_column(String(100), index=True)
     created_by: Mapped[str | None] = mapped_column(String(100))

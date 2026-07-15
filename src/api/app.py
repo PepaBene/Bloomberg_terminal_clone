@@ -214,7 +214,12 @@ def create_app() -> FastAPI:
     app.include_router(risk_router)
 
     from src.api.routers.quant import router as quant_router
-    app.include_router(quant_router)
+    app.include_router(quant_router, prefix="/v2/analytics/quant")
+    # P4-A-004: also serve the same endpoints under /v4/quant — no
+    # existing frontend QUANT entry to align to (endpoints.ts has none),
+    # so keep the legacy /v2 mount for existing callers and add the /v4
+    # mount other Pillar-4 routers use.
+    app.include_router(quant_router, prefix="/v4/quant")
 
     from src.api.routers.scenario import router as scenario_router
     app.include_router(scenario_router)

@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,11 @@ class PortfolioWatchlist(TimestampMixin, Base):
     """Named watchlist containing multiple entities."""
 
     __tablename__ = "portfolio_watchlists"
+    __table_args__ = (
+        # P4-M-020: prevent a user from creating two watchlists with the
+        # same name (the column is ``name``, not ``watchlist_name``).
+        UniqueConstraint("user_id", "name", name="uq_watchlist_user_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -48,6 +53,8 @@ class PortfolioWatchlistEntry(Base):
         nullable=False, index=True,
     )
     added_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # P4-M-027: audit trail field, matching Transaction.created_by.
+    created_by: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,15 +1,15 @@
 // ---------------------------------------------------------------------------
 // Performance Page — Returns Chart, Calendar Returns, Risk Metrics
 // ---------------------------------------------------------------------------
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { TimeSeriesChart, HeatmapChart } from '@/components/charts';
 import type { HeatmapDataPoint } from '@/components/charts';
 import {
+  usePortfolioNav,
   usePortfolioPerformance,
   usePortfolioReturns,
   usePortfolioCalendarReturns,
-  usePortfolioBenchmark,
   usePortfolioRiskMetrics,
   usePortfolioAttribution,
   usePortfolioAttributionByFactor,
@@ -17,11 +17,111 @@ import {
   usePortfolioRollingReturns,
 } from '@/hooks';
 
+// --- Real API response shapes (src/schemas/performance.py, attribution.py,
+// nav.py) -- P4-F-014: the previous `apiX?.field` reads (`.kpis`, `.rows`,
+// `.heatmap`, `.metrics`, `.sectors`, `.factors`, two `.data`s) didn't match
+// any real backend field name, so every one of these silently fell through
+// to the mock constant even once the hooks had real data to return. These
+// interfaces + the mapping below replace that with the actual response
+// shapes, transformed into what this page's tables/charts need.
+
+interface ApiNav {
+  nav: number;
+}
+
+// Fractions (e.g. 0.0842 for +8.42%), matching src/engines/backtester.py's
+// compute_performance_metrics convention.
+interface ApiPerformance {
+  twr_return: number | null;
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  information_ratio: number | null;
+  tracking_error: number | null;
+  max_drawdown: number | null;
+  beta: number | null;
+  alpha: number | null;
+  volatility: number | null;
+}
+
+interface ApiCalendarReturnEntry {
+  year: number;
+  jan: number | null;
+  feb: number | null;
+  mar: number | null;
+  apr: number | null;
+  may: number | null;
+  jun: number | null;
+  jul: number | null;
+  aug: number | null;
+  sep: number | null;
+  oct: number | null;
+  nov: number | null;
+  dec: number | null;
+  ytd: number | null;
+}
+
+interface ApiCalendarReturnResponse {
+  years: ApiCalendarReturnEntry[];
+}
+
+interface ApiRiskMetrics {
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  information_ratio: number | null;
+  tracking_error: number | null;
+  beta: number | null;
+  alpha: number | null;
+  volatility: number | null;
+}
+
+interface ApiSectorAttributionEntry {
+  sector: string;
+  allocation_effect: number;
+  selection_effect: number;
+  interaction_effect: number;
+  total_effect: number;
+}
+
+interface ApiAttributionResponse {
+  brinson: { sector_detail: ApiSectorAttributionEntry[] } | null;
+}
+
+interface ApiFactorAttributionEntry {
+  factor: string;
+  portfolio_exposure: number;
+  factor_return: number;
+  contribution: number;
+}
+
+interface ApiReturnSeriesEntry {
+  date: string;
+  cumulative_return: number;
+}
+
+interface ApiReturnSeriesResponse {
+  entries: ApiReturnSeriesEntry[];
+}
+
+interface ApiRollingReturnEntry {
+  date: string;
+  rolling_1m: number | null;
+}
+
+interface ApiRollingReturnResponse {
+  entries: ApiRollingReturnEntry[];
+}
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
 function signalColor(v: number): string { return v >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)'; }
+function formatSignedPct(v: number): string { return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`; }
+function formatCurrency(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toFixed(2)}`;
+}
 
 const perfKPIs = [
   { label: 'Portfolio Value', value: '$48.2M' },
@@ -47,31 +147,6 @@ const riskMetrics = [
 ];
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'YTD'];
-
-// --- Cumulative Return Mock Data (1 year) ------------------------------------
-
-function generateCumulativeReturns(): { date: string; value: number; portfolio: number; benchmark: number }[] {
-  const data: { date: string; value: number; portfolio: number; benchmark: number }[] = [];
-  let pCum = 0;
-  let bCum = 0;
-  const start = new Date('2025-03-27');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    pCum += (Math.random() - 0.46) * 0.8;
-    bCum += (Math.random() - 0.47) * 0.7;
-    const pRound = Math.round(pCum * 100) / 100;
-    data.push({
-      date: d.toISOString().slice(0, 10),
-      value: pRound,
-      portfolio: pRound,
-      benchmark: Math.round(bCum * 100) / 100,
-    });
-  }
-  return data;
-}
 
 // --- Calendar Heatmap Data ---------------------------------------------------
 
@@ -117,46 +192,6 @@ const mockFactorAttribution = [
   { factor: 'Low Volatility', exposure: -0.15, return: 2.3, contribution: -0.35 },
 ];
 
-// --- Drawdown Mock Data ------------------------------------------------------
-
-function generateDrawdownData(): { date: string; value: number }[] {
-  const data: { date: string; value: number }[] = [];
-  let dd = 0;
-  const start = new Date('2025-03-27');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    const change = (Math.random() - 0.46) * 0.6;
-    dd = Math.min(0, dd + change);
-    if (Math.random() > 0.95) dd = dd * 0.5; // partial recovery
-    data.push({ date: d.toISOString().slice(0, 10), value: Math.round(dd * 100) / 100 });
-  }
-  return data;
-}
-
-// --- Rolling Returns Mock Data -----------------------------------------------
-
-function generateRollingReturns(): { date: string; value: number; portfolio: number; benchmark: number }[] {
-  const data: { date: string; value: number; portfolio: number; benchmark: number }[] = [];
-  const start = new Date('2025-03-27');
-  let pRoll = 12;
-  let bRoll = 10;
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    pRoll += (Math.random() - 0.5) * 1.2;
-    bRoll += (Math.random() - 0.5) * 1.0;
-    const pVal = Math.round(pRoll * 100) / 100;
-    const bVal = Math.round(bRoll * 100) / 100;
-    data.push({ date: d.toISOString().slice(0, 10), value: pVal, portfolio: pVal, benchmark: bVal });
-  }
-  return data;
-}
-
 function CumulativeReturnChart({ data }: { data?: { date: string; value: number; portfolio: number; benchmark: number }[] }) {
   // P4-F-014: don't fabricate a Math.random() walk when the API hasn't
   // returned data; render an empty chart instead so the user can tell
@@ -181,28 +216,143 @@ export default function PerformancePage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
 
   // --- API hooks with fallback to mock data ---
-  const { data: apiPerformance } = usePortfolioPerformance(portfolioId);
-  const { data: apiReturns } = usePortfolioReturns(portfolioId);
-  const { data: apiCalendarReturns } = usePortfolioCalendarReturns(portfolioId);
-  const { data: apiBenchmark } = usePortfolioBenchmark(portfolioId);
-  const { data: apiRiskMetrics } = usePortfolioRiskMetrics(portfolioId);
-  const { data: apiAttribution } = usePortfolioAttribution(portfolioId);
-  const { data: apiFactorAttribution } = usePortfolioAttributionByFactor(portfolioId);
-  const { data: apiDrawdown } = usePortfolioDrawdown(portfolioId);
-  const { data: apiRollingReturns } = usePortfolioRollingReturns(portfolioId);
+  const { data: apiNav } = usePortfolioNav(portfolioId) as { data: ApiNav | undefined };
+  const { data: apiPerformance } = usePortfolioPerformance(portfolioId) as { data: ApiPerformance | null | undefined };
+  const { data: apiReturns } = usePortfolioReturns(portfolioId) as { data: ApiReturnSeriesResponse | undefined };
+  const { data: apiCalendarReturns } = usePortfolioCalendarReturns(portfolioId) as { data: ApiCalendarReturnResponse | undefined };
+  const { data: apiRiskMetrics } = usePortfolioRiskMetrics(portfolioId) as { data: ApiRiskMetrics | undefined };
+  const { data: apiAttribution } = usePortfolioAttribution(portfolioId) as { data: ApiAttributionResponse | undefined };
+  const { data: apiFactorAttribution } = usePortfolioAttributionByFactor(portfolioId) as { data: ApiFactorAttributionEntry[] | undefined };
+  const { data: apiRollingReturns } = usePortfolioRollingReturns(portfolioId) as { data: ApiRollingReturnResponse | undefined };
+  // No /performance/drawdown series endpoint exists -- DrawdownResponse
+  // (src/schemas/performance.py) is a single summary object (max_drawdown/
+  // peak_date/trough_date), not a time series, so it can't feed this chart.
+  // Kept unused-fetch-free rather than fabricating a 2-point series from a
+  // summary; the chart stays an honest empty state until a real drawdown
+  // series endpoint exists.
+  usePortfolioDrawdown(portfolioId);
 
-  // --- Wire API data with mock fallback ---
-  const kpis = apiPerformance?.kpis ?? perfKPIs;
-  const calReturns = apiCalendarReturns?.rows ?? calendarReturns;
-  const heatmapData = apiCalendarReturns?.heatmap ?? HEATMAP_DATA;
-  const heatmapYears = apiCalendarReturns?.years ?? HEATMAP_YEARS;
-  const risk = apiRiskMetrics?.metrics ?? riskMetrics;
-  const returnsData = apiReturns?.data ?? undefined;
-  const attributionData = apiAttribution?.sectors ?? mockAttribution;
-  const factorData = apiFactorAttribution?.factors ?? mockFactorAttribution;
-  // Same as above: no Math.random() walks when the API has no data.
-  const drawdownData = useMemo(() => apiDrawdown?.data ?? [], [apiDrawdown]);
-  const rollingData = useMemo(() => apiRollingReturns?.data ?? [], [apiRollingReturns]);
+  // --- Wire API data with mock fallback (P4-F-014) ---
+  // KPIs are merged per-field (same pattern RiskPage.tsx uses for its VaR
+  // row) rather than swapped as a whole array, since "Portfolio Value" (NAV)
+  // and the 4 performance-derived cells come from two different real
+  // endpoints while MTD/1Y Return have no real per-period source yet (the
+  // backend's /performance endpoint always computes a single
+  // since-inception snapshot regardless of the `period` query param -- see
+  // that endpoint's docstring).
+  const kpis = [
+    { label: 'Portfolio Value', value: apiNav?.nav != null ? formatCurrency(apiNav.nav) : perfKPIs[0]!.value },
+    { label: 'MTD Return', value: perfKPIs[1]!.value },
+    { label: 'YTD Return', value: apiPerformance?.twr_return != null ? formatSignedPct(apiPerformance.twr_return * 100) : perfKPIs[2]!.value },
+    { label: '1Y Return', value: perfKPIs[3]!.value },
+    { label: 'Sharpe (1Y)', value: apiPerformance?.sharpe_ratio != null ? apiPerformance.sharpe_ratio.toFixed(2) : perfKPIs[4]!.value },
+    { label: 'Max Drawdown', value: apiPerformance?.max_drawdown != null ? formatSignedPct(-Math.abs(apiPerformance.max_drawdown) * 100) : perfKPIs[5]!.value },
+  ];
+
+  const calReturns = useMemo(() => {
+    if (!apiCalendarReturns?.years?.length) return calendarReturns;
+    return apiCalendarReturns.years.map((y) => {
+      const months = [y.jan, y.feb, y.mar, y.apr, y.may, y.jun, y.jul, y.aug, y.sep, y.oct, y.nov, y.dec];
+      // Real CalendarReturnEntry.ytd is never populated by the backend
+      // (src/api/routers/portfolio_performance.py only ever sets the
+      // per-month fields) -- derive a compounded YTD from the months that
+      // do have data rather than showing a fabricated/missing figure.
+      const ytd = months.reduce((acc, m) => (m != null ? (1 + acc) * (1 + m) - 1 : acc), 0);
+      return {
+        year: String(y.year),
+        jan: (y.jan ?? 0) * 100, feb: (y.feb ?? 0) * 100, mar: (y.mar ?? 0) * 100,
+        apr: (y.apr ?? 0) * 100, may: (y.may ?? 0) * 100, jun: (y.jun ?? 0) * 100,
+        jul: (y.jul ?? 0) * 100, aug: (y.aug ?? 0) * 100, sep: (y.sep ?? 0) * 100,
+        oct: (y.oct ?? 0) * 100, nov: (y.nov ?? 0) * 100, dec: (y.dec ?? 0) * 100,
+        ytd: ytd * 100,
+      };
+    });
+  }, [apiCalendarReturns]);
+
+  const heatmapYears = useMemo(
+    () => (apiCalendarReturns?.years?.length ? apiCalendarReturns.years.map((y) => String(y.year)) : HEATMAP_YEARS),
+    [apiCalendarReturns],
+  );
+  const heatmapData = useMemo<HeatmapDataPoint[]>(() => {
+    if (!apiCalendarReturns?.years?.length) return HEATMAP_DATA;
+    const points: HeatmapDataPoint[] = [];
+    for (const y of apiCalendarReturns.years) {
+      for (const [col, val] of HEATMAP_MONTHS.map((m, i) => [m, [y.jan, y.feb, y.mar, y.apr, y.may, y.jun, y.jul, y.aug, y.sep, y.oct, y.nov, y.dec][i]] as const)) {
+        if (val != null) points.push({ row: String(y.year), col, value: val * 100 });
+      }
+    }
+    return points;
+  }, [apiCalendarReturns]);
+
+  // Real RiskMetricsResponse has no per-metric benchmark comparator (unlike
+  // the mock, which fabricates one for every row) -- shown as "-" for real
+  // data, matching the mock's own convention on its Tracking Error /
+  // Information Ratio rows where no benchmark figure is available either.
+  const risk = apiRiskMetrics
+    ? [
+        { metric: 'Volatility (Ann.)', portfolio: apiRiskMetrics.volatility != null ? formatSignedPct(apiRiskMetrics.volatility * 100) : '—', benchmark: '-' },
+        { metric: 'Tracking Error', portfolio: apiRiskMetrics.tracking_error != null ? formatSignedPct(apiRiskMetrics.tracking_error * 100) : '—', benchmark: '-' },
+        { metric: 'Information Ratio', portfolio: apiRiskMetrics.information_ratio != null ? apiRiskMetrics.information_ratio.toFixed(2) : '—', benchmark: '-' },
+        { metric: 'Sortino Ratio', portfolio: apiRiskMetrics.sortino_ratio != null ? apiRiskMetrics.sortino_ratio.toFixed(2) : '—', benchmark: '-' },
+        { metric: 'Beta', portfolio: apiRiskMetrics.beta != null ? apiRiskMetrics.beta.toFixed(2) : '—', benchmark: '-' },
+        { metric: 'Alpha (Ann.)', portfolio: apiRiskMetrics.alpha != null ? formatSignedPct(apiRiskMetrics.alpha * 100) : '—', benchmark: '-' },
+      ]
+    : riskMetrics;
+
+  const returnsData = useMemo(() => {
+    if (!apiReturns?.entries?.length) return undefined;
+    return apiReturns.entries.map((e) => ({
+      date: e.date,
+      value: e.cumulative_return * 100,
+      portfolio: e.cumulative_return * 100,
+      // No real benchmark daily-return series exists in this system yet
+      // (Portfolio.benchmark_id is a free-text ticker, not resolved against
+      // a priced security here) -- kept at 0 rather than fabricated.
+      benchmark: 0,
+    }));
+  }, [apiReturns]);
+
+  const attributionData = useMemo(
+    () =>
+      apiAttribution?.brinson?.sector_detail?.length
+        ? apiAttribution.brinson.sector_detail.map((s) => ({
+            sector: s.sector,
+            allocation: s.allocation_effect * 100,
+            selection: s.selection_effect * 100,
+            interaction: s.interaction_effect * 100,
+            total: s.total_effect * 100,
+          }))
+        : mockAttribution,
+    [apiAttribution],
+  );
+
+  const factorData = useMemo(
+    () =>
+      apiFactorAttribution?.length
+        ? apiFactorAttribution.map((f) => ({
+            factor: f.factor,
+            exposure: f.portfolio_exposure,
+            return: f.factor_return * 100,
+            contribution: f.contribution * 100,
+          }))
+        : mockFactorAttribution,
+    [apiFactorAttribution],
+  );
+
+  // No Math.random() walk when the API has no data (P4-F-014).
+  const drawdownData: { date: string; value: number }[] = [];
+  const rollingData = useMemo(() => {
+    if (!apiRollingReturns?.entries?.length) return [];
+    return apiRollingReturns.entries.map((e) => ({
+      date: e.date,
+      value: (e.rolling_1m ?? 0) * 100,
+      portfolio: (e.rolling_1m ?? 0) * 100,
+      // Backend only ever populates rolling_1m (src/api/routers/
+      // portfolio_performance.py::get_rolling_returns) -- no benchmark
+      // rolling series exists, kept at 0 rather than fabricated.
+      benchmark: 0,
+    }));
+  }, [apiRollingReturns]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>

@@ -1330,5 +1330,5 @@ async def set_target_allocation(
         rebalance_needed=False,
         position_drifts=[],
         sector_drifts=[],
-        target_allocation=body,
+        target_allocation=body.root,
     )

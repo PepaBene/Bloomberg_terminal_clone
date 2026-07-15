@@ -96,27 +96,9 @@ export function useBenchmarkReturns(id: string, options?: { enabled?: boolean })
   });
 }
 
-export function useBenchmarkConstituents(id: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['quant', 'benchmarkConstituents', id],
-    queryFn: () => api.get(BENCHMARKS.constituents(id)),
-    enabled: options?.enabled ?? !!id,
-    staleTime: STALE_1H,
-  });
-}
-
-export function useBenchmarkCompare() {
-  return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(BENCHMARKS.compare, body),
-  });
-}
-
-export function useBenchmarkFactSheet(id: string, options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['quant', 'benchmarkFactSheet', id],
-    queryFn: () => api.get(BENCHMARKS.factSheets(id)),
-    enabled: options?.enabled ?? !!id,
-    staleTime: STALE_1H,
-  });
-}
+// [P4-F-009 fix] useBenchmarkConstituents/useBenchmarkCompare/
+// useBenchmarkFactSheet removed -- they called BENCHMARKS.constituents/
+// compare/factSheets, none of which match a real backend route (see
+// endpoints.ts), and none had any consumer anywhere in the app. A
+// benchmark's constituents are already available via useBenchmarkDetail
+// (BenchmarkDetail.constituents).

@@ -566,6 +566,22 @@ BATCH_JOBS: list[BatchJob] = [
             "cadence."
         ),
     ),
+    # ── Pillar 4: Portfolio Backtesting ───────────────────────────────
+    BatchJob(
+        name="backtest_worker",
+        cron="*/15 * * * *",  # every 15 min
+        script="scripts/run_backtest_worker.py",
+        sla_minutes=30,
+        domain="P4",
+        description=(
+            "Advances PENDING BacktestRun rows (from POST /v1/analytics/backtest) "
+            "to COMPLETED/FAILED: runs the strategy through the real screening "
+            "engine, weights the basket, simulates it day-by-day against stored "
+            "EOD prices, and persists a BacktestResult. Run bare (no CLI args) "
+            "so it drains the pending queue and exits each invocation, per "
+            "run_scheduler.py's no-args subprocess convention."
+        ),
+    ),
 ]
 
 # Lookup by name for programmatic access

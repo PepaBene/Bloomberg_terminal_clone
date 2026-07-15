@@ -9,14 +9,65 @@ import {
   usePortfolioPositions,
   usePortfolioNav,
   usePortfolioNavHistory,
-  usePortfolioAllocations,
   usePortfolioAllocationsBySector,
-  usePortfolioSnapshot,
-  useAddPosition,
+  usePortfolioPerformance,
 } from '@/hooks';
 import { api } from '@/api/client';
-import { PORTFOLIOS } from '@/api/endpoints';
+import { useToastStore } from '@/stores/toastStore';
 import { ReportExportModal } from '@/components/ReportExportModal';
+
+// --- Real API response shapes (src/schemas/portfolio.py, position.py,
+// nav.py, performance.py) -- replaces `as any` casts (P4-F-022) with types
+// matching what the backend actually returns. ---------------------------
+
+interface ApiPortfolio {
+  id: string;
+  portfolio_name: string;
+  inception_date: string;
+  current_cash: number;
+  status: string;
+}
+
+interface ApiPosition {
+  id: string;
+  ticker: string;
+  shares: number | null;
+  market_value: number | null;
+  weight: number | null; // fraction, e.g. 0.032 for 3.2%
+  day_change_pct: number | null; // already percent, e.g. 1.25 for +1.25%
+  unrealized_pnl: number | null;
+  closing_price: number | null;
+}
+
+interface ApiNav {
+  nav: number;
+}
+
+interface ApiNavHistoryEntry {
+  date: string;
+  nav: number;
+  daily_return: number | null; // fraction
+  cumulative_return: number | null;
+}
+
+interface ApiNavHistoryResponse {
+  history: ApiNavHistoryEntry[];
+}
+
+interface ApiSectorAllocation {
+  name: string;
+  value: number;
+}
+
+// PerformanceResponse (src/schemas/performance.py) -- returns/drawdown are
+// fractions (e.g. 0.0842 for +8.42%), matching the same convention as
+// src/engines/backtester.py::compute_performance_metrics.
+interface ApiPerformance {
+  twr_return: number | null;
+  sharpe_ratio: number | null;
+  max_drawdown: number | null;
+  beta: number | null;
+}
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -157,17 +208,59 @@ export default function PortfolioDetail() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
 
   // API hooks — data falls back to mock constants via ?? below
-  const { data: apiPortfolio } = usePortfolio(portfolioId);
-  const { data: apiPositions } = usePortfolioPositions(portfolioId);
-  const { data: apiNav } = usePortfolioNav(portfolioId);
-  const { data: apiNavHistory } = usePortfolioNavHistory(portfolioId);
-  const { data: apiAllocations } = usePortfolioAllocationsBySector(portfolioId);
-  const { data: apiSnapshot } = usePortfolioSnapshot(portfolioId);
+  const { data: apiPortfolio } = usePortfolio(portfolioId) as { data: ApiPortfolio | undefined };
+  const { data: apiPositions } = usePortfolioPositions(portfolioId) as { data: ApiPosition[] | undefined };
+  const { data: apiNav } = usePortfolioNav(portfolioId) as { data: ApiNav | undefined };
+  const { data: apiNavHistory } = usePortfolioNavHistory(portfolioId) as { data: ApiNavHistoryResponse | undefined };
+  // [P4-F-013 note] No /v4/portfolios/{id}/allocations/sector route exists
+  // anywhere in src/api/routers/ (verified by grep) -- a missing feature,
+  // not a wiring bug, despite this hook having genuinely been wired up.
+  // Falls back to mock until that endpoint exists.
+  const { data: apiAllocations } = usePortfolioAllocationsBySector(portfolioId) as { data: ApiSectorAllocation[] | undefined };
+  const { data: apiPerformance } = usePortfolioPerformance(portfolioId) as { data: ApiPerformance | null | undefined };
+
+  const latestNavEntry = apiNavHistory?.history?.[apiNavHistory.history.length - 1];
 
   // Fallback: prefer API data, fall back to hardcoded mock data
-  const activePortfolio = (apiPortfolio as any) ?? portfolio;
-  const activeHoldings = (apiPositions as any[]) ?? holdings;
-  const activeAllocations = (apiAllocations as any[]) ?? SECTOR_ALLOCATION;
+  const activePortfolio = apiPortfolio
+    ? {
+        name: apiPortfolio.portfolio_name,
+        nav: apiNav?.nav ?? portfolio.nav,
+        dayChange: latestNavEntry?.daily_return != null ? latestNavEntry.daily_return * 100 : portfolio.dayChange,
+        dayChangeDollar:
+          latestNavEntry?.daily_return != null && apiNav?.nav != null
+            ? apiNav.nav * latestNavEntry.daily_return
+            : portfolio.dayChangeDollar,
+        inception: apiPortfolio.inception_date,
+      }
+    : portfolio;
+  const activeHoldings: Holding[] = Array.isArray(apiPositions)
+    ? apiPositions.map((p) => ({
+        ticker: p.ticker,
+        // PositionResponse has no company-name field, only `ticker`.
+        name: p.ticker,
+        shares: p.shares ?? 0,
+        price: p.closing_price ?? 0,
+        marketValue: p.market_value ?? 0,
+        weight: (p.weight ?? 0) * 100,
+        dayChange: p.day_change_pct ?? 0,
+        unrealizedPnl: p.unrealized_pnl ?? 0,
+      }))
+    : holdings;
+  const activeAllocations: ApiSectorAllocation[] = Array.isArray(apiAllocations) ? apiAllocations : SECTOR_ALLOCATION;
+
+  // [P4-F-013 fix] These 4 KPIs were rendered from the hardcoded
+  // `perfMetrics` constant with zero hook consumption. Wired to the real
+  // GET /v4/portfolios/{id}/performance endpoint, same ?? merge pattern
+  // used by the rest of this page.
+  const activePerfMetrics: PerformanceMetric[] = apiPerformance
+    ? [
+        { label: 'TWR (YTD)', value: apiPerformance.twr_return != null ? formatPct(apiPerformance.twr_return * 100) : '—' },
+        { label: 'Sharpe Ratio', value: apiPerformance.sharpe_ratio != null ? apiPerformance.sharpe_ratio.toFixed(2) : '—' },
+        { label: 'Max Drawdown', value: apiPerformance.max_drawdown != null ? formatPct(-Math.abs(apiPerformance.max_drawdown) * 100) : '—' },
+        { label: 'Beta (vs SPX)', value: apiPerformance.beta != null ? apiPerformance.beta.toFixed(2) : '—' },
+      ]
+    : perfMetrics;
 
   // --- Export modal state ---
   const [showExport, setShowExport] = useState(false);
@@ -194,6 +287,7 @@ export default function PortfolioDetail() {
       setPositionPrice('');
     } catch (e) {
       console.error('Failed to add position', e);
+      useToastStore.getState().showToast('Failed to add position. Please try again.');
     } finally {
       setPositionSubmitting(false);
     }
@@ -209,10 +303,21 @@ export default function PortfolioDetail() {
     setWhatIfRunning(true);
     setWhatIfResults(null);
     try {
-      const res = await api.post(`/v4/portfolios/${portfolioId}/what-if`, { scenario: whatIfScenario });
-      setWhatIfResults(res.data as any);
+      // NOTE: no /v4/portfolios/{id}/what-if route exists anywhere in
+      // src/api/routers/ (verified by grep) -- this always errors today.
+      // `api.post` already returns the parsed JSON body directly (see
+      // src/api/client.ts), not an axios-style `{ data }` wrapper, so the
+      // previous `res.data as any` would have been wrong even if the
+      // endpoint existed. Left as a real call (rather than removed) so the
+      // panel starts working the moment that endpoint is added.
+      const res = await api.post<{ projectedNavChange?: number; projectedPnl?: number }>(
+        `/v4/portfolios/${portfolioId}/what-if`,
+        { scenario: whatIfScenario },
+      );
+      setWhatIfResults(res);
     } catch (e) {
       console.error('What-if analysis failed', e);
+      useToastStore.getState().showToast('What-if analysis is unavailable right now.');
     } finally {
       setWhatIfRunning(false);
     }
@@ -247,7 +352,7 @@ export default function PortfolioDetail() {
 
       {/* Performance Metrics Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {perfMetrics.map((m) => (
+        {activePerfMetrics.map((m) => (
           <div key={m.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{m.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: m.value.startsWith('-') ? 'var(--color-signal-negative)' : m.value.startsWith('+') ? 'var(--color-signal-positive)' : 'var(--color-text-primary)' }}>
@@ -283,7 +388,7 @@ export default function PortfolioDetail() {
               </tr>
             </thead>
             <tbody>
-              {activeHoldings.map((h: any) => (
+              {activeHoldings.map((h) => (
                 <tr key={h.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{h.ticker}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)', whiteSpace: 'nowrap' }}>{h.name}</td>
@@ -317,7 +422,7 @@ export default function PortfolioDetail() {
           {/* NAV History (30 days) */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>NAV History (30D)</h2>
-            <NavHistoryChart data={(apiNavHistory as any)?.history} />
+            <NavHistoryChart data={apiNavHistory?.history.map((h) => ({ date: h.date, value: h.nav }))} />
           </div>
 
           {/* Portfolio Summary */}
@@ -326,9 +431,9 @@ export default function PortfolioDetail() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {[
                 { label: 'Total Positions', value: String(activeHoldings.length) },
-                { label: 'Total Market Value', value: formatCurrency(activeHoldings.reduce((s: number, h: any) => s + h.marketValue, 0)) },
-                { label: 'Total Unrealized P&L', value: formatCurrency(activeHoldings.reduce((s: number, h: any) => s + h.unrealizedPnl, 0)) },
-                { label: 'Largest Position', value: activeHoldings.length > 0 ? `${activeHoldings.reduce((max: any, h: any) => h.weight > max.weight ? h : max, activeHoldings[0]!).ticker} (${activeHoldings.reduce((max: any, h: any) => h.weight > max.weight ? h : max, activeHoldings[0]!).weight.toFixed(1)}%)` : 'N/A' },
+                { label: 'Total Market Value', value: formatCurrency(activeHoldings.reduce((s, h) => s + h.marketValue, 0)) },
+                { label: 'Total Unrealized P&L', value: formatCurrency(activeHoldings.reduce((s, h) => s + h.unrealizedPnl, 0)) },
+                { label: 'Largest Position', value: activeHoldings.length > 0 ? `${activeHoldings.reduce((max, h) => h.weight > max.weight ? h : max, activeHoldings[0]!).ticker} (${activeHoldings.reduce((max, h) => h.weight > max.weight ? h : max, activeHoldings[0]!).weight.toFixed(1)}%)` : 'N/A' },
               ].map((item) => (
                 <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <span style={labelStyle}>{item.label}</span>

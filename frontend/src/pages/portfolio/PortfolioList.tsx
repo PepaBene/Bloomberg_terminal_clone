@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
+import { useToastStore } from '@/stores/toastStore';
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -92,8 +93,7 @@ export default function PortfolioList() {
       void queryClient.invalidateQueries({ queryKey: ['portfolios'] });
     },
     onError: () => {
-      // TODO: show toast notification
-      console.warn('[PortfolioList] Create portfolio failed — API unavailable');
+      useToastStore.getState().showToast('Failed to create portfolio — API unavailable.');
     },
   });
 
@@ -128,6 +128,7 @@ export default function PortfolioList() {
         );
       } catch (err) {
         console.warn('[PortfolioList] CSV preview failed', err);
+        useToastStore.getState().showToast('Failed to preview CSV — check the file format and try again.');
         setUploadPreview([]);
       } finally {
         setIsUploading(false);
@@ -149,6 +150,7 @@ export default function PortfolioList() {
       setUploadPreview(null);
     } catch (err) {
       console.warn('[PortfolioList] CSV commit failed', err);
+      useToastStore.getState().showToast('Failed to import positions from CSV. Please try again.');
     } finally {
       setIsUploading(false);
     }

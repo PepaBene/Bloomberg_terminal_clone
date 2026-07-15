@@ -2,7 +2,7 @@
 // Backtest Dashboard — Strategy Backtesting, Results & History
 // ---------------------------------------------------------------------------
 import { useState, useCallback, useEffect } from 'react';
-import { useBacktestHistory, useBacktestStrategies } from '@/hooks';
+import { useBacktestStrategies } from '@/hooks';
 import { api } from '@/api/client';
 import { BACKTESTING } from '@/api/endpoints';
 
@@ -93,11 +93,13 @@ export default function BacktestDashboard() {
   const [endDate, setEndDate] = useState('2024-12-31');
 
   const { data: apiStrategies } = useBacktestStrategies() as { data: BacktestStrategyOption[] | undefined };
-  const { data: apiHistory } = useBacktestHistory() as { data: any };
 
   const activeStrategies = apiStrategies ?? strategies;
   const activeResults = backtestResults; // Mocked until backend has true backtesting
-  const activeHistory = (apiHistory as any)?.history ?? recentBacktests;
+  // [P4-F-017 fix] No "list all backtest runs" endpoint exists anywhere in
+  // backtesting.py -- useBacktestHistory always fired against a path that
+  // 404s. Recent runs stay an honest empty state until that endpoint exists.
+  const activeHistory = recentBacktests;
 
   // Default the selector to the first real strategy once the library loads.
   useEffect(() => {
@@ -108,20 +110,42 @@ export default function BacktestDashboard() {
   }, [activeStrategies, selectedStrategy]);
 
   // Dynamic KPIs (Bug 91 fix)
+  // [P4-F-017 fix] Guard against an empty `activeResults` array -- it was
+  // permanently empty (mocked until the backend has true backtesting, see
+  // comment above), so `.reduce()` with `activeResults[0]` as the seed
+  // produced `undefined`, rendering as the literal strings "+undefined%"
+  // and "NaN%" instead of an honest empty/placeholder state.
   const totalStrategies = activeStrategies?.length ?? 0;
   const totalBacktests = activeHistory?.length ?? 0;
-  const bestResult = activeResults.reduce((max, r) => r.cagr > max.cagr ? r : max, activeResults[0]);
-  const avgSharpe = (activeResults.reduce((sum, r) => sum + r.sharpe, 0) / activeResults.length).toFixed(2);
-  const avgWinRate = (activeResults.reduce((sum, r) => sum + r.winRate, 0) / activeResults.length).toFixed(1);
-  const maxDrawdownObj = activeResults.reduce((min, r) => r.maxDrawdown < min.maxDrawdown ? r : min, activeResults[0]);
+  const hasResults = activeResults.length > 0;
+  const bestResult = hasResults
+    ? activeResults.reduce((max, r) => (r.cagr > max.cagr ? r : max), activeResults[0]!)
+    : null;
+  const avgSharpe = hasResults
+    ? activeResults.reduce((sum, r) => sum + r.sharpe, 0) / activeResults.length
+    : null;
+  const avgWinRate = hasResults
+    ? activeResults.reduce((sum, r) => sum + r.winRate, 0) / activeResults.length
+    : null;
+  const maxDrawdownObj = hasResults
+    ? activeResults.reduce((min, r) => (r.maxDrawdown < min.maxDrawdown ? r : min), activeResults[0]!)
+    : null;
 
   const dynamicKpis = [
     { label: 'Strategies', value: totalStrategies.toString() },
     { label: 'Backtests Run', value: totalBacktests.toString() },
-    { label: 'Best Strategy CAGR', value: `+${bestResult?.cagr?.toFixed(2)}%`, color: 'var(--color-signal-positive)' },
-    { label: 'Avg Sharpe', value: avgSharpe },
-    { label: 'Win Rate', value: `${avgWinRate}%` },
-    { label: 'Max Drawdown', value: `${maxDrawdownObj?.maxDrawdown?.toFixed(1)}%`, color: 'var(--color-signal-negative)' },
+    {
+      label: 'Best Strategy CAGR',
+      value: bestResult ? `+${bestResult.cagr.toFixed(2)}%` : '—',
+      color: bestResult ? 'var(--color-signal-positive)' : undefined,
+    },
+    { label: 'Avg Sharpe', value: avgSharpe != null ? avgSharpe.toFixed(2) : '—' },
+    { label: 'Win Rate', value: avgWinRate != null ? `${avgWinRate.toFixed(1)}%` : '—' },
+    {
+      label: 'Max Drawdown',
+      value: maxDrawdownObj ? `${maxDrawdownObj.maxDrawdown.toFixed(1)}%` : '—',
+      color: maxDrawdownObj ? 'var(--color-signal-negative)' : undefined,
+    },
   ];
 
   const [isRunning, setIsRunning] = useState(false);
@@ -131,13 +155,29 @@ export default function BacktestDashboard() {
     setIsRunning(true);
     setRunError(null);
     try {
-      await api.post(BACKTESTING.run, { strategy: selectedStrategy, universe, startDate, endDate });
+      // [P4-F-017 fix] POST /v1/analytics/backtest (src/api/routers/
+      // backtesting.py) expects a BacktestRequest body -- name +
+      // strategy_definition (the selected prebuilt screen's filter
+      // criteria) + start_date/end_date, not the ad-hoc
+      // {strategy, universe, startDate, endDate} shape this used to send
+      // (which would 422 even once the path was fixed). The run is queued
+      // PENDING; there is no scheduler wired up yet to advance it (see the
+      // endpoint's docstring), so this intentionally doesn't poll for a
+      // result.
+      const selected = activeStrategies.find((s) => s.name === selectedStrategy);
+      await api.post(BACKTESTING.run, {
+        name: selected?.name ?? selectedStrategy,
+        description: universe ? `Universe: ${universe}` : undefined,
+        strategy_definition: selected?.strategy_definition ?? {},
+        start_date: startDate,
+        end_date: endDate,
+      });
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Backtest failed. Please try again.');
     } finally {
       setIsRunning(false);
     }
-  }, [selectedStrategy, universe, startDate, endDate]);
+  }, [activeStrategies, selectedStrategy, universe, startDate, endDate]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>

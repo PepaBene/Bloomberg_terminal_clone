@@ -3,7 +3,24 @@
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
+from src.schemas.common import round_or_none
+
+# P4-M-005: return/ratio fields across this module are deliberately kept as
+# ``float`` on the wire (Pydantic v2 serializes ``Decimal`` as a quoted
+# string by default, which would break existing JSON number consumers).
+# All fractional return/ratio fields (twr_return, sharpe_ratio, beta, ...)
+# are rounded via ``field_serializer`` to 6 decimal places -- matching the
+# meaningful precision of their source ``Numeric(12, 8)`` / ``Numeric(10,
+# 6)`` DB columns -- so the wire value doesn't imply false floating-point
+# precision.
+_RATIO_FIELDS = (
+    "twr_return", "mwr_return", "benchmark_return", "active_return",
+    "sharpe_ratio", "sortino_ratio", "information_ratio", "tracking_error",
+    "max_drawdown", "calmar_ratio", "beta", "alpha", "volatility",
+    "up_capture", "down_capture", "batting_average", "best_day", "worst_day",
+)
 
 
 class PerformanceResponse(BaseModel):
@@ -37,6 +54,10 @@ class PerformanceResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_serializer(*_RATIO_FIELDS)
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
 
 class ReturnSeriesEntry(BaseModel):
     """A single return data point."""
@@ -44,6 +65,10 @@ class ReturnSeriesEntry(BaseModel):
     date: date
     return_value: float
     cumulative_return: float
+
+    @field_serializer("return_value", "cumulative_return")
+    def _round_ratio(self, v: float) -> float:
+        return round(v, 6)
 
 
 class ReturnSeriesResponse(BaseModel):
@@ -72,6 +97,13 @@ class CalendarReturnEntry(BaseModel):
     dec: float | None = None
     ytd: float | None = None
 
+    @field_serializer(
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec", "ytd",
+    )
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
 
 class CalendarReturnResponse(BaseModel):
     """Calendar-year return grid."""
@@ -89,6 +121,10 @@ class RollingReturnEntry(BaseModel):
     rolling_6m: float | None = None
     rolling_1y: float | None = None
     rolling_3y: float | None = None
+
+    @field_serializer("rolling_1m", "rolling_3m", "rolling_6m", "rolling_1y", "rolling_3y")
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
 
 
 class RollingReturnResponse(BaseModel):
@@ -109,6 +145,14 @@ class BenchmarkComparisonResponse(BaseModel):
     tracking_error: float | None = None
     information_ratio: float | None = None
 
+    @field_serializer("portfolio_return", "benchmark_return", "active_return")
+    def _round_ratio(self, v: float) -> float:
+        return round(v, 6)
+
+    @field_serializer("tracking_error", "information_ratio")
+    def _round_ratio_optional(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
 
 class RiskMetricsResponse(BaseModel):
     """Comprehensive risk metrics."""
@@ -127,6 +171,14 @@ class RiskMetricsResponse(BaseModel):
     up_capture: float | None = None
     down_capture: float | None = None
 
+    @field_serializer(
+        "sharpe_ratio", "sortino_ratio", "information_ratio", "tracking_error",
+        "beta", "alpha", "volatility", "max_drawdown", "calmar_ratio",
+        "up_capture", "down_capture",
+    )
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
 
 class DrawdownResponse(BaseModel):
     """Drawdown analysis."""
@@ -138,6 +190,10 @@ class DrawdownResponse(BaseModel):
     recovery_date: date | None = None
     duration_days: int | None = None
 
+    @field_serializer("max_drawdown")
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
 
 class PerformanceCompareEntry(BaseModel):
     """Single portfolio entry in a comparison."""
@@ -148,6 +204,10 @@ class PerformanceCompareEntry(BaseModel):
     sharpe_ratio: float | None = None
     max_drawdown: float | None = None
     volatility: float | None = None
+
+    @field_serializer("twr_return", "sharpe_ratio", "max_drawdown", "volatility")
+    def _round_ratio(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
 
 
 class PerformanceCompareResponse(BaseModel):

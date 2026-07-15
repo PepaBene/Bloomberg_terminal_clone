@@ -256,8 +256,13 @@ export function useBacktestResult(backtestId: string | undefined) {
   });
 }
 
+// [P4-F-017 fix] No "list all backtest runs" endpoint exists anywhere in
+// src/api/routers/backtesting.py (verified by grep) -- disabled rather than
+// firing a request against a path that will never resolve.
 export function useBacktestHistory() {
-  return useApiQuery(['backtest', 'history'], BACKTESTING.history);
+  return useApiQuery(['backtest', 'history'], BACKTESTING.history, undefined, {
+    enabled: false,
+  });
 }
 
 export function useRunBacktest() {
