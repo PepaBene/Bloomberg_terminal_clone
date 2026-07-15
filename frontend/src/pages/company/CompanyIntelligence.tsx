@@ -339,7 +339,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Revenue Drivers" message="No revenue driver data available" />
+          <EmptyPanel title="Revenue Drivers" message="Not yet available -- no backend endpoint implemented" />
         )}
 
         {/* Cost Structure */}
@@ -364,7 +364,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Cost Structure" message="No cost structure data available" />
+          <EmptyPanel title="Cost Structure" message="Not yet available -- no backend endpoint implemented" />
         )}
 
         {/* Margin Analysis */}
@@ -394,7 +394,7 @@ export default function CompanyIntelligence() {
             </table>
           </div>
         ) : (
-          <EmptyPanel title="Margin Analysis" message="No margin data available" />
+          <EmptyPanel title="Margin Analysis" message="Not yet available -- no backend endpoint implemented" />
         )}
       </div>
 
@@ -455,7 +455,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="SWOT Analysis" message="No SWOT data available" />
+          <EmptyPanel title="SWOT Analysis" message="Not yet available -- no backend endpoint implemented" />
         )}
 
         {/* Porter's Five Forces */}
@@ -479,7 +479,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Porter's Five Forces" message="No competitive forces data available" />
+          <EmptyPanel title="Porter's Five Forces" message="Not yet available -- no backend endpoint implemented" />
         )}
       </div>
     </div>

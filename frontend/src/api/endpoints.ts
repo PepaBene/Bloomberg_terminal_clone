@@ -329,11 +329,19 @@ export const COMPETITIVE = {
   landscape: (entityId: string) => `/v3/competitive/${entityId}/landscape`,
   peers: (entityId: string) => `/v3/competitive/${entityId}/peers`,
   marketShare: (entityId: string) => `/v3/competitive/${entityId}/market-share`,
+  // Real, but nested under /concentration -- not a bare /customers /suppliers
+  // route (src/api/routers/competitive.py). Both were unused dead paths
+  // pointing at a route that never existed; corrected to the real ones.
+  customers: (entityId: string) => `/v3/competitive/${entityId}/concentration/customers`,
+  suppliers: (entityId: string) => `/v3/competitive/${entityId}/concentration/suppliers`,
+  // swot/porterForces/supplyChain: no corresponding backend route at all
+  // (verified by grep across src/api/routers/) -- a missing feature, not a
+  // path typo. useSWOT/usePorterForces are explicitly disabled
+  // (`enabled: false`) in useIntelligence.ts rather than firing a request
+  // against a path that will never resolve; useSupplyChain is unused.
   swot: (entityId: string) => `/v3/competitive/${entityId}/swot`,
   porterForces: (entityId: string) => `/v3/competitive/${entityId}/porter-forces`,
   supplyChain: (entityId: string) => `/v3/competitive/${entityId}/supply-chain`,
-  customers: (entityId: string) => `/v3/competitive/${entityId}/customers`,
-  suppliers: (entityId: string) => `/v3/competitive/${entityId}/suppliers`,
 } as const;
 
 export const INDUSTRY = {
@@ -374,20 +382,30 @@ export const GLOBAL = {
   globalIndices: '/v3/global/indices',
 } as const;
 
+// Real routes live on src/api/routers/company_intel_p2.py, mounted at /v3
+// under /company/{entity_id}/... (NOT /v3/intelligence/{id}/... -- that was
+// a routing bug: these 5 paths previously 404'd against a path that has
+// never existed on the backend).
 export const COMPANY_INTEL = {
-  overview: (entityId: string) => `/v3/intelligence/${entityId}`,
-  businessModel: (entityId: string) => `/v3/intelligence/${entityId}/business-model`,
-  capitalAllocation: (entityId: string) => `/v3/intelligence/${entityId}/capital-allocation`,
-  management: (entityId: string) => `/v3/intelligence/${entityId}/management`,
-  balanceSheetRisk: (entityId: string) => `/v3/intelligence/${entityId}/balance-sheet-risk`,
-  revenueDrivers: (entityId: string) => `/v3/intelligence/${entityId}/revenue-drivers`,
-  costStructure: (entityId: string) => `/v3/intelligence/${entityId}/cost-structure`,
-  growthProfile: (entityId: string) => `/v3/intelligence/${entityId}/growth-profile`,
-  qualityMetrics: (entityId: string) => `/v3/intelligence/${entityId}/quality-metrics`,
-  riskProfile: (entityId: string) => `/v3/intelligence/${entityId}/risk-profile`,
-  operatingLeverage: (entityId: string) => `/v3/intelligence/${entityId}/operating-leverage`,
-  marginAnalysis: (entityId: string) => `/v3/intelligence/${entityId}/margin-analysis`,
-  workingCapital: (entityId: string) => `/v3/intelligence/${entityId}/working-capital`,
+  overview: (entityId: string) => `/v3/company/${entityId}/intelligence`,
+  businessModel: (entityId: string) => `/v3/company/${entityId}/business-model`,
+  capitalAllocation: (entityId: string) => `/v3/company/${entityId}/capital-allocation`,
+  management: (entityId: string) => `/v3/company/${entityId}/management`,
+  balanceSheetRisk: (entityId: string) => `/v3/company/${entityId}/balance-sheet-risk`,
+  // The 8 paths below have NO corresponding backend route anywhere in
+  // src/api/routers/ (verified by grep) -- not a path bug, a missing
+  // feature. Left defined (so a future backend implementation has an
+  // agreed contract to land on) but every hook that calls one of these is
+  // explicitly disabled (`enabled: false`) in useIntelligence.ts rather
+  // than firing a request against a path that will never resolve.
+  revenueDrivers: (entityId: string) => `/v3/company/${entityId}/revenue-drivers`,
+  costStructure: (entityId: string) => `/v3/company/${entityId}/cost-structure`,
+  growthProfile: (entityId: string) => `/v3/company/${entityId}/growth-profile`,
+  qualityMetrics: (entityId: string) => `/v3/company/${entityId}/quality-metrics`,
+  riskProfile: (entityId: string) => `/v3/company/${entityId}/risk-profile`,
+  operatingLeverage: (entityId: string) => `/v3/company/${entityId}/operating-leverage`,
+  marginAnalysis: (entityId: string) => `/v3/company/${entityId}/margin-analysis`,
+  workingCapital: (entityId: string) => `/v3/company/${entityId}/working-capital`,
 } as const;
 
 export const EARNINGS = {
@@ -551,9 +569,28 @@ export const RESEARCH = {
   },
   thesis: {
     recent: '/v4/research/thesis/recent',
-    byEntity: (entityId: string) => `/v4/research/thesis/${entityId}`,
+    // Real GET route is .../{entity_id}/latest -- the bare
+    // /research/thesis/{entity_id} path is POST-only (creates a new
+    // thesis), so a GET against it 404s/405s. Fixed.
+    byEntity: (entityId: string) => `/v4/research/thesis/${entityId}/latest`,
+    // NOT a path bug -- src/api/routers/research_thesis.py has no
+    // /research/thesis/generate route at all. The real "create" endpoint is
+    // POST /research/thesis/{entity_id} (entity_id in the URL, not a
+    // separate endpoint), requires auth, and expects a full
+    // ThesisCreateRequest body (thesis_title/investment_horizon/
+    // conviction_level/executive_summary/key_drivers/primary_risks/
+    // valuation_scenarios/catalysts) -- a fundamentally different, analyst-
+    // authored shape than the {ticker, direction, targetPrice} this app
+    // currently sends. Left unmapped (kept as a placeholder route so the
+    // string exists) rather than silently pointed somewhere half-wrong;
+    // ThesisBuilder.tsx's "Generate" button is disabled until this UI is
+    // rebuilt around the real request shape.
     generate: '/v4/research/thesis/generate',
-    update: (thesisId: string) => `/v4/research/thesis/${thesisId}`,
+    // Real route is .../{thesis_id}/update (PUT). Fixed.
+    update: (thesisId: string) => `/v4/research/thesis/${thesisId}/update`,
+    // NOT a path bug -- no /validate route exists anywhere on
+    // research_thesis.py. ThesisBuilder.tsx's "Validate" button is disabled
+    // until a real backend endpoint exists.
     validate: (thesisId: string) => `/v4/research/thesis/${thesisId}/validate`,
   },
   qa: {

@@ -61,6 +61,16 @@ export default function ThesisBuilder() {
   const activeTargetPrice = valuation?.base?.target_price;
   const activeCurrentPrice = valuation?.current_price;
 
+  // Neither action has a working backend counterpart today (see
+  // RESEARCH.thesis.generate/.validate in @/api/endpoints.ts for exactly
+  // why -- a paradigm mismatch and a genuinely missing route,
+  // respectively). Disabling both rather than letting them silently fail
+  // on every click.
+  const GENERATE_UNAVAILABLE_REASON =
+    'Thesis creation requires sign-in and a full analyst write-up (title, drivers, risks, catalysts) -- this quick ticker/direction/target form does not match the real backend request shape yet.';
+  const VALIDATE_UNAVAILABLE_REASON =
+    'No thesis-validation endpoint exists on the backend yet.';
+
   const handleGenerate = async () => {
     if (!newTicker.trim()) return;
     setGenerating(true);
@@ -120,8 +130,8 @@ export default function ThesisBuilder() {
                 <div style={labelStyle}>Target Price</div>
                 <input type="number" className="terminal-input" value={newTarget} onChange={e => setNewTarget(e.target.value)} style={{ width: '120px' }} />
               </div>
-              <button className="btn-primary" onClick={handleGenerate} disabled={generating}>
-                {generating ? 'Generating...' : 'Generate'}
+              <button className="btn-primary" onClick={handleGenerate} disabled={generating || true} title={GENERATE_UNAVAILABLE_REASON}>
+                {generating ? 'Generating...' : 'Generate (unavailable)'}
               </button>
             </div>
           )}
@@ -203,8 +213,8 @@ export default function ThesisBuilder() {
               <div style={labelStyle}>Target Price</div>
               <input type="number" className="terminal-input" value={newTarget} onChange={e => setNewTarget(e.target.value)} style={{ width: '120px' }} />
             </div>
-            <button className="btn-primary" onClick={handleGenerate} disabled={generating}>
-              {generating ? 'Generating...' : 'Generate'}
+            <button className="btn-primary" onClick={handleGenerate} disabled={generating || true} title={GENERATE_UNAVAILABLE_REASON}>
+              {generating ? 'Generating...' : 'Generate (unavailable)'}
             </button>
           </div>
         )}
@@ -243,8 +253,8 @@ export default function ThesisBuilder() {
         <button className="btn-ghost" onClick={() => setShowCreateForm(!showCreateForm)} style={{ marginLeft: activeTargetPrice != null ? '8px' : 'auto' }}>
           New Thesis
         </button>
-        <button className="btn-primary" onClick={handleValidate} disabled={validating} style={{ marginLeft: '4px' }}>
-          {validating ? 'Validating...' : 'Validate Thesis'}
+        <button className="btn-primary" onClick={handleValidate} disabled={validating || true} title={VALIDATE_UNAVAILABLE_REASON} style={{ marginLeft: '4px' }}>
+          {validating ? 'Validating...' : 'Validate Thesis (unavailable)'}
         </button>
       </div>
       {showCreateForm && (
@@ -264,8 +274,8 @@ export default function ThesisBuilder() {
             <div style={labelStyle}>Target Price</div>
             <input type="number" className="terminal-input" value={newTarget} onChange={e => setNewTarget(e.target.value)} style={{ width: '120px' }} />
           </div>
-          <button className="btn-primary" onClick={handleGenerate} disabled={generating}>
-            {generating ? 'Generating...' : 'Generate'}
+          <button className="btn-primary" onClick={handleGenerate} disabled={generating || true} title={GENERATE_UNAVAILABLE_REASON}>
+            {generating ? 'Generating...' : 'Generate (unavailable)'}
           </button>
         </div>
       )}
