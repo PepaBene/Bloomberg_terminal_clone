@@ -14,6 +14,24 @@ import {
   RESEARCH,
   MACRO,
 } from '@/api/endpoints';
+import type {
+  BalanceSheetRiskAssessment,
+  BusinessModelAnalysis,
+  CapitalAllocationAssessment,
+  CompanyIntelligenceOverview,
+  CostStructureResponse,
+  ManagementQualityAssessment,
+  MarginAnalysisResponse,
+  MoatAssessment,
+  PorterForcesResponse,
+  RevenueDriversResponse,
+  SWOTAssessment,
+} from '@/types/intelligence';
+import type {
+  CompanyPrimer,
+  InvestmentThesis,
+  PrimerListSummary,
+} from '@/types/research';
 
 // ---------------------------------------------------------------------------
 // Filing Intelligence
@@ -214,43 +232,49 @@ export function useEarningsSeasonality(entityId: string | undefined) {
 // ---------------------------------------------------------------------------
 
 export function useCompanyIntelligence(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId], COMPANY_INTEL.overview(entityId!), undefined, {
+  return useApiQuery<CompanyIntelligenceOverview>(['intelligence', entityId], COMPANY_INTEL.overview(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
 export function useBusinessModel(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'business-model'], COMPANY_INTEL.businessModel(entityId!), undefined, {
+  return useApiQuery<BusinessModelAnalysis>(['intelligence', entityId, 'business-model'], COMPANY_INTEL.businessModel(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
 export function useCapitalAllocation(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'capital-allocation'], COMPANY_INTEL.capitalAllocation(entityId!), undefined, {
+  return useApiQuery<CapitalAllocationAssessment>(['intelligence', entityId, 'capital-allocation'], COMPANY_INTEL.capitalAllocation(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
 export function useManagementIntel(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'management'], COMPANY_INTEL.management(entityId!), undefined, {
+  return useApiQuery<ManagementQualityAssessment>(['intelligence', entityId, 'management'], COMPANY_INTEL.management(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
 export function useBalanceSheetRisk(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'balance-sheet-risk'], COMPANY_INTEL.balanceSheetRisk(entityId!), undefined, {
+  return useApiQuery<BalanceSheetRiskAssessment>(['intelligence', entityId, 'balance-sheet-risk'], COMPANY_INTEL.balanceSheetRisk(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
+// NOTE: COMPANY_INTEL.revenueDrivers has no backing route in
+// src/api/routers/*.py yet (see RevenueDriversResponse in
+// @/types/intelligence for details) -- typed against the frontend's own
+// expected shape, not a verified backend schema.
 export function useRevenueDrivers(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'revenue-drivers'], COMPANY_INTEL.revenueDrivers(entityId!), undefined, {
+  return useApiQuery<RevenueDriversResponse>(['intelligence', entityId, 'revenue-drivers'], COMPANY_INTEL.revenueDrivers(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
+// NOTE: COMPANY_INTEL.costStructure has no backing route yet -- see
+// CostStructureResponse in @/types/intelligence.
 export function useCostStructure(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'cost-structure'], COMPANY_INTEL.costStructure(entityId!), undefined, {
+  return useApiQuery<CostStructureResponse>(['intelligence', entityId, 'cost-structure'], COMPANY_INTEL.costStructure(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
@@ -279,8 +303,10 @@ export function useOperatingLeverage(entityId: string | undefined) {
   });
 }
 
+// NOTE: COMPANY_INTEL.marginAnalysis has no backing route yet -- see
+// MarginAnalysisResponse in @/types/intelligence.
 export function useMarginAnalysis(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'margin-analysis'], COMPANY_INTEL.marginAnalysis(entityId!), undefined, {
+  return useApiQuery<MarginAnalysisResponse>(['intelligence', entityId, 'margin-analysis'], COMPANY_INTEL.marginAnalysis(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
@@ -296,7 +322,7 @@ export function useWorkingCapital(entityId: string | undefined) {
 // ---------------------------------------------------------------------------
 
 export function useMoatAssessment(entityId: string | undefined) {
-  return useApiQuery(['competitive', entityId, 'moat'], COMPETITIVE.moat(entityId!), undefined, {
+  return useApiQuery<MoatAssessment>(['competitive', entityId, 'moat'], COMPETITIVE.moat(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
@@ -319,14 +345,19 @@ export function useMarketShare(entityId: string | undefined) {
   });
 }
 
+// NOTE: COMPETITIVE.swot has no backing route in src/api/routers/*.py yet
+// (no SWOT schema/model exists anywhere in the backend) -- see
+// SWOTAssessment in @/types/intelligence.
 export function useSWOT(entityId: string | undefined) {
-  return useApiQuery(['competitive', entityId, 'swot'], COMPETITIVE.swot(entityId!), undefined, {
+  return useApiQuery<SWOTAssessment>(['competitive', entityId, 'swot'], COMPETITIVE.swot(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
+// NOTE: COMPETITIVE.porterForces has no backing route yet -- see
+// PorterForcesResponse in @/types/intelligence.
 export function usePorterForces(entityId: string | undefined) {
-  return useApiQuery(['competitive', entityId, 'porter'], COMPETITIVE.porterForces(entityId!), undefined, {
+  return useApiQuery<PorterForcesResponse>(['competitive', entityId, 'porter'], COMPETITIVE.porterForces(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
@@ -539,13 +570,13 @@ export function useFITechnicalLevels() {
 // ---------------------------------------------------------------------------
 
 export function useCompanyPrimer(entityId: string | undefined) {
-  return useApiQuery(['research', 'primers', entityId], RESEARCH.primers.byEntity(entityId!), undefined, {
+  return useApiQuery<CompanyPrimer>(['research', 'primers', entityId], RESEARCH.primers.byEntity(entityId!), undefined, {
     enabled: !!entityId,
   });
 }
 
 export function useRecentPrimers() {
-  return useApiQuery(['research', 'primers', 'recent'], RESEARCH.primers.recent);
+  return useApiQuery<PrimerListSummary[]>(['research', 'primers', 'recent'], RESEARCH.primers.recent);
 }
 
 export function useMorningBriefing() {
@@ -594,7 +625,7 @@ export function useResearchNotes(entityId?: string) {
 }
 
 export function useResearchThesis(entityId: string | undefined) {
-  return useApiQuery(['research', 'thesis', entityId], RESEARCH.thesis.byEntity(entityId!), undefined, {
+  return useApiQuery<InvestmentThesis>(['research', 'thesis', entityId], RESEARCH.thesis.byEntity(entityId!), undefined, {
     enabled: !!entityId,
   });
 }

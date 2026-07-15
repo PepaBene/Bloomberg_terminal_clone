@@ -6,6 +6,11 @@ import { useParams } from 'react-router-dom';
 import { useResearchThesis } from '@/hooks';
 import { api } from '@/api/client';
 import { RESEARCH } from '@/api/endpoints';
+import type { ThesisCatalystItem, ThesisDriverItem, ThesisRiskItem } from '@/types/research';
+
+interface ValidateThesisResponse {
+  summary?: string;
+}
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -40,11 +45,21 @@ export default function ThesisBuilder() {
   const [newDirection, setNewDirection] = useState('Long');
   const [newTarget, setNewTarget] = useState('');
 
-  const thesisData = apiThesis as Record<string, any> | undefined;
-  const activeThesis = thesisData?.thesis;
-  const activeDrivers = thesisData?.drivers as any[] | undefined;
-  const activeRisks = thesisData?.risks as any[] | undefined;
-  const activeCatalysts = thesisData?.catalysts as any[] | undefined;
+  // ThesisResponse has no nested `.thesis` object -- the response itself
+  // *is* the thesis. key_drivers/primary_risks/catalysts are `{"items":
+  // [...]}` dicts (analyst free-form JSON, see @/types/research), not flat
+  // `drivers`/`risks`/`catalysts` arrays.
+  const thesisData = apiThesis;
+  const activeThesis = thesisData;
+  const activeDrivers: ThesisDriverItem[] | undefined = thesisData?.key_drivers?.items;
+  const activeRisks: ThesisRiskItem[] | undefined = thesisData?.primary_risks?.items;
+  const activeCatalysts: ThesisCatalystItem[] | undefined = thesisData?.catalysts?.items;
+  // ThesisResponse has no ticker/direction/targetPrice/currentPrice fields --
+  // price targets live in the documented (but unenforced) valuation_scenarios
+  // convention: {current_price, bull/base/bear: {target_price, implied_return}}.
+  const valuation = thesisData?.valuation_scenarios;
+  const activeTargetPrice = valuation?.base?.target_price;
+  const activeCurrentPrice = valuation?.current_price;
 
   const handleGenerate = async () => {
     if (!newTicker.trim()) return;
@@ -62,8 +77,7 @@ export default function ThesisBuilder() {
     if (!activeThesis) return;
     setValidating(true);
     try {
-      const res = await api.post(RESEARCH.thesis.validate(activeThesis.id ?? resolvedId ?? ''), {});
-      const data = res as Record<string, any>;
+      const data = await api.post<ValidateThesisResponse>(RESEARCH.thesis.validate(activeThesis.id ?? resolvedId ?? ''), {});
       setValidationResult(data?.summary ?? 'Thesis validated successfully');
     } catch (err) {
       console.error('Thesis validation failed:', err);
@@ -207,21 +221,26 @@ export default function ThesisBuilder() {
   }
 
   // Main thesis view
-  const activeUpside = activeThesis.targetPrice && activeThesis.currentPrice
-    ? ((activeThesis.targetPrice - activeThesis.currentPrice) / activeThesis.currentPrice * 100).toFixed(1)
+  const activeUpside = activeTargetPrice && activeCurrentPrice
+    ? ((activeTargetPrice - activeCurrentPrice) / activeCurrentPrice * 100).toFixed(1)
     : '--';
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>Investment Thesis</h1>
-        <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{activeThesis.ticker}</span>
-        <span style={labelStyle}>{activeThesis.name}</span>
-        <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-signal-positive)', background: 'var(--color-surface-overlay)', padding: '2px 8px', borderRadius: '3px' }}>{activeThesis.direction} &mdash; {activeThesis.conviction}</span>
-        {activeThesis.targetPrice && (
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)', fontWeight: 600 }}>Target: ${activeThesis.targetPrice} (+{activeUpside}%)</span>
+        {/* ThesisResponse has no ticker field -- resolvedId (the route's entity
+            UUID) is the only identifier available; thesis_title stands in for
+            a display name, and there's no `direction` (Long/Short) field. */}
+        <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{resolvedId}</span>
+        <span style={labelStyle}>{activeThesis.thesis_title ?? ''}</span>
+        {activeThesis.conviction_level && (
+          <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-signal-positive)', background: 'var(--color-surface-overlay)', padding: '2px 8px', borderRadius: '3px' }}>{activeThesis.conviction_level}</span>
         )}
-        <button className="btn-ghost" onClick={() => setShowCreateForm(!showCreateForm)} style={{ marginLeft: activeThesis.targetPrice ? '8px' : 'auto' }}>
+        {activeTargetPrice != null && (
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-signal-positive)', fontWeight: 600 }}>Target: ${activeTargetPrice} (+{activeUpside}%)</span>
+        )}
+        <button className="btn-ghost" onClick={() => setShowCreateForm(!showCreateForm)} style={{ marginLeft: activeTargetPrice != null ? '8px' : 'auto' }}>
           New Thesis
         </button>
         <button className="btn-primary" onClick={handleValidate} disabled={validating} style={{ marginLeft: '4px' }}>
@@ -261,7 +280,7 @@ export default function ThesisBuilder() {
                 ))}
               </tr></thead>
               <tbody>
-                {activeDrivers.map((d: any) => (
+                {activeDrivers.map((d) => (
                   <tr key={d.driver} style={{ height: 'var(--table-row-height)' }}>
                     <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.driver}</td>
                     <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.weight}%</td>
@@ -286,7 +305,7 @@ export default function ThesisBuilder() {
                 ))}
               </tr></thead>
               <tbody>
-                {activeRisks.map((r: any) => (
+                {activeRisks.map((r) => (
                   <tr key={r.risk} style={{ height: 'var(--table-row-height)' }}>
                     <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
                       <div>{r.risk}</div>
@@ -314,10 +333,10 @@ export default function ThesisBuilder() {
                 ))}
               </tr></thead>
               <tbody>
-                {activeCatalysts.map((c: any) => (
-                  <tr key={c.event} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{c.date}</td>
-                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{c.event}</td>
+                {activeCatalysts.map((c, i) => (
+                  <tr key={c.event ?? `${c.description}-${i}`} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{c.date ?? c.timing ?? ''}</td>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{c.event ?? c.description}</td>
                     <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: c.expectedImpact === 'Positive' ? 'var(--color-signal-positive)' : 'var(--color-signal-warning)' }}>{c.expectedImpact}</td>
                     <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.notes}</td>
                   </tr>

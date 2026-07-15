@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useResearchThemes } from '@/hooks';
 import { useThemeDetail, useThemeSecurities } from '@/api/hooks/useResearch';
+import type { ThemeScreenResult } from '@/types/research';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
@@ -64,7 +65,7 @@ export default function ThemesDashboard() {
 
   const { data: detail } = useThemeDetail(selectedTheme ?? '', { enabled: !!selectedTheme });
   const { data: securitiesRaw } = useThemeSecurities(selectedTheme ?? '', { enabled: !!selectedTheme });
-  const securities = Array.isArray(securitiesRaw) ? (securitiesRaw as any[]) : [];
+  const securities: ThemeScreenResult[] = Array.isArray(securitiesRaw) ? securitiesRaw : [];
   const themeDetail = detail as
     | { entity_count: number; avg_exposure_score: number | null; bullish_count: number; bearish_count: number; neutral_count: number; latest_as_of_date: string | null }
     | undefined;

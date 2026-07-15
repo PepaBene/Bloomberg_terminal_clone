@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 import { RESEARCH } from '../endpoints';
+import type { ThemeScreenResult } from '@/types/research';
 
 const STALE_30M = 30 * 60 * 1000;
 
@@ -327,7 +328,7 @@ export function useThemeScreen() {
 export function useThemeSecurities(themeId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['research', 'themes', themeId, 'securities'],
-    queryFn: () => api.get(RESEARCH.themes.securities(themeId)),
+    queryFn: () => api.get<ThemeScreenResult[]>(RESEARCH.themes.securities(themeId)),
     enabled: options?.enabled ?? !!themeId,
     staleTime: STALE_30M,
   });
