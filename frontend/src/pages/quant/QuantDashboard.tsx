@@ -6,6 +6,48 @@ import { useNavigate } from 'react-router-dom';
 import { useCorrelation, useFactorExposure, useTechnicalSignals } from '@/hooks';
 import { useSecurityStore } from '@/stores/securityContext';
 
+// --- Real API response shapes (src/api/routers/analytics.py's
+// get_factor_exposure/get_technical_signals -- plain dicts, not Pydantic
+// models) -- P4-F-022 fix, replaces this page's 6 `as any` casts.
+
+interface ApiQuantFactor {
+  factor: string;
+  exposure: number | null;
+  blumeAdjusted: number | null;
+  rSquared: number | null;
+  correlation: number | null;
+}
+
+interface ApiFactorExposureResponse {
+  factors: ApiQuantFactor[];
+  note?: string;
+}
+
+interface ApiTechnicalSignal {
+  indicator: string;
+  name: string;
+  value: number;
+  signal: string | null;
+  category: string | null;
+}
+
+interface ApiTechnicalSignalsResponse {
+  signals: ApiTechnicalSignal[];
+  price: number | null;
+  priceReturn1m: number | null;
+}
+
+// ANALYTICS.correlation (`/v2/analytics/correlation`, called here via GET
+// with no body) matches no real backend route -- the real quant router
+// mounts correlation at POST /v2/analytics/quant/correlation with a
+// series_x_id/series_y_id body (src/api/routers/quant.py). Out of scope for
+// this pass (a real fix needs this panel rebuilt around that POST contract
+// with two selected securities, not a parameterless GET); kept loosely
+// typed with an honest empty-array fallback rather than `any`.
+interface ApiCorrelationSummary {
+  factorPerformance?: { factor: string; mtd: number; qtd: number; ytd: number; oneYear: number; sharpe: number; ic: number }[];
+}
+
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
   border: '1px solid var(--color-surface-border)',
@@ -72,29 +114,29 @@ export default function QuantDashboard() {
   const primary = useSecurityStore((s) => s.primary);
   const secId = primary?.security_id;
 
-  const { data: apiCorrelation } = useCorrelation() as { data: any };
-  const { data: apiFactorExposure } = useFactorExposure(secId) as { data: any };
-  const { data: apiSignals } = useTechnicalSignals(secId) as { data: any };
+  const { data: apiCorrelation } = useCorrelation() as { data: ApiCorrelationSummary | undefined };
+  const { data: apiFactorExposure } = useFactorExposure(secId) as { data: ApiFactorExposureResponse | undefined };
+  const { data: apiSignals } = useTechnicalSignals(secId) as { data: ApiTechnicalSignalsResponse | undefined };
 
   // Factor Performance table: cross-sectional factor return/IC summary,
   // backed by GET /v2/analytics/correlation (separate scope from this fix).
-  const activeFactorPerf = (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
+  const activeFactorPerf = apiCorrelation?.factorPerformance ?? factorPerformance;
 
   // Security Factor Exposure (Bug 87): single-factor (CAPM market beta)
   // computed live from real EODPrice data via QuantEngine (E7). This
   // codebase has no factor-return time series, so genuine multi-factor
   // (size/value/momentum) exposure isn't computable here — the backend
   // returns a `note` explaining that instead of fabricating extra factors.
-  const securityFactors = (apiFactorExposure as any)?.factors ?? [];
-  const factorExposureNote = (apiFactorExposure as any)?.note as string | undefined;
+  const securityFactors = apiFactorExposure?.factors ?? [];
+  const factorExposureNote = apiFactorExposure?.note;
 
   // Momentum Signals (Bug 87): real per-indicator technical signals
   // (SMA/EMA/RSI/MACD/etc.) for the selected security, computed live from
   // EODPrice via src/engines/technical_studies.py. Same shape/endpoint that
   // CompanyOverview.tsx's "Technical Signals" panel consumes.
-  const activeMomentum = (apiSignals as any)?.signals ?? momentumSignals;
-  const momentumPrice = (apiSignals as any)?.price as number | undefined;
-  const momentumReturn1m = (apiSignals as any)?.priceReturn1m as number | undefined;
+  const activeMomentum = apiSignals?.signals ?? momentumSignals;
+  const momentumPrice = apiSignals?.price ?? undefined;
+  const momentumReturn1m = apiSignals?.priceReturn1m ?? undefined;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -117,7 +159,7 @@ export default function QuantDashboard() {
             </tr>
           </thead>
           <tbody>
-            {activeFactorPerf.map((f: any) => (
+            {activeFactorPerf.map((f) => (
               <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(f.mtd) }}>{f.mtd >= 0 ? '+' : ''}{f.mtd.toFixed(2)}%</td>
@@ -148,7 +190,7 @@ export default function QuantDashboard() {
               </tr>
             </thead>
             <tbody>
-              {securityFactors.map((f: any) => (
+              {securityFactors.map((f) => (
                 <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.exposure?.toFixed(2) ?? '—'}</td>
@@ -194,7 +236,7 @@ export default function QuantDashboard() {
               </tr>
             </thead>
             <tbody>
-              {activeMomentum.map((s: any) => (
+              {activeMomentum.map((s) => (
                 <tr key={s.indicator ?? s.name} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.name}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.value != null ? s.value.toFixed(2) : '—'}</td>

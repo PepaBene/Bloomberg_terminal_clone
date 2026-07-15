@@ -14,6 +14,9 @@ from src.models.base import Base, TimestampMixin
 if TYPE_CHECKING:  # avoid circular imports at runtime
     from src.models.position import Position
     from src.models.transaction import Transaction
+    from src.models.nav_snapshot import NAVSnapshot, CorporateActionQueue
+    from src.models.performance import PerformanceSnapshot
+    from src.models.attribution import AttributionResult
 
 
 class Portfolio(TimestampMixin, Base):
@@ -22,6 +25,15 @@ class Portfolio(TimestampMixin, Base):
     __tablename__ = "portfolios"
     __table_args__ = (
         UniqueConstraint("user_id", "portfolio_name", name="uq_portfolio_user_name"),
+        # P4-M-026: NOT constrained, on purpose. Unlike Position/BacktestRun/
+        # Transaction, ``status`` here is a genuine open-ended string, not a
+        # fixed enum -- ``PUT /portfolios/{id}`` (update_portfolio,
+        # src/api/routers/portfolios.py) lets a caller set it to any value
+        # (e.g. "PAUSED", exercised by test_update_portfolio_status), and
+        # ``portfolio_type`` similarly sees REAL/PAPER *and* EQUITY in
+        # practice (the CSV-upload commit path). Locking either down would
+        # break real, already-relied-upon behavior instead of catching bad
+        # data.
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -56,6 +68,35 @@ class Portfolio(TimestampMixin, Base):
     )
     transactions: Mapped[list["Transaction"]] = relationship(
         "Transaction",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    # P4-M-010: NAV/performance/attribution history relationships, added
+    # alongside the P4-M-009 ``ondelete="CASCADE"`` fix on their portfolio_id
+    # FKs so ``session.delete(portfolio)`` cleans these up the same way it
+    # already does for positions/transactions.
+    nav_snapshots: Mapped[list["NAVSnapshot"]] = relationship(
+        "NAVSnapshot",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    performance_snapshots: Mapped[list["PerformanceSnapshot"]] = relationship(
+        "PerformanceSnapshot",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    attribution_results: Mapped[list["AttributionResult"]] = relationship(
+        "AttributionResult",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    # P4-M-013: reverse side of CorporateActionQueue.portfolio.
+    corporate_actions: Mapped[list["CorporateActionQueue"]] = relationship(
+        "CorporateActionQueue",
         back_populates="portfolio",
         cascade="all, delete-orphan",
         passive_deletes=True,

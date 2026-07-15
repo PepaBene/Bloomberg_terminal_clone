@@ -2,10 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.api.deps import get_session
+from fastapi import APIRouter
 from src.engines.technical_backtester import (
     generate_ma_crossover_signals,
     generate_rsi_signals,
@@ -26,7 +23,6 @@ router = APIRouter(tags=["Technical Backtest"])
 )
 async def submit_technical_backtest(
     body: TechnicalStrategyRequest,
-    session: AsyncSession = Depends(get_session),
 ):
     """Run a technical strategy backtest on provided price data."""
     prices = body.prices

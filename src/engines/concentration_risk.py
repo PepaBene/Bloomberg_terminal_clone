@@ -122,9 +122,11 @@ def classify_supplier_concentration(
         return "HIGH"
 
     if single_source_count >= SUPPLIER_RISK_THRESHOLDS["MODERATE"]:
-        # Moderate if single-sourced and low geographic spread
+        # Single-sourced inputs are riskier when suppliers are also
+        # geographically concentrated (a regional disruption can hit all
+        # of them at once); wide geographic spread mitigates that risk.
         if geographic_spread <= 2:
-            return "MODERATE"
+            return "HIGH"
         return "MODERATE"
 
     if critical_count > 0 and geographic_spread <= 1:
@@ -253,13 +255,23 @@ def compute_overall_concentration(
     level_to_score = {"HIGH": 85, "MODERATE": 55, "LOW_RISK": 20}
 
     risks = [customer_risk, supplier_risk, geographic_risk]
-    max_level = max(risks, key=lambda r: risk_levels.get(r, 0))
+    unknown = [r for r in risks if r not in risk_levels]
+    if unknown:
+        # Silently defaulting an unrecognized level to LOW_RISK/20 would
+        # understate risk for a typo'd or new classification string — fail
+        # loudly instead so the bad input gets fixed at the source.
+        raise ValueError(
+            f"Unrecognized risk level(s) {unknown!r}; expected one of "
+            f"{sorted(risk_levels)}"
+        )
+
+    max_level = max(risks, key=lambda r: risk_levels[r])
 
     # Weighted score: customer 40%, supplier 30%, geographic 30%
     score = (
-        0.40 * level_to_score.get(customer_risk, 20)
-        + 0.30 * level_to_score.get(supplier_risk, 20)
-        + 0.30 * level_to_score.get(geographic_risk, 20)
+        0.40 * level_to_score[customer_risk]
+        + 0.30 * level_to_score[supplier_risk]
+        + 0.30 * level_to_score[geographic_risk]
     )
 
     return max_level, round(score, 2)

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,19 @@ class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (
         Index("idx_txn_portfolio_date", "portfolio_id", "transaction_date"),
+        # P4-M-026: confirmed real-world transaction types (BUY/SELL/
+        # DIVIDEND per tests). SPLIT/TRANSFER_IN/TRANSFER_OUT/DEPOSIT/
+        # WITHDRAWAL/FEE/INTEREST are included as the standard remaining
+        # portfolio cash-ledger event types create_transaction()'s generic
+        # "any other type" fallback (src/api/routers/portfolios.py) is
+        # designed to accept, without opening this up to arbitrary strings.
+        CheckConstraint(
+            "transaction_type IN ("
+            "'BUY', 'SELL', 'DIVIDEND', 'SPLIT', 'TRANSFER_IN', 'TRANSFER_OUT', "
+            "'DEPOSIT', 'WITHDRAWAL', 'FEE', 'INTEREST'"
+            ")",
+            name="ck_transaction_type",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

@@ -332,9 +332,6 @@ export {
   useBenchmarks,
   useBenchmarkDetail,
   useBenchmarkReturns,
-  useBenchmarkConstituents,
-  useBenchmarkCompare,
-  useBenchmarkFactSheet,
   useCreateBenchmark,
 } from '@/api/hooks/useQuant';
 

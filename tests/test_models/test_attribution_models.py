@@ -148,21 +148,59 @@ async def test_create_attribution_result(session):
 
 @pytest.mark.asyncio
 async def test_attribution_unique_constraint(session):
-    """Duplicate (portfolio_id, attribution_type, period_end) raises IntegrityError."""
+    """Duplicate (portfolio_id, period_start, period_end) raises IntegrityError.
+
+    P4-M-015: the constraint key is the *period*, not attribution_type --
+    a BRINSON and a FACTOR attribution for the exact same period are still
+    "the result for this period" and should collide, not coexist.
+    """
     p = await _seed_portfolio(session, portfolio_name="Attr Unique")
     await _seed_attribution(
-        session, p.id, attribution_type="BRINSON", period_end=date(2025, 7, 31)
+        session, p.id,
+        attribution_type="BRINSON",
+        period_start=date(2025, 7, 1),
+        period_end=date(2025, 7, 31),
     )
     session.add(AttributionResult(
         id=uuid.uuid4(),
         portfolio_id=p.id,
         period_start=date(2025, 7, 1),
         period_end=date(2025, 7, 31),
-        attribution_type="BRINSON",
+        attribution_type="FACTOR",
     ))
     with pytest.raises(IntegrityError):
         await session.flush()
     await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_attribution_same_type_different_period_start_allowed(session):
+    """Same portfolio_id + attribution_type + period_end but a different
+    period_start is NOT a duplicate under the new (portfolio_id,
+    period_start, period_end) key -- distinct periods that happen to share
+    an end date are legitimately different rows."""
+    p = await _seed_portfolio(session, portfolio_name="Attr Period Start Diff")
+    await _seed_attribution(
+        session, p.id,
+        attribution_type="BRINSON",
+        period_start=date(2025, 6, 1),
+        period_end=date(2025, 8, 31),
+    )
+    other = AttributionResult(
+        id=uuid.uuid4(),
+        portfolio_id=p.id,
+        period_start=date(2025, 7, 1),
+        period_end=date(2025, 8, 31),
+        attribution_type="BRINSON",
+    )
+    session.add(other)
+    await session.flush()  # should not raise
+
+    result = await session.execute(
+        select(AttributionResult).where(AttributionResult.id == other.id)
+    )
+    fetched = result.scalar_one()
+    assert fetched.period_start == date(2025, 7, 1)
 
 
 @pytest.mark.asyncio

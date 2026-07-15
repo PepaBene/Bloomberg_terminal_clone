@@ -11,7 +11,7 @@ No database access — all functions accept and return plain data.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 # ── Alert Type Definitions ────────────────────────────────────────────────
@@ -321,27 +321,20 @@ def check_filing_alert(
     new_filings: list[dict] = []
 
     for filing in recent_filings:
-        filed_date = filing.get("filed_date", "")
+        # `.get(..., "")`'s default only applies when the key is absent;
+        # an explicit `filed_date: None` would otherwise reach `>` and
+        # raise TypeError comparing None to str.
+        filed_date = filing.get("filed_date") or ""
         if filed_date > last_checked:
             new_filings.append(filing)
 
-    # Sort: priority filing types first, then by date descending
-    def _sort_key(f: dict) -> tuple:
-        is_priority = f.get("filing_type", "") in _PRIORITY_FILING_TYPES
-        return (0 if is_priority else 1, f.get("filed_date", "") * -1 if isinstance(f.get("filed_date"), (int, float)) else f.get("filed_date", ""))
-
-    new_filings.sort(key=lambda f: (
-        0 if f.get("filing_type", "") in _PRIORITY_FILING_TYPES else 1,
-        f.get("filed_date", ""),
-    ), reverse=False)
-
-    # Re-sort: priority first, within priority by date desc
+    # Priority first, within each group by date descending. `None` values
+    # sort last within their group (treated as "" for comparison).
     priority = [f for f in new_filings if f.get("filing_type", "") in _PRIORITY_FILING_TYPES]
     non_priority = [f for f in new_filings if f.get("filing_type", "") not in _PRIORITY_FILING_TYPES]
 
-    # Sort each group by filed_date descending
-    priority.sort(key=lambda f: f.get("filed_date", ""), reverse=True)
-    non_priority.sort(key=lambda f: f.get("filed_date", ""), reverse=True)
+    priority.sort(key=lambda f: f.get("filed_date") or "", reverse=True)
+    non_priority.sort(key=lambda f: f.get("filed_date") or "", reverse=True)
 
     return priority + non_priority
 
@@ -447,7 +440,7 @@ def check_earnings_calendar(
         Earnings events within the window.
     """
     alerts: list[dict] = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=days_ahead)
 
     for entry in earnings_dates:
@@ -463,6 +456,11 @@ def check_earnings_calendar(
                 earnings_dt = datetime.strptime(date_str, "%Y-%m-%d")
         except (ValueError, TypeError):
             continue
+
+        # Dates are treated as UTC; attach tzinfo so the comparison below
+        # (against a now-timezone-aware `now`/`cutoff`) doesn't raise
+        # TypeError from mixing naive and aware datetimes.
+        earnings_dt = earnings_dt.replace(tzinfo=timezone.utc)
 
         if now <= earnings_dt <= cutoff:
             days_until = (earnings_dt - now).days
@@ -500,7 +498,7 @@ def evaluate_watchlist_alerts(
     """
     entity_id = entity_data.get("entity_id", "")
     ticker = entity_data.get("ticker", "")
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     all_alerts: list[WatchlistAlert] = []
 
     # 1. Price threshold alerts
@@ -688,7 +686,7 @@ def filter_by_user_preferences(
         start = quiet_hours.get("start", "")
         end = quiet_hours.get("end", "")
         if start and end:
-            now_hm = datetime.utcnow().strftime("%H:%M")
+            now_hm = datetime.now(timezone.utc).strftime("%H:%M")
             if start <= end:
                 in_quiet = start <= now_hm <= end
             else:

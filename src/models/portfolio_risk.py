@@ -22,8 +22,11 @@ class PortfolioVarSnapshot(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio so ``session.delete
+    # (portfolio)`` doesn't fail with a bare FK violation against risk
+    # history tables.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -57,8 +60,11 @@ class ConcentrationAnalysis(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio so ``session.delete
+    # (portfolio)`` doesn't fail with a bare FK violation against risk
+    # history tables.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -94,8 +100,11 @@ class FactorExposureSnapshot(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio so ``session.delete
+    # (portfolio)`` doesn't fail with a bare FK violation against risk
+    # history tables.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -133,8 +142,11 @@ class PortfolioStressTestResult(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio so ``session.delete
+    # (portfolio)`` doesn't fail with a bare FK violation against risk
+    # history tables.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)

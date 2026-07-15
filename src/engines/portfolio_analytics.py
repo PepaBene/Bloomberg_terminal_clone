@@ -8,7 +8,13 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import calendar
+import logging
 from datetime import datetime
+
+from dateutil.relativedelta import relativedelta
+
+logger = logging.getLogger(__name__)
 
 
 # ── Portfolio Summary ──────────────────────────────────────────────────
@@ -72,7 +78,10 @@ def compute_sector_allocation(positions: list[dict]) -> list[dict]:
     total_mv = sum(p.get("market_value", 0.0) for p in positions)
 
     for p in positions:
-        sector = p.get("sector", "Unknown")
+        # `.get(..., "Unknown")`'s default only kicks in when the key is
+        # absent; an explicit `sector: None` (e.g. unclassified security)
+        # would otherwise slip through as a `None` grouping key.
+        sector = p.get("sector") or "Unknown"
         if sector not in sector_map:
             sector_map[sector] = {"market_value": 0.0, "count": 0}
         sector_map[sector]["market_value"] += p.get("market_value", 0.0)
@@ -128,8 +137,22 @@ def compute_concentration_hhi(weights: list[float]) -> float:
     """Compute Herfindahl-Hirschman Index.
 
     HHI = sum of squared weights * 10000.
-    Weights should be in decimal form (e.g. 0.10 for 10%).
+    Weights should be in decimal form (e.g. 0.10 for 10%) and are expected
+    to sum to ~1.0; if they don't (e.g. caller passed a subset of
+    positions, or raw values that aren't true portfolio fractions), we
+    normalize by the actual sum so HHI isn't silently computed against a
+    partial/scaled base.
     """
+    if not weights:
+        return 0.0
+    total = sum(weights)
+    if total > 0 and abs(total - 1.0) > 0.01:
+        logger.warning(
+            "compute_concentration_hhi: weights sum to %.4f, expected ~1.0 "
+            "— normalizing before computing HHI",
+            total,
+        )
+        weights = [w / total for w in weights]
     return sum(w * w for w in weights) * 10000.0
 
 
@@ -316,8 +339,16 @@ def compute_portfolio_age(
     as_of = datetime.strptime(as_of_date, "%Y-%m-%d")
     delta = as_of - inception
     days = delta.days
-    months = days / 30.44  # average days per month
-    years = days / 365.25
+
+    # Use real calendar month/year lengths (via relativedelta) instead of
+    # fixed 30.44/365.25-day averages, which drift from actual elapsed time
+    # depending on which months/leap years the period spans.
+    rd = relativedelta(as_of, inception)
+    whole_months = rd.years * 12 + rd.months
+    month_start = inception + relativedelta(months=whole_months)
+    days_in_month = calendar.monthrange(month_start.year, month_start.month)[1]
+    months = whole_months + (rd.days / days_in_month if days_in_month else 0.0)
+    years = months / 12.0
 
     return {
         "days": days,

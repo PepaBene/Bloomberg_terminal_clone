@@ -200,7 +200,10 @@ def run_technical_backtest(
     buy_signals = {"CROSSOVER_ABOVE", "THRESHOLD_BELOW", "BAND_BREAKDOWN"}
     sell_signals = {"CROSSOVER_BELOW", "THRESHOLD_ABOVE", "BAND_BREAKOUT"}
 
-    # Build signal map: index -> action
+    # Build signal map: index -> action. If multiple signals (e.g. from
+    # different indicators) fire on the same bar, the last one in `signals`
+    # wins — this is by design (callers control precedence by ordering the
+    # `signals` list they pass in), not an accidental overwrite.
     signal_map: dict[int, str] = {}
     for sig in signals:
         if sig.signal_type in buy_signals:
@@ -236,6 +239,12 @@ def run_technical_backtest(
 
         action = signal_map.get(i)
         if action == "BUY" and position == 0 and capital > 0:
+            # `capital` here is 100% of the portfolio (no position is open —
+            # guaranteed by `position == 0`), so sizing off *current*
+            # capital rather than the original `initial_capital` is
+            # intentional: it compounds prior trades' gains/losses into the
+            # next trade's size, matching how a fully-reinvested real
+            # portfolio behaves (geometric growth/decay, not a bug).
             invest = capital * position_size
             cost = invest * cost_factor
             shares = (invest - cost) / prices[i] if prices[i] > 0 else 0

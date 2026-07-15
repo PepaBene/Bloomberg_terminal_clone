@@ -87,7 +87,9 @@ async def test_submit_backtest(client: AsyncClient):
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "My Value Strategy"
-    assert data["status"] == "COMPLETED"
+    # Honest status: the run is only marked COMPLETED once the batch worker
+    # (scripts/run_backtest_worker.py) actually executes it, not on submit.
+    assert data["status"] == "PENDING"
     assert data["max_positions"] == 25
 
 

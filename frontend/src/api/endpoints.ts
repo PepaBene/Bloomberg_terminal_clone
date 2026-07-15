@@ -472,8 +472,15 @@ export const PORTFOLIO_PERFORMANCE = {
   returns: (id: string) => `/v4/portfolios/${id}/performance/returns`,
   calendarReturns: (id: string) => `/v4/portfolios/${id}/performance/returns/calendar`,
   attribution: (id: string) => `/v4/portfolios/${id}/attribution`,
-  attributionBySector: (id: string) => `/v4/portfolios/${id}/attribution/sector`,
-  attributionByFactor: (id: string) => `/v4/portfolios/${id}/attribution/factor`,
+  // [P4-F-014 fix] Real routes are plural (src/api/routers/
+  // portfolio_performance.py: /attribution/sectors, /attribution/factors) —
+  // these were singular and matched nothing.
+  attributionBySector: (id: string) => `/v4/portfolios/${id}/attribution/sectors`,
+  attributionByFactor: (id: string) => `/v4/portfolios/${id}/attribution/factors`,
+  // No country-level attribution route exists anywhere in
+  // portfolio_performance.py (verified by grep) -- a missing feature, not a
+  // path typo. Left defined for a future backend contract; nothing calls
+  // usePortfolioAttributionByCountry today.
   attributionByCountry: (id: string) => `/v4/portfolios/${id}/attribution/country`,
   benchmark: (id: string) => `/v4/portfolios/${id}/performance/benchmark`,
   riskMetrics: (id: string) => `/v4/portfolios/${id}/performance/risk-metrics`,
@@ -496,8 +503,17 @@ export const PORTFOLIO_RISK = {
   cvar: (id: string) => `/v4/portfolios/${id}/risk/cvar`,
   concentration: (id: string) => `/v4/portfolios/${id}/risk/concentration`,
   factors: (id: string) => `/v4/portfolios/${id}/risk/factors`,
-  factorExposure: (id: string) => `/v4/portfolios/${id}/risk/factor-exposure`,
-  stressHistorical: (id: string) => `/v4/portfolios/${id}/risk/stress/historical`,
+  // [P4-F-010 fix] `/risk/factor-exposure` matches no real backend route
+  // (src/api/routers/portfolio_risk.py only has GET /risk/factors,
+  // /risk/factors/history, /risk/factors/unintended) -- repointed at the
+  // real "latest factor exposure" route, same one `.factors` above uses.
+  factorExposure: (id: string) => `/v4/portfolios/${id}/risk/factors`,
+  // [P4-F-022 fix] `/risk/stress/historical` is POST-only on the backend
+  // (runs a NEW historical stress test and returns its single result) --
+  // usePortfolioStressHistorical fires a GET, which never matches. The real
+  // GET/list route for past stress-test rows (historical or hypothetical)
+  // is /risk/stress/results.
+  stressHistorical: (id: string) => `/v4/portfolios/${id}/risk/stress/results`,
   stressHypothetical: (id: string) => `/v4/portfolios/${id}/risk/stress/hypothetical`,
   stressCustom: (id: string) => `/v4/portfolios/${id}/risk/stress/custom`,
   scenarios: '/v4/portfolios/risk/scenarios',
@@ -505,7 +521,9 @@ export const PORTFOLIO_RISK = {
   compliance: (id: string) => `/v4/portfolios/${id}/compliance`,
   complianceRules: (id: string) => `/v4/portfolios/${id}/compliance/rules`,
   complianceAddRule: (id: string) => `/v4/portfolios/${id}/compliance/rules`,
-  complianceHistory: (id: string) => `/v4/portfolios/${id}/compliance/history`,
+  // [P4-F-022 fix] Real route is /compliance/results, not /compliance/history
+  // (src/api/routers/portfolio_risk.py:get_compliance_results).
+  complianceHistory: (id: string) => `/v4/portfolios/${id}/compliance/results`,
   preTradeCheck: (id: string) => `/v4/portfolios/${id}/compliance/pre-trade-check`,
   drift: (id: string) => `/v4/portfolios/${id}/drift`,
   driftRebalance: (id: string) => `/v4/portfolios/${id}/drift/rebalance`,
@@ -825,12 +843,71 @@ export const CUSTOM_CLASSIFICATIONS = {
 // Backtesting
 // ---------------------------------------------------------------------------
 
+// [P4-F-017 fix] `run`/`result`/`compare` matched no real backend route --
+// backtesting.py only exposes /v1/analytics/backtest (submit),
+// /v1/analytics/backtest/{id}/results, /{id}/holdings, and /compare.
+// `strategies` was already correct (reuses the E4 prebuilt-screen library at
+// /v2/analytics/backtest/strategies -- see backtesting.py's strategies_router).
 export const BACKTESTING = {
   strategies: '/v2/analytics/backtest/strategies',
-  run: '/v2/analytics/backtest/run',
-  result: (backtestId: string) => `/v2/analytics/backtest/${backtestId}`,
-  history: '/v2/analytics/backtest/history',
-  compare: '/v2/analytics/backtest/compare',
+  run: '/v1/analytics/backtest',
+  result: (backtestId: string) => `/v1/analytics/backtest/${backtestId}/results`,
+  holdings: (backtestId: string) => `/v1/analytics/backtest/${backtestId}/holdings`,
+  compare: '/v1/analytics/backtest/compare',
+  // No "list all backtest runs" endpoint exists anywhere in
+  // backtesting.py (verified by grep) -- a missing feature, not a path
+  // typo. Left defined for a future backend contract; useBacktestHistory
+  // is disabled (`enabled: false`) rather than firing a request against a
+  // path that will never resolve.
+  history: '/v1/analytics/backtest/history',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Quantitative Analytics (Pillar 2 Supplement — Part 2): regression,
+// correlation, stationarity, cointegration, autocorrelation, quant summary.
+// Real routes: src/api/routers/quant.py, mounted with no extra prefix at
+// /v2/analytics/quant (see src/api/app.py).
+// ---------------------------------------------------------------------------
+
+export const QUANT = {
+  regression: '/v2/analytics/quant/regression',
+  rollingRegression: '/v2/analytics/quant/regression/rolling',
+  correlation: '/v2/analytics/quant/correlation',
+  correlationMatrix: '/v2/analytics/quant/correlation/matrix',
+  stationarity: '/v2/analytics/quant/stationarity',
+  cointegration: '/v2/analytics/quant/cointegration',
+  autocorrelation: '/v2/analytics/quant/autocorrelation',
+  summary: (secId: string) => `/v2/analytics/quant/summary/${secId}`,
+  beta: (secId: string) => `/v2/analytics/quant/beta/${secId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Technical Backtester (Pillar 2 Supplement — Part 6): run a technical
+// indicator strategy (MA crossover / RSI / Bollinger / combined) against a
+// provided price series. Real route: src/api/routers/technical_backtest.py,
+// mounted with prefix /v1 (src/api/app.py) -- previously had zero frontend
+// references despite being a real, working backend feature (P4-F-011).
+// ---------------------------------------------------------------------------
+
+export const TECHNICAL_BACKTEST = {
+  run: '/v1/analytics/technical-backtest',
+} as const;
+
+// ---------------------------------------------------------------------------
+// FI Risk (Pillar 2 FI Supplement — Part 5): portfolio-level fixed-income
+// risk -- DV01, credit distribution/expected loss, rate/spread scenario P&L,
+// and single-bond risk metrics. Real routes: src/api/routers/fi_risk.py,
+// mounted with no extra prefix at /v2/analytics (see src/api/app.py).
+// Distinct from `FI.analytics.*` (single-instrument duration/convexity/
+// scenario calculators in fi_bond_analytics.py) -- previously had zero
+// frontend references despite being real (P4-F-012).
+// ---------------------------------------------------------------------------
+
+export const FI_RISK = {
+  portfolioRisk: '/v2/analytics/bonds/portfolio/risk',
+  rateScenario: '/v2/analytics/bonds/portfolio/rate-scenario',
+  spreadScenario: '/v2/analytics/bonds/portfolio/spread-scenario',
+  bondRiskMetrics: (cusip: string) => `/v2/analytics/bonds/${cusip}/risk-metrics`,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -877,14 +954,19 @@ export const SYSTEM = {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
+// [P4-F-009 fix] A real backend now exists (src/api/routers/benchmarks.py,
+// mounted with prefix /v1) -- list/detail/returns/create match its actual
+// routes. `constituents`/`compare`/`factSheets` matched no real route (the
+// router only exposes GET "" / POST "" / GET "/{id}" / GET "/{id}/returns")
+// and had zero real consumers (useBenchmarkConstituents/Compare/FactSheet
+// were unused everywhere) -- removed as dead code rather than left as
+// guaranteed-404 paths. A benchmark's constituents are already available via
+// `detail(id)` (BenchmarkDetail.constituents).
 export const BENCHMARKS = {
   list: '/v1/benchmarks',
   detail: (id: string) => `/v1/benchmarks/${id}`,
   returns: (id: string) => `/v1/benchmarks/${id}/returns`,
-  constituents: (id: string) => `/v1/benchmarks/${id}/constituents`,
-  compare: '/v1/benchmarks/compare',
   create: '/v1/benchmarks',
-  factSheets: (id: string) => `/v1/benchmarks/${id}/fact-sheet`,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -954,4 +1036,53 @@ export const EXPORTS = {
   exportCsv: '/v4/exports/csv',
   exportExcel: '/v4/exports/excel',
   exportPdf: '/v4/exports/pdf',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Smart Money / Notable-Filer Tracking
+// Real routes: src/api/routers/smart_money.py, mounted with prefix /v1 (see
+// src/api/app.py). Tracks notable 13F managers, corporate insiders, and
+// politicians (STOCK Act) using only free public filings already ingested.
+// DATA_WIRING_AUDIT.md flagged this as ✅ REAL with zero web frontend
+// consumers -- API/desktop-GUI only until now.
+// ---------------------------------------------------------------------------
+
+export const SMART_MONEY = {
+  investors: (category?: string) =>
+    category ? `/v1/smart-money/investors?category=${encodeURIComponent(category)}` : '/v1/smart-money/investors',
+  investor: (key: string) => `/v1/smart-money/investors/${key}`,
+  filerProfile: (key: string) => `/v1/smart-money/filers/${key}/profile`,
+  congress: '/v1/smart-money/congress',
+  consensus: '/v1/smart-money/consensus',
+  flow: (ticker: string) => `/v1/smart-money/flow/${ticker}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Automatic Model Builder
+// Real routes: src/api/routers/auto_model.py, mounted with prefix /v1. Scored
+// analytical models (ECONOMIC/MARKET/INDUSTRY/CORPORATE/COMPANY scopes).
+// `/company/{id}` assembles inputs from real fundamentals/DCF/comps/scores;
+// `/build` accepts caller-supplied metrics for any scope. Previously zero
+// web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const AUTO_MODEL = {
+  scopes: '/v1/models/scopes',
+  build: '/v1/models/build',
+  company: (entityId: string) => `/v1/models/company/${entityId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Complex Financial Structure Analysis
+// Real routes: src/api/routers/complex_structure.py, mounted with prefix
+// /v1. Subsidiary org tree, multi-class equity control-wedge, off-balance-
+// sheet/VIE exposure, and debt subordination waterfall. `/entity/{id}`
+// enriches with real stored data (capital structure, EX-21 subsidiaries,
+// disclosed share classes); `/analyze` accepts a caller-supplied payload.
+// Previously zero web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const COMPLEX_STRUCTURE = {
+  analyze: '/v1/complex-structure/analyze',
+  entity: (entityId: string) => `/v1/complex-structure/entity/${entityId}`,
 } as const;

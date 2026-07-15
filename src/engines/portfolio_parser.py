@@ -34,27 +34,34 @@ def parse_csv(content: str) -> list[ParsedHolding]:
     holdings = []
     reader = csv.DictReader(io.StringIO(content))
 
-    # Normalize column names
-    if reader.fieldnames is None:
-        return []
+    try:
+        # Normalize column names
+        if reader.fieldnames is None:
+            return []
 
-    col_map = _build_column_map(reader.fieldnames)
+        col_map = _build_column_map(reader.fieldnames)
 
-    for row_num, row in enumerate(reader, start=2):  # row 1 is header
-        holding = ParsedHolding(row_number=row_num, raw_data=dict(row))
+        for row_num, row in enumerate(reader, start=2):  # row 1 is header
+            holding = ParsedHolding(row_number=row_num, raw_data=dict(row))
 
-        if col_map.get("identifier"):
-            holding.identifier = row.get(col_map["identifier"], "").strip() or None
-        if col_map.get("name"):
-            holding.name = row.get(col_map["name"], "").strip() or None
-        if col_map.get("quantity"):
-            holding.quantity = _safe_float(row.get(col_map["quantity"]))
-        if col_map.get("weight"):
-            holding.weight = _safe_float(row.get(col_map["weight"]))
+            if col_map.get("identifier"):
+                holding.identifier = row.get(col_map["identifier"], "").strip() or None
+            if col_map.get("name"):
+                holding.name = row.get(col_map["name"], "").strip() or None
+            if col_map.get("quantity"):
+                holding.quantity = _safe_float(row.get(col_map["quantity"]))
+            if col_map.get("weight"):
+                holding.weight = _safe_float(row.get(col_map["weight"]))
 
-        # Skip empty rows
-        if holding.identifier or holding.name:
-            holdings.append(holding)
+            # Skip empty rows
+            if holding.identifier or holding.name:
+                holdings.append(holding)
+    except csv.Error as exc:
+        # Malformed CSV (e.g. unterminated quote, inconsistent quoting)
+        # raises _csv.Error mid-iteration. Surface it as a ValueError so the
+        # API layer's ValueError handler turns it into a 422 validation
+        # error instead of an opaque 500.
+        raise ValueError(f"Malformed CSV content: {exc}") from exc
 
     return holdings
 

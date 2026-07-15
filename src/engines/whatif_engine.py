@@ -9,9 +9,12 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -140,6 +143,11 @@ def simulate_trades(
         descending.
     """
     if portfolio_nav <= 0:
+        logger.warning(
+            "simulate_trades: invalid portfolio_nav=%s (must be > 0) — "
+            "returning no position impacts",
+            portfolio_nav,
+        )
         return []
 
     # Build a lookup of current positions by ticker
@@ -176,6 +184,17 @@ def simulate_trades(
     proposed_nav = portfolio_nav + total_trade_notional
 
     if proposed_nav <= 0:
+        # The proposed trades would leave the portfolio at zero/negative
+        # NAV — likely a data error (e.g. sell notional far exceeding
+        # current NAV) rather than a real, tradeable state. Surface it
+        # instead of silently substituting the pre-trade NAV, which would
+        # mask the underlying issue and understate the resulting weights.
+        logger.warning(
+            "simulate_trades: proposed_nav=%.2f (<=0) from portfolio_nav="
+            "%.2f + trade_notional=%.2f — falling back to pre-trade NAV "
+            "for weight calculations",
+            proposed_nav, portfolio_nav, total_trade_notional,
+        )
         proposed_nav = portfolio_nav  # fallback to avoid division by zero
 
     # Build impacts for all affected tickers
@@ -271,10 +290,17 @@ def estimate_risk_impact(
     beta_map: dict[str, float] = {}
     vol_map: dict[str, float] = {}
 
+    missing_beta_tickers: list[str] = []
+    missing_vol_tickers: list[str] = []
+
     for p in positions:
         ticker = p.get("ticker", "")
         pos_map[ticker] = p.get("weight", 0.0) / 100.0  # convert pct to decimal
+        if "beta" not in p:
+            missing_beta_tickers.append(ticker)
         beta_map[ticker] = p.get("beta", 1.0)
+        if "volatility" not in p:
+            missing_vol_tickers.append(ticker)
         vol_map[ticker] = p.get("volatility", current_vol)
 
     # Apply trade deltas to weights
@@ -290,14 +316,31 @@ def estimate_risk_impact(
             if ticker not in pos_map:
                 pos_map[ticker] = 0.0
             if ticker not in beta_map:
+                if "beta" not in t:
+                    missing_beta_tickers.append(ticker)
                 beta_map[ticker] = t.get("beta", 1.0)
             if ticker not in vol_map:
+                if "volatility" not in t:
+                    missing_vol_tickers.append(ticker)
                 vol_map[ticker] = t.get("volatility", current_vol)
 
             if action == "BUY":
                 pos_map[ticker] = pos_map[ticker] + weight_delta
             elif action == "SELL":
                 pos_map[ticker] = max(0.0, pos_map[ticker] - weight_delta)
+
+    if missing_beta_tickers:
+        logger.warning(
+            "estimate_risk_impact: no beta supplied for %s — defaulting to "
+            "1.0 (market beta)",
+            missing_beta_tickers,
+        )
+    if missing_vol_tickers:
+        logger.warning(
+            "estimate_risk_impact: no volatility supplied for %s — "
+            "defaulting to current portfolio volatility",
+            missing_vol_tickers,
+        )
 
     proposed_weights = pos_map
 

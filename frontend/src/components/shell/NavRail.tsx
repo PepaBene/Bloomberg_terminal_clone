@@ -147,6 +147,15 @@ function IconAlerts({ filled }: IconProps) {
   );
 }
 
+function IconSmartMoney({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.5v7M10 6.3c0-1-.9-1.8-2-1.8s-2 .75-2 1.7c0 2.1 4 1.05 4 3.15 0 .95-.9 1.7-2 1.7s-2-.8-2-1.8" fill="none" />
+    </svg>
+  );
+}
+
 function IconSettings({ filled }: IconProps) {
   return (
     <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
@@ -216,6 +225,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'news', icon: IconNews, label: 'News', path: '/news', shortcut: '0', subItems: ['Feed', 'Trending', 'Saved'] },
       { id: 'research', icon: IconResearch, label: 'Research', path: '/research', shortcut: 'Q', subItems: ['Reports', 'Estimates', 'Transcripts'] },
       { id: 'flows', icon: IconFlows, label: 'Flows', path: '/flows', shortcut: 'W', subItems: ['Fund Flows', 'Positioning', 'Sentiment'] },
+      { id: 'smart-money', icon: IconSmartMoney, label: 'Smart $', path: '/smart-money', shortcut: 'T', subItems: ['13F Managers', 'Insiders', 'Politicians'] },
     ],
   },
   {

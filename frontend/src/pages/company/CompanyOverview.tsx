@@ -625,6 +625,29 @@ export default function CompanyOverview() {
               </span>
             </div>
           </div>
+
+          {/* Pillar 4 — additional analysis tools */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">More Analysis</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[
+                { label: 'Complex Structure', description: 'Subsidiary tree, share classes, debt waterfall', path: '/company/complex-structure' },
+                { label: 'Smart Money', description: 'Notable 13F managers, insiders, politicians', path: '/smart-money' },
+                { label: 'Model Builder', description: 'Auto-scored economic/market/company models', path: '/research/model-builder' },
+              ].map((tool) => (
+                <div
+                  key={tool.path}
+                  onClick={() => navigate(tool.path)}
+                  style={{ display: 'flex', flexDirection: 'column', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', borderBottom: '1px solid var(--color-surface-border)' }}
+                  onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-raised)'; }}
+                  onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                >
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{tool.label}</span>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{tool.description}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

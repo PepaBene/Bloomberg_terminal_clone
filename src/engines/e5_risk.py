@@ -29,6 +29,16 @@ from src.models.security import EODPrice, EquityDetails, Security
 
 logger = logging.getLogger(__name__)
 
+# Trading days per year used to annualize daily volatility (standard
+# convention for US equities; ~252 trading days/year).
+TRADING_DAYS_PER_YEAR = 252
+
+# Amihud illiquidity is mean(|return| / dollar_volume), which is a tiny
+# number (dollar volume is in the millions+). Scale by 1e6 so the metric
+# reads as "price impact per $1M of volume" instead of a string of leading
+# zeros.
+AMIHUD_SCALE_FACTOR = 1e6
+
 try:
     import numpy as np
     _HAS_NUMPY = True
@@ -87,10 +97,14 @@ def _kurtosis_excess(vals: list[float]) -> float:
     return k4 - 3.0
 
 
-def _max_drawdown(cumulative: list[float]) -> float:
-    """Max drawdown from a cumulative return series (1+r_1)*(1+r_2)*..."""
+def _max_drawdown(cumulative: list[float]) -> float | None:
+    """Max drawdown from a cumulative return series (1+r_1)*(1+r_2)*...
+
+    Returns ``None`` for an empty series ("no data"), distinct from
+    ``0.0`` ("data exists and shows zero drawdown").
+    """
     if not cumulative:
-        return 0.0
+        return None
     peak = cumulative[0]
     mdd = 0.0
     for v in cumulative:
@@ -213,7 +227,7 @@ class RiskEngine(BaseEngine):
         # ── Volatility metrics ────────────────────────────────────
         daily_mean = _mean(rets)
         daily_std = _std(rets)
-        ann_vol = daily_std * math.sqrt(252)
+        ann_vol = daily_std * math.sqrt(TRADING_DAYS_PER_YEAR)
         skew = _skewness(rets)
         kurt = _kurtosis_excess(rets)
 
@@ -332,7 +346,13 @@ class RiskEngine(BaseEngine):
             metric_category="RISK", value=vol_60d, unit="SHARES",
         ))
 
-        # Bid-ask proxy = mean (high-low)/close
+        # Bid-ask proxy = mean (high-low)/close. This is the simple
+        # high-low range estimator, not a Corwin-Schultz-style estimator —
+        # it only captures intraday range and does not correct for
+        # overnight gaps (a large gap gets attributed to "spread" here when
+        # it's really a price-level jump between sessions). Treat this as a
+        # liquidity-proxy approximation, not a precise effective-spread
+        # estimate.
         recent_hl = hl_ratios[-20:] if len(hl_ratios) >= 20 else hl_ratios
         ba_proxy = _mean(recent_hl) if recent_hl else None
         outputs.append(EngineOutput(
@@ -352,7 +372,7 @@ class RiskEngine(BaseEngine):
                 dollar_vol = recent_vols_20[i] * close_price
                 if dollar_vol > 0:
                     amihud_vals.append(abs(ret) / dollar_vol)
-        amihud = _mean(amihud_vals) * 1e6 if amihud_vals else None  # scale up
+        amihud = _mean(amihud_vals) * AMIHUD_SCALE_FACTOR if amihud_vals else None
         outputs.append(EngineOutput(
             security_id=security_id, entity_id=entity_id,
             engine_id=self.engine_id, metric_name="amihud_illiquidity",
@@ -411,7 +431,7 @@ class RiskEngine(BaseEngine):
 
         # Low Volatility: inverse of annualized vol (higher = lower risk)
         if returns:
-            ann_vol = _std(returns) * math.sqrt(252)
+            ann_vol = _std(returns) * math.sqrt(TRADING_DAYS_PER_YEAR)
             low_vol = 1.0 / ann_vol if ann_vol > 0 else None
             outputs.append(EngineOutput(
                 security_id=security_id, entity_id=entity_id,

@@ -305,6 +305,7 @@ async def upload_commit(
             cost_basis_per_share=cost_basis,
             cost_basis_total=shares * cost_basis,
             first_acquisition_date=date.today(),
+            created_by=user_id,
         )
         session.add(position)
         positions_created += 1
@@ -537,6 +538,10 @@ async def clone_portfolio(
             cost_basis_total=pos.cost_basis_total,
             cost_basis_per_share=pos.cost_basis_per_share,
             first_acquisition_date=pos.first_acquisition_date,
+            # P4-M-027: this is a clone, not a fresh manual add -- carry
+            # over the source position's audit-trail owner rather than
+            # attributing the copy to whoever happened to call /clone.
+            created_by=pos.created_by,
         )
         session.add(new_pos)
     await session.commit()
@@ -614,8 +619,10 @@ async def add_position(
     portfolio_id: uuid.UUID,
     body: PositionAddRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Add or update a position in the portfolio."""
+    user_id = _resolve_user(user)
     await _get_portfolio(session, portfolio_id)
 
     # Check for existing open position with same ticker
@@ -658,6 +665,7 @@ async def add_position(
             cost_basis_total=cost_total,
             first_acquisition_date=body.acquisition_date or date.today(),
             notes=body.notes,
+            created_by=user_id,
         )
         session.add(pos)
         await session.commit()
@@ -787,8 +795,10 @@ async def create_transaction(
     portfolio_id: uuid.UUID,
     body: TransactionCreateRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Record a BUY or SELL transaction with position + cash effects."""
+    user_id = _resolve_user(user)
     portfolio = await _get_portfolio(session, portfolio_id)
 
     gross = body.shares * body.price_per_share
@@ -835,6 +845,7 @@ async def create_transaction(
         net_amount=net_amount,
         cash_impact=cash_impact,
         notes=body.notes,
+        created_by=user_id,
     )
     session.add(txn)
 
@@ -855,7 +866,13 @@ async def create_transaction(
             old_total = (existing.shares or Decimal("0")) * (existing.cost_basis_per_share or Decimal("0"))
             new_total = body.shares * body.price_per_share
             total_shares = (existing.shares or Decimal("0")) + body.shares
-            avg_cost = (old_total + new_total) / total_shares if total_shares else Decimal("0")
+            # Guard against rounding-artifact share counts that pass a truthy
+            # check but produce nonsensical cost basis on division (same
+            # threshold guard as add_position()).
+            if total_shares > Decimal("0.000001"):
+                avg_cost = (old_total + new_total) / total_shares
+            else:
+                avg_cost = Decimal("0")
             existing.shares = total_shares
             existing.cost_basis_per_share = avg_cost
             existing.cost_basis_total = total_shares * avg_cost
@@ -869,6 +886,7 @@ async def create_transaction(
                 cost_basis_per_share=body.price_per_share,
                 cost_basis_total=gross,
                 first_acquisition_date=body.transaction_date,
+                created_by=user_id,
             )
             session.add(new_pos)
 

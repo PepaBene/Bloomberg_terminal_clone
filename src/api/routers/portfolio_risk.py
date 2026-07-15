@@ -46,6 +46,7 @@ from src.schemas.drift_schema import (
     PositionDriftEntry,
     RebalanceSuggestionResponse,
     SectorDriftEntry,
+    TargetAllocationRequest,
 )
 
 router = APIRouter(tags=["Portfolio Risk"])
@@ -334,13 +335,20 @@ async def get_concentration_sectors(
 
 @router.get(
     "/portfolios/{portfolio_id}/risk/concentration/geographic",
-    response_model=list[dict],
+    response_model=list[dict] | None,
 )
 async def get_concentration_geographic(
     portfolio_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get geographic concentration breakdown."""
+    """Get geographic concentration breakdown.
+
+    Returns None when no concentration snapshot has been computed yet (data
+    source missing), matching the ``| None`` convention used by
+    ``get_concentration``/``get_var_decomposition`` — distinct from a `[]`
+    result, which means a snapshot exists but genuinely has no geographic
+    exposure recorded.
+    """
     await _get_portfolio(session, portfolio_id)
 
     result = await session.execute(
@@ -350,7 +358,9 @@ async def get_concentration_geographic(
         .limit(1)
     )
     snap = result.scalar_one_or_none()
-    if not snap or not snap.geographic_detail:
+    if not snap:
+        return None
+    if not snap.geographic_detail:
         return []
     if isinstance(snap.geographic_detail, list):
         return snap.geographic_detail
@@ -1019,7 +1029,7 @@ async def pre_trade_check(
         select(ComplianceRule)
         .where(
             ComplianceRule.portfolio_id == portfolio_id,
-            ComplianceRule.is_active == True,  # noqa: E712
+            ComplianceRule.is_active.is_(True),
         )
     )
     rules = result.scalars().all()
@@ -1263,7 +1273,7 @@ async def get_rebalance_suggestions(
     suggestions: list[dict] = []
     position_drifts = _parse_position_drifts(snap.position_drifts)
     for pd_entry in position_drifts:
-        if abs(pd_entry.drift_pct) > 0.02:  # > 2% drift threshold
+        if pd_entry.drift_pct is not None and abs(pd_entry.drift_pct) > 0.02:  # > 2% drift threshold
             action = "SELL" if pd_entry.drift_pct > 0 else "BUY"
             suggestions.append({
                 "ticker": pd_entry.ticker,
@@ -1288,7 +1298,7 @@ async def get_rebalance_suggestions(
 )
 async def set_target_allocation(
     portfolio_id: uuid.UUID,
-    body: dict,
+    body: TargetAllocationRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """Set or update target allocation for drift monitoring."""
@@ -1304,7 +1314,7 @@ async def set_target_allocation(
         max_sector_drift_pct=Decimal("0.0000"),
         drift_classification="NONE",
         rebalance_needed=False,
-        target_allocation=body,
+        target_allocation=body.root,
     )
     session.add(snap)
     await session.commit()
@@ -1320,5 +1330,5 @@ async def set_target_allocation(
         rebalance_needed=False,
         position_drifts=[],
         sector_drifts=[],
-        target_allocation=body,
+        target_allocation=body.root,
     )

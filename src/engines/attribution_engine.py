@@ -8,7 +8,23 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+# Fraction of total active return that the Brinson residual (interaction
+# noise / non-additivity between the arithmetic effects) may consume before
+# it's flagged as suspiciously large — usually signals a data mismatch
+# between portfolio and benchmark sector definitions.
+RESIDUAL_WARNING_RATIO = 0.10
+# Absolute floor for the same check when total_active_return is ~0 (a ratio
+# would be meaningless/undefined there).
+RESIDUAL_WARNING_ABS_FLOOR = 0.005
+
+# Tolerance for validating that portfolio/benchmark sector weights sum to
+# ~1.0 (100%) before running Brinson attribution.
+WEIGHT_SUM_TOLERANCE = 0.01
 
 
 # ── Dataclasses ─────────────────────────────────────────────────────────
@@ -181,6 +197,24 @@ def compute_brinson_attribution(
 
     Each sector dict: {sector: str, weight: float, return: float}.
     """
+    # Sanity-check that weights are actual portfolio/benchmark fractions
+    # (should sum to ~1.0) rather than, e.g., raw dollar amounts or a
+    # subset of sectors — a silent mismatch here would skew every effect.
+    port_weight_sum = sum(s["weight"] for s in portfolio_sectors)
+    if portfolio_sectors and abs(port_weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+        logger.warning(
+            "Brinson attribution: portfolio sector weights sum to %.4f, "
+            "expected ~1.0",
+            port_weight_sum,
+        )
+    bench_weight_sum = sum(s["weight"] for s in benchmark_sectors)
+    if benchmark_sectors and abs(bench_weight_sum - 1.0) > WEIGHT_SUM_TOLERANCE:
+        logger.warning(
+            "Brinson attribution: benchmark sector weights sum to %.4f, "
+            "expected ~1.0",
+            bench_weight_sum,
+        )
+
     # Build lookup maps
     port_map = {s["sector"]: s for s in portfolio_sectors}
     bench_map = {s["sector"]: s for s in benchmark_sectors}
@@ -225,6 +259,18 @@ def compute_brinson_attribution(
 
     total_active = total_port_return - total_benchmark_return
     residual = total_active - (total_alloc + total_select + total_interact)
+
+    residual_threshold = max(
+        abs(total_active) * RESIDUAL_WARNING_RATIO, RESIDUAL_WARNING_ABS_FLOOR
+    )
+    if abs(residual) > residual_threshold:
+        logger.warning(
+            "Brinson attribution residual %.6f is large relative to total "
+            "active return %.6f (allocation=%.6f, selection=%.6f, "
+            "interaction=%.6f) — check sector coverage/weight consistency "
+            "between portfolio and benchmark",
+            residual, total_active, total_alloc, total_select, total_interact,
+        )
 
     return BrinsonResult(
         total_portfolio_return=total_port_return,
@@ -292,6 +338,13 @@ def compute_factor_attribution(
     """
     all_factors = set(portfolio_exposures.keys()) | set(benchmark_exposures.keys())
     # Only include factors that have returns
+    dropped_factors = all_factors - set(factor_returns.keys())
+    if dropped_factors:
+        logger.warning(
+            "Factor attribution: dropping factor(s) with no entry in "
+            "factor_returns: %s",
+            sorted(dropped_factors),
+        )
     all_factors &= set(factor_returns.keys())
 
     factors: list[FactorAttribution] = []
@@ -337,7 +390,15 @@ def link_multi_period_attribution(
 ) -> BrinsonResult:
     """Link multiple single-period Brinson results.
 
-    Uses summation (approximate geometric linking for attribution).
+    NOTE — arithmetic (not geometric/Carino) linking: each period's
+    allocation/selection/interaction effects are simply summed. This is a
+    documented approximation, not a bug: true multi-period Brinson linking
+    requires a Carino (or GRAP) log-scaling adjustment per period so effects
+    compound consistently with the geometrically-linked total return.
+    Arithmetic linking is exact only when returns are small/period count is
+    low; for long/volatile periods it can drift from the geometrically
+    linked total active return (the ``residual`` field captures this gap —
+    see the large-residual warning in ``compute_brinson_attribution``).
     """
     if not period_results:
         return BrinsonResult(
@@ -363,8 +424,14 @@ def link_multi_period_attribution(
     sector_alloc: dict[str, float] = {}
     sector_select: dict[str, float] = {}
     sector_interact: dict[str, float] = {}
-    sector_pw: dict[str, list[float]] = {}
-    sector_bw: dict[str, list[float]] = {}
+    # Beginning-of-period (BOP) weight per sector: the weight recorded on
+    # the *first* period_results entry each sector appears in. period_results
+    # is caller-supplied in chronological order, so this is the sector's
+    # weight at the start of the linked window — the standard convention
+    # for multi-period attribution — rather than an average across periods,
+    # which would blend in weight drift that happened *during* the window.
+    sector_bop_pw: dict[str, float] = {}
+    sector_bop_bw: dict[str, float] = {}
     sector_pr: dict[str, list[float]] = {}
     sector_br: dict[str, list[float]] = {}
 
@@ -374,8 +441,8 @@ def link_multi_period_attribution(
             sector_alloc[s] = sector_alloc.get(s, 0.0) + sd.allocation_effect
             sector_select[s] = sector_select.get(s, 0.0) + sd.selection_effect
             sector_interact[s] = sector_interact.get(s, 0.0) + sd.interaction_effect
-            sector_pw.setdefault(s, []).append(sd.portfolio_weight)
-            sector_bw.setdefault(s, []).append(sd.benchmark_weight)
+            sector_bop_pw.setdefault(s, sd.portfolio_weight)
+            sector_bop_bw.setdefault(s, sd.benchmark_weight)
             sector_pr.setdefault(s, []).append(sd.portfolio_return)
             sector_br.setdefault(s, []).append(sd.benchmark_return)
 
@@ -384,15 +451,13 @@ def link_multi_period_attribution(
         alloc = sector_alloc[sector]
         select = sector_select[sector]
         interact = sector_interact[sector]
-        avg_pw = sum(sector_pw[sector]) / len(sector_pw[sector])
-        avg_bw = sum(sector_bw[sector]) / len(sector_bw[sector])
         avg_pr = sum(sector_pr[sector]) / len(sector_pr[sector])
         avg_br = sum(sector_br[sector]) / len(sector_br[sector])
 
         linked_sectors.append(SectorAttribution(
             sector=sector,
-            portfolio_weight=avg_pw,
-            benchmark_weight=avg_bw,
+            portfolio_weight=sector_bop_pw[sector],
+            benchmark_weight=sector_bop_bw[sector],
             portfolio_return=avg_pr,
             benchmark_return=avg_br,
             allocation_effect=alloc,
