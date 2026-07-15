@@ -573,24 +573,17 @@ export const RESEARCH = {
     // /research/thesis/{entity_id} path is POST-only (creates a new
     // thesis), so a GET against it 404s/405s. Fixed.
     byEntity: (entityId: string) => `/v4/research/thesis/${entityId}/latest`,
-    // NOT a path bug -- src/api/routers/research_thesis.py has no
-    // /research/thesis/generate route at all. The real "create" endpoint is
-    // POST /research/thesis/{entity_id} (entity_id in the URL, not a
-    // separate endpoint), requires auth, and expects a full
-    // ThesisCreateRequest body (thesis_title/investment_horizon/
-    // conviction_level/executive_summary/key_drivers/primary_risks/
-    // valuation_scenarios/catalysts) -- a fundamentally different, analyst-
-    // authored shape than the {ticker, direction, targetPrice} this app
-    // currently sends. Left unmapped (kept as a placeholder route so the
-    // string exists) rather than silently pointed somewhere half-wrong;
-    // ThesisBuilder.tsx's "Generate" button is disabled until this UI is
-    // rebuilt around the real request shape.
-    generate: '/v4/research/thesis/generate',
+    // Real "create" endpoint: POST /research/thesis/{entity_id}
+    // (entity_id in the URL, not a separate /generate route), requires
+    // auth, and expects a full ThesisCreateRequest body (thesis_title/
+    // investment_horizon/conviction_level/executive_summary/key_drivers/
+    // primary_risks/valuation_scenarios/catalysts). ThesisBuilder.tsx's
+    // "Generate" form is built around this real shape.
+    generate: (entityId: string) => `/v4/research/thesis/${entityId}`,
     // Real route is .../{thesis_id}/update (PUT). Fixed.
     update: (thesisId: string) => `/v4/research/thesis/${thesisId}/update`,
-    // NOT a path bug -- no /validate route exists anywhere on
-    // research_thesis.py. ThesisBuilder.tsx's "Validate" button is disabled
-    // until a real backend endpoint exists.
+    // Real endpoint -- POST .../{thesis_id}/validate, a structural
+    // completeness/freshness check (see the endpoint's docstring).
     validate: (thesisId: string) => `/v4/research/thesis/${thesisId}/validate`,
   },
   qa: {
@@ -845,7 +838,21 @@ export const BACKTESTING = {
 // ---------------------------------------------------------------------------
 
 export const AUTH = {
-  login: '/v1/auth/login',
+  // Real routes (src/api/routers/auth.py, prefix /auth -- NOT /v1). `login`
+  // must be posted as application/x-www-form-urlencoded via
+  // api.postForm() -- it's FastAPI's OAuth2PasswordRequestForm, not a JSON
+  // body.
+  register: '/auth/register',
+  login: '/auth/token',
+  me: '/auth/me',
+  // NOTE: logout/refresh/profile/changePassword/apiKeys below have NO
+  // backing route anywhere in src/api/routers/ (verified by grep) -- auth
+  // is JWT-only today (register/token/me), there's no session, refresh-
+  // token, profile-editing, or API-key-management backend at all. Left
+  // defined only because Settings.tsx already references them with
+  // graceful failure handling (retry: 0 / .catch(() => {})); do not build
+  // new features against these paths without adding the real endpoints
+  // first.
   logout: '/v1/auth/logout',
   refresh: '/v1/auth/refresh',
   profile: '/v1/auth/profile',

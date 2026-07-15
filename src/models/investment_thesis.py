@@ -37,7 +37,7 @@ class InvestmentThesis(TimestampMixin, Base):
     catalysts: Mapped[dict | None] = mapped_column(JSONB)  # [{catalyst: str, expected_date: str, impact: str}]
     quality_metrics: Mapped[dict | None] = mapped_column(JSONB)  # {data_coverage: float, staleness_days: int, ...}
     elevator_pitch: Mapped[str | None] = mapped_column(String(500))
-    slide_outline: Mapped[dict | None] = mapped_column(JSONB)  # [{slide_number: int, title: str, bullets: [str]}]
+    slide_outline: Mapped[list | None] = mapped_column(JSONB)  # [{slide_number: int, title: str, bullet_points: [str]}]
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 

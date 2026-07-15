@@ -52,6 +52,17 @@ class ApiClient {
     return this.request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, params });
   }
 
+  // FastAPI's OAuth2PasswordRequestForm (used by POST /auth/token) expects
+  // application/x-www-form-urlencoded, not JSON -- a plain post() call
+  // would 422 against it.
+  postForm<T>(path: string, form: Record<string, string>): Promise<T> {
+    return this.request<T>(path, {
+      method: 'POST',
+      body: new URLSearchParams(form).toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  }
+
   put<T>(path: string, body?: unknown): Promise<T> {
     return this.request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined });
   }

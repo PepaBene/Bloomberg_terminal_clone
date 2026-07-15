@@ -50,7 +50,12 @@ class ThesisResponse(BaseModel):
     catalysts: dict | None = None
     quality_metrics: dict | None = None
     elevator_pitch: str | None = None
-    slide_outline: dict | None = None
+    # _build_slide_outline() (research_thesis.py) returns list[dict] (one
+    # entry per slide) -- was previously typed `dict | None` here, which
+    # made every response with a real slide_outline 422 on serialization.
+    # Existing tests never caught this because their fixtures seeded
+    # {"slides": [...]} (a dict) rather than the real list shape.
+    slide_outline: list[dict] | None = None
     ai_enabled: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -113,7 +118,7 @@ class ThesisQualityReportResponse(BaseModel):
 class ThesisSlideOutlineResponse(BaseModel):
     thesis_id: UUID
     thesis_title: str | None = None
-    slide_outline: dict | None = None
+    slide_outline: list[dict] | None = None
 
 
 class ThesisElevatorPitchResponse(BaseModel):

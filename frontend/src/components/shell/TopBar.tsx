@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
 import { useAlertsStore } from '@/stores/alertsState';
 import { useNavigationStore } from '@/stores/navigationHistory';
+import { useAuthStore, useLoginModalStore } from '@/stores/authStore';
+import { useLogout } from '@/api/hooks/useAuth';
 import { CommandBar } from '../ui/CommandBar';
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -118,6 +120,11 @@ export function TopBar() {
   const market = useMarketStatus();
   const breadcrumbs = useBreadcrumbs();
 
+  const username = useAuthStore((s) => s.username);
+  const openLoginModal = useLoginModalStore((s) => s.openLoginModal);
+  const logout = useLogout();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
   const [commandBarOpen, setCommandBarOpen] = useState(false);
 
   // Cmd/Ctrl+K shortcut
@@ -132,6 +139,18 @@ export function TopBar() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [handleKey]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const close = () => setUserMenuOpen(false);
+    // Deferred so the same click that opened the menu (via the avatar
+    // button's own onClick) doesn't immediately close it again.
+    const id = window.setTimeout(() => window.addEventListener('click', close), 0);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('click', close);
+    };
+  }, [userMenuOpen]);
 
   const hasUnread = unread.length > 0;
 
@@ -346,15 +365,51 @@ export function TopBar() {
           />
         </span>
 
-        {/* ── User Avatar ── */}
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary text-xs font-bold shrink-0"
-          style={{
-            background: 'var(--color-surface-overlay)',
-            transition: 'background var(--transition-fast)',
-          }}
-        >
-          U
+        {/* ── User Avatar / Sign In ── */}
+        <div className="relative shrink-0">
+          <button
+            className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary text-xs font-bold"
+            style={{
+              background: 'var(--color-surface-overlay)',
+              transition: 'background var(--transition-fast)',
+              border: username ? '1px solid var(--color-accent-primary)' : '1px solid transparent',
+            }}
+            title={username ? `Signed in as ${username}` : 'Sign in'}
+            onClick={() => (username ? setUserMenuOpen((v) => !v) : openLoginModal())}
+          >
+            {username ? username.slice(0, 1).toUpperCase() : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4 3.5-7 8-7s8 3 8 7" />
+              </svg>
+            )}
+          </button>
+          {username && userMenuOpen && (
+            <div
+              className="absolute right-0 mt-1 rounded"
+              style={{
+                minWidth: '140px',
+                background: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-surface-border)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                zIndex: 110,
+              }}
+            >
+              <div style={{ padding: '8px 10px', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-surface-border)' }}>
+                {username}
+              </div>
+              <button
+                className="w-full text-left"
+                style={{ padding: '8px 10px', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)' }}
+                onClick={() => {
+                  logout();
+                  setUserMenuOpen(false);
+                }}
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 

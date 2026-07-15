@@ -52,7 +52,14 @@ async def _seed_thesis(session, entity_id, analyst_id, version=1,
         catalysts={"events": ["earnings"]},
         quality_metrics={"score": 0.85},
         elevator_pitch=f"Elevator pitch v{version}.",
-        slide_outline={"slides": ["Overview", "Thesis"]},
+        # Real shape (_build_slide_outline() in research_thesis.py) is
+        # list[dict], one entry per slide -- NOT {"slides": [...]}. The old
+        # dict-shaped fixture here was masking a genuine schema bug (see
+        # ThesisResponse.slide_outline) where every real response 422'd.
+        slide_outline=[
+            {"slide_number": 1, "title": "Overview", "bullet_points": ["Conviction: HIGH"]},
+            {"slide_number": 2, "title": "Thesis", "bullet_points": ["growth"]},
+        ],
         ai_enabled=False,
     )
     session.add(thesis)
@@ -343,7 +350,10 @@ async def test_slides_with_data(client: AsyncClient, session: AsyncSession, test
     resp = await client.get(f"/v4/research/thesis/{thesis.id}/slides", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["slide_outline"] == {"slides": ["Overview", "Thesis"]}
+    assert data["slide_outline"] == [
+        {"slide_number": 1, "title": "Overview", "bullet_points": ["Conviction: HIGH"]},
+        {"slide_number": 2, "title": "Thesis", "bullet_points": ["growth"]},
+    ]
 
 
 # ── GET /research/thesis/{thesis_id}/elevator ────────────────────────

@@ -224,8 +224,8 @@ export function useEntityThesis(entityId: string, options?: { enabled?: boolean 
 export function useGenerateThesis() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(RESEARCH.thesis.generate, body),
+    mutationFn: ({ entityId, ...body }: Record<string, unknown> & { entityId: string }) =>
+      api.post(RESEARCH.thesis.generate(entityId), body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['research', 'thesis'] });
     },
