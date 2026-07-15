@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Date, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Date, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,14 +25,15 @@ class Portfolio(TimestampMixin, Base):
     __tablename__ = "portfolios"
     __table_args__ = (
         UniqueConstraint("user_id", "portfolio_name", name="uq_portfolio_user_name"),
-        # P4-M-026: confirmed status values (ACTIVE default, ARCHIVED on
-        # soft-delete/close -- see test_portfolio_models.py).
-        # ``portfolio_type`` is deliberately left unconstrained: real
-        # callers use REAL/PAPER *and* EQUITY (src/api/routers/
-        # portfolios.py's CSV-upload commit path), an inconsistency that's
-        # a separate, pre-existing bug outside this fix's scope -- locking
-        # the CHECK to only 2 of the 3 in-use values would break the third.
-        CheckConstraint("status IN ('ACTIVE', 'ARCHIVED')", name="ck_portfolio_status"),
+        # P4-M-026: NOT constrained, on purpose. Unlike Position/BacktestRun/
+        # Transaction, ``status`` here is a genuine open-ended string, not a
+        # fixed enum -- ``PUT /portfolios/{id}`` (update_portfolio,
+        # src/api/routers/portfolios.py) lets a caller set it to any value
+        # (e.g. "PAUSED", exercised by test_update_portfolio_status), and
+        # ``portfolio_type`` similarly sees REAL/PAPER *and* EQUITY in
+        # practice (the CSV-upload commit path). Locking either down would
+        # break real, already-relied-upon behavior instead of catching bad
+        # data.
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

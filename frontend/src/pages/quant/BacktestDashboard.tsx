@@ -57,15 +57,6 @@ const strategies: BacktestStrategyOption[] = [];
 const backtestResults: { strategy: string; period: string; cagr: number; sharpe: number; maxDrawdown: number; winRate: number; alpha: number }[] = [];
 const recentBacktests: { id: string; strategy: string; ranAt: string; status: string; cagr: number | null; sharpe: number | null }[] = [];
 
-const kpiData = [
-  { label: 'Strategies', value: '6' },
-  { label: 'Backtests Run', value: '142' },
-  { label: 'Best Strategy CAGR', value: '+16.24%', color: 'var(--color-signal-positive)' },
-  { label: 'Avg Sharpe', value: '1.08' },
-  { label: 'Win Rate', value: '60.1%' },
-  { label: 'Max Drawdown', value: '-28.6%', color: 'var(--color-signal-negative)' },
-];
-
 const universeOptions = ['S&P 500', 'Russell 1000', 'Russell 2000', 'MSCI World', 'Multi-Asset', 'NASDAQ 100'];
 
 const inputStyle: React.CSSProperties = {

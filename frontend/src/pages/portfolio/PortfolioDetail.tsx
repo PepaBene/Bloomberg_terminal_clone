@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Portfolio Detail — Single Portfolio View
 // ---------------------------------------------------------------------------
-import { useMemo, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DonutChart, TimeSeriesChart } from '@/components/charts';
 import {
@@ -172,20 +172,6 @@ const SECTOR_ALLOCATION = [
 ];
 
 // --- NAV History (30 days) ---------------------------------------------------
-
-function generateNavHistory(): { date: string; value: number }[] {
-  const data: { date: string; value: number }[] = [];
-  let nav = 10_000_000;
-  const start = new Date('2026-02-25');
-  for (let i = 0; i < 30; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const dailyReturn = (Math.random() - 0.47) * 0.012;
-    nav *= 1 + dailyReturn;
-    data.push({ date: d.toISOString().slice(0, 10), value: Math.round(nav) });
-  }
-  return data;
-}
 
 function NavHistoryChart({ data }: { data?: { date: string; value: number }[] }) {
   // P4-F-013: render an empty chart when the API hasn't returned NAV

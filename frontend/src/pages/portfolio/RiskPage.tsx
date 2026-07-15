@@ -16,10 +16,108 @@ import {
 } from '@/hooks';
 import { api } from '@/api/client';
 
+// --- Real API response shapes (src/schemas/portfolio_risk.py,
+// compliance_schema.py, drift_schema.py) -- P4-F-022: replaces the 13
+// `as any`/`as any[]` casts on this page with types matching the actual
+// backend response, several of which are single objects (not arrays) that
+// an unguarded `as any[]` cast would have crashed on the moment real data
+// (rather than a permanent 404) started flowing through.
+
+interface ApiVaR {
+  var_1d_95: number | null;
+  var_1d_99: number | null;
+  var_10d_95: number | null;
+}
+
+// No GET /risk/cvar route exists anywhere in src/api/routers/portfolio_risk.py
+// (verified by grep) -- a missing feature, not a wiring bug. Kept loosely
+// typed (rather than fabricating a contract for a field that will never
+// arrive) and always falls back to mock.
+interface ApiCVaR {
+  cvar95?: number;
+}
+
+interface ApiSectorConcentrationEntry {
+  sector: string;
+  weight: number;
+}
+
+interface ApiConcentration {
+  largest_position_weight: number | null;
+  top_5_weight: number | null;
+  top_10_weight: number | null;
+  sector_detail: ApiSectorConcentrationEntry[];
+}
+
+interface ApiComplianceRule {
+  rule_id: string;
+  rule_name: string;
+  threshold: number | null;
+  comparison: string;
+}
+
+interface ApiComplianceResult {
+  rule_id: string;
+  status: string;
+  current_value: number | null;
+}
+
+interface ApiCompliance {
+  rules: ApiComplianceRule[];
+  latest_results: ApiComplianceResult[];
+}
+
+interface ApiFactorExposure {
+  value_exposure: number | null;
+  growth_exposure: number | null;
+  momentum_exposure: number | null;
+  quality_exposure: number | null;
+  size_exposure: number | null;
+  low_vol_exposure: number | null;
+  benchmark_value: number | null;
+  benchmark_growth: number | null;
+  benchmark_momentum: number | null;
+  benchmark_quality: number | null;
+  benchmark_size: number | null;
+  benchmark_low_vol: number | null;
+}
+
+interface ApiStressResult {
+  scenario_name: string;
+  scenario_type: string;
+  total_pnl_percent: number | null;
+}
+
+// No GET /risk/correlation route exists anywhere in portfolio_risk.py
+// (verified by grep) -- same "missing feature" situation as CVaR above.
+interface ApiCorrelation {
+  tickers?: string[];
+  matrix?: number[][];
+}
+
+interface ApiSectorDrift {
+  sector: string;
+  target_weight: number;
+  current_weight: number;
+  drift_pct: number;
+}
+
+interface ApiDrift {
+  sector_drifts: ApiSectorDrift[];
+}
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
+function formatMoney(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${v.toFixed(0)}`;
+}
+function titleCaseStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+}
 
 const mockRiskKPIs = [
   { label: '1D VaR (95%)', value: '$385K' },
@@ -85,34 +183,114 @@ export default function RiskPage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
 
   // API hooks
-  const { data: apiVaR } = usePortfolioVaR(portfolioId);
-  const { data: apiCVaR } = usePortfolioCVaR(portfolioId);
-  const { data: apiConcentration } = usePortfolioConcentration(portfolioId);
-  const { data: apiStress } = usePortfolioStressHistorical(portfolioId);
-  const { data: apiCompliance } = usePortfolioCompliance(portfolioId);
-  const { data: apiFactors } = usePortfolioFactorExposure(portfolioId);
-  const { data: apiCorrelation } = usePortfolioCorrelation(portfolioId);
-  const { data: apiDrift } = usePortfolioDrift(portfolioId);
+  const { data: apiVaR } = usePortfolioVaR(portfolioId) as { data: ApiVaR | null | undefined };
+  const { data: apiCVaR } = usePortfolioCVaR(portfolioId) as { data: ApiCVaR | undefined };
+  const { data: apiConcentration } = usePortfolioConcentration(portfolioId) as { data: ApiConcentration | null | undefined };
+  const { data: apiStress } = usePortfolioStressHistorical(portfolioId) as { data: ApiStressResult[] | undefined };
+  const { data: apiCompliance } = usePortfolioCompliance(portfolioId) as { data: ApiCompliance | undefined };
+  const { data: apiFactors } = usePortfolioFactorExposure(portfolioId) as { data: ApiFactorExposure | null | undefined };
+  const { data: apiCorrelation } = usePortfolioCorrelation(portfolioId) as { data: ApiCorrelation | undefined };
+  const { data: apiDrift } = usePortfolioDrift(portfolioId) as { data: ApiDrift | null | undefined };
 
-  // Merge API data with mock fallbacks
+  // Merge API data with mock fallbacks (P4-F-022)
   const riskKPIs = (apiVaR && apiCVaR) ? [
-    { label: '1D VaR (95%)', value: (apiVaR as any)?.var95_1d ?? '$385K' },
-    { label: '1D VaR (99%)', value: (apiVaR as any)?.var99_1d ?? '$620K' },
-    { label: '10D VaR (95%)', value: (apiVaR as any)?.var95_10d ?? '$1.22M' },
-    { label: 'CVaR (95%)', value: (apiCVaR as any)?.cvar95 ?? '$580K' },
-    { label: 'Tracking Error', value: (apiVaR as any)?.trackingError ?? '2.8%' },
-    { label: 'Active Share', value: (apiVaR as any)?.activeShare ?? '42.5%' },
+    { label: '1D VaR (95%)', value: apiVaR.var_1d_95 != null ? formatMoney(apiVaR.var_1d_95) : '$385K' },
+    { label: '1D VaR (99%)', value: apiVaR.var_1d_99 != null ? formatMoney(apiVaR.var_1d_99) : '$620K' },
+    { label: '10D VaR (95%)', value: apiVaR.var_10d_95 != null ? formatMoney(apiVaR.var_10d_95) : '$1.22M' },
+    // No GET /risk/cvar endpoint exists on the backend (see ApiCVaR above) --
+    // stays mock until one does.
+    { label: 'CVaR (95%)', value: apiCVaR.cvar95 != null ? formatMoney(apiCVaR.cvar95) : '$580K' },
+    // Tracking Error / Active Share aren't fields on VaRResponse at all --
+    // left as honest mock rather than reading nonexistent camelCase keys.
+    { label: 'Tracking Error', value: '2.8%' },
+    { label: 'Active Share', value: '42.5%' },
   ] : mockRiskKPIs;
 
-  const concentrationRisk = (apiConcentration as any[]) ?? mockConcentrationRisk;
-  const stressResults = (apiStress as any[]) ?? mockStressResults;
-  const complianceChecks = (apiCompliance as any[]) ?? mockComplianceChecks;
-  const factorExposure = (apiFactors as any[]) ?? mockFactorExposure;
+  // ConcentrationResponse (real GET /risk/concentration) is a single summary
+  // object, not a list of dimensions with a per-dimension VaR contribution
+  // like the mock -- an unguarded `as any[]` cast here would have crashed
+  // the moment this endpoint returned real data. Synthesize the closest
+  // real analog (largest/top-5/top-10 weights + real per-sector weights);
+  // VaR Contribution has no real source so it's shown as "--".
+  const concentrationRisk = apiConcentration
+    ? [
+        { name: 'Largest Position', weight: (apiConcentration.largest_position_weight ?? 0) * 100, ticker: '—', varContribution: null as number | null },
+        { name: 'Top 5 Holdings', weight: (apiConcentration.top_5_weight ?? 0) * 100, ticker: '—', varContribution: null as number | null },
+        { name: 'Top 10 Holdings', weight: (apiConcentration.top_10_weight ?? 0) * 100, ticker: '—', varContribution: null as number | null },
+        ...apiConcentration.sector_detail.map((s) => ({
+          name: `Sector: ${s.sector}`,
+          weight: s.weight * 100,
+          ticker: s.sector,
+          varContribution: null as number | null,
+        })),
+      ]
+    : mockConcentrationRisk;
 
-  const correlationTickers = (apiCorrelation as any)?.tickers ?? mockCorrelationTickers;
-  const correlationMatrix = (apiCorrelation as any)?.matrix ?? mockCorrelationMatrix;
+  // Now a genuine list (endpoints.ts repoints stressHistorical at the real
+  // GET /risk/stress/results, which returns list[StressTestResponse] --
+  // it previously called the POST-only /risk/stress/historical route and
+  // could never have returned an array at all).
+  const stressResults = apiStress && apiStress.length > 0
+    ? apiStress.map((s) => ({
+        scenario: s.scenario_name,
+        portfolioPnL: s.total_pnl_percent != null ? s.total_pnl_percent * 100 : null,
+        // StressTestResponse has no benchmark/S&P P&L field -- shown as
+        // "--" rather than fabricated.
+        spxPnL: null as number | null,
+        relative: null as number | null,
+      }))
+    : mockStressResults;
 
-  const driftData = (apiDrift as any)?.allocations ?? mockDriftData;
+  // ComplianceSummaryResponse is a single object with `rules`/
+  // `latest_results` arrays that need joining by rule_id, not itself a
+  // list of {rule, limit, current, status} rows like the mock.
+  const complianceChecks = apiCompliance
+    ? apiCompliance.rules.map((rule) => {
+        const result = apiCompliance.latest_results.find((r) => r.rule_id === rule.rule_id);
+        return {
+          rule: rule.rule_name,
+          limit: rule.threshold != null ? `${rule.comparison} ${rule.threshold}` : '—',
+          current: result?.current_value != null ? String(result.current_value) : '—',
+          status: result ? titleCaseStatus(result.status) : 'Unknown',
+        };
+      })
+    : mockComplianceChecks;
+
+  // FactorExposureResponse (real GET /risk/factors) is a single object with
+  // 6 named exposure fields + matching benchmark_* fields, not a list of
+  // {factor, exposure, benchmark, active} rows like the mock.
+  const factorExposure = apiFactors
+    ? ([
+        ['Value', apiFactors.value_exposure, apiFactors.benchmark_value],
+        ['Growth', apiFactors.growth_exposure, apiFactors.benchmark_growth],
+        ['Momentum', apiFactors.momentum_exposure, apiFactors.benchmark_momentum],
+        ['Quality', apiFactors.quality_exposure, apiFactors.benchmark_quality],
+        ['Size', apiFactors.size_exposure, apiFactors.benchmark_size],
+        ['Low Vol', apiFactors.low_vol_exposure, apiFactors.benchmark_low_vol],
+      ] as const).map(([factor, exposure, benchmark]) => ({
+        factor,
+        exposure: exposure ?? 0,
+        benchmark: benchmark ?? 0,
+        active: (exposure ?? 0) - (benchmark ?? 0),
+      }))
+    : mockFactorExposure;
+
+  const correlationTickers = apiCorrelation?.tickers ?? mockCorrelationTickers;
+  const correlationMatrix = apiCorrelation?.matrix ?? mockCorrelationMatrix;
+
+  // DriftResponse (real GET /drift) is a single object; its `sector_drifts`
+  // array is the closest real analog to the mock's per-asset-class rows
+  // (there's no real per-row `status` field, so it's derived from the same
+  // >=2% threshold src/engines/drift_engine.py's alerting uses).
+  const driftData = apiDrift && apiDrift.sector_drifts.length > 0
+    ? apiDrift.sector_drifts.map((d) => ({
+        asset: d.sector,
+        target: d.target_weight * 100,
+        actual: d.current_weight * 100,
+        drift: d.drift_pct * 100,
+        status: Math.abs(d.drift_pct) >= 0.02 ? 'Warning' : 'OK',
+      }))
+    : mockDriftData;
 
   // Custom stress test state
   const [customScenarioName, setCustomScenarioName] = useState('');

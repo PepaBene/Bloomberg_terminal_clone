@@ -257,7 +257,7 @@ export default function PerformancePage() {
       // (src/api/routers/portfolio_performance.py only ever sets the
       // per-month fields) -- derive a compounded YTD from the months that
       // do have data rather than showing a fabricated/missing figure.
-      const ytd = months.reduce((acc, m) => (m != null ? (1 + acc) * (1 + m) - 1 : acc), 0);
+      const ytd = months.reduce((acc: number, m) => (m != null ? (1 + acc) * (1 + m) - 1 : acc), 0);
       return {
         year: String(y.year),
         jan: (y.jan ?? 0) * 100, feb: (y.feb ?? 0) * 100, mar: (y.mar ?? 0) * 100,
