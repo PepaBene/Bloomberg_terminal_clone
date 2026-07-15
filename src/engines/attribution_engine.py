@@ -424,8 +424,14 @@ def link_multi_period_attribution(
     sector_alloc: dict[str, float] = {}
     sector_select: dict[str, float] = {}
     sector_interact: dict[str, float] = {}
-    sector_pw: dict[str, list[float]] = {}
-    sector_bw: dict[str, list[float]] = {}
+    # Beginning-of-period (BOP) weight per sector: the weight recorded on
+    # the *first* period_results entry each sector appears in. period_results
+    # is caller-supplied in chronological order, so this is the sector's
+    # weight at the start of the linked window — the standard convention
+    # for multi-period attribution — rather than an average across periods,
+    # which would blend in weight drift that happened *during* the window.
+    sector_bop_pw: dict[str, float] = {}
+    sector_bop_bw: dict[str, float] = {}
     sector_pr: dict[str, list[float]] = {}
     sector_br: dict[str, list[float]] = {}
 
@@ -435,8 +441,8 @@ def link_multi_period_attribution(
             sector_alloc[s] = sector_alloc.get(s, 0.0) + sd.allocation_effect
             sector_select[s] = sector_select.get(s, 0.0) + sd.selection_effect
             sector_interact[s] = sector_interact.get(s, 0.0) + sd.interaction_effect
-            sector_pw.setdefault(s, []).append(sd.portfolio_weight)
-            sector_bw.setdefault(s, []).append(sd.benchmark_weight)
+            sector_bop_pw.setdefault(s, sd.portfolio_weight)
+            sector_bop_bw.setdefault(s, sd.benchmark_weight)
             sector_pr.setdefault(s, []).append(sd.portfolio_return)
             sector_br.setdefault(s, []).append(sd.benchmark_return)
 
@@ -445,15 +451,13 @@ def link_multi_period_attribution(
         alloc = sector_alloc[sector]
         select = sector_select[sector]
         interact = sector_interact[sector]
-        avg_pw = sum(sector_pw[sector]) / len(sector_pw[sector])
-        avg_bw = sum(sector_bw[sector]) / len(sector_bw[sector])
         avg_pr = sum(sector_pr[sector]) / len(sector_pr[sector])
         avg_br = sum(sector_br[sector]) / len(sector_br[sector])
 
         linked_sectors.append(SectorAttribution(
             sector=sector,
-            portfolio_weight=avg_pw,
-            benchmark_weight=avg_bw,
+            portfolio_weight=sector_bop_pw[sector],
+            benchmark_weight=sector_bop_bw[sector],
             portfolio_return=avg_pr,
             benchmark_return=avg_br,
             allocation_effect=alloc,

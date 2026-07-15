@@ -57,6 +57,12 @@ CONCENTRATION_THRESHOLDS: dict[str, int] = {
 
 FACTORS: list[str] = ["value", "growth", "momentum", "quality", "size", "low_vol"]
 
+# Default number of standard deviations a factor exposure must move from its
+# historical mean before being flagged as "drift" (an unintended bet vs. the
+# portfolio's own history). Exposed as a `compute_factor_exposures` parameter
+# so callers can tune sensitivity instead of it being a silent hardcode.
+DEFAULT_DRIFT_ZSCORE_THRESHOLD = 2.0
+
 
 # ── Dataclasses ───────────────────────────────────────────────────────
 
@@ -128,15 +134,18 @@ def _normalize_weights(weights: dict[str, float]) -> dict[str, float]:
 
     The variance-covariance VaR formula assumes weights are fractions of NAV.
     Callers occasionally pass raw dollar amounts; without rescaling the
-    output is off by orders of magnitude. We treat anything where the
-    absolute sum is far from 1.0 as un-normalized and rescale by absolute
-    sum (so long-short books, where signed weights can sum near 0, still
-    scale sensibly).
+    output is off by orders of magnitude. Always rescale by the absolute
+    sum (exact normalization) rather than only when "far" from 1.0 — for
+    weights that already sum to ~1.0 this is a no-op (division by ~1.0), so
+    there's no downside to normalizing unconditionally, and it avoids a
+    tolerance band silently letting slightly-off inputs (e.g. 1.03) through
+    unnormalized. Long-short books, where signed weights can sum near 0,
+    still scale sensibly since we divide by the *absolute* sum.
     """
     if not weights:
         return {}
     abs_sum = sum(abs(w) for w in weights.values())
-    if abs_sum == 0.0 or abs(abs_sum - 1.0) < 0.05:
+    if abs_sum == 0.0:
         return dict(weights)
     return {t: w / abs_sum for t, w in weights.items()}
 
@@ -484,6 +493,7 @@ def compute_factor_exposures(
     positions: list[dict],
     benchmark_positions: list[dict] | None = None,
     historical_exposures: list[dict] | None = None,
+    drift_zscore_threshold: float = DEFAULT_DRIFT_ZSCORE_THRESHOLD,
 ) -> FactorExposureResult:
     """Compute portfolio factor exposures relative to benchmark.
 
@@ -497,6 +507,10 @@ def compute_factor_exposures(
     historical_exposures : list[dict] | None
         Past snapshots: [{date, exposures: {value: ..., ...}}, ...].
         Used to detect drift / unintended bets.
+    drift_zscore_threshold : float
+        Number of standard deviations from the historical mean a factor
+        must move before being flagged as drift. Defaults to
+        ``DEFAULT_DRIFT_ZSCORE_THRESHOLD`` (2.0).
 
     Returns
     -------
@@ -559,7 +573,8 @@ def compute_factor_exposures(
                     sum((v - hist_mean) ** 2 for v in hist_vals) / len(hist_vals)
                 )
                 current = portfolio_exp[factor]
-                if hist_std > 0 and abs(current - hist_mean) > 2.0 * hist_std:
+                drift_threshold = drift_zscore_threshold * hist_std
+                if hist_std > 0 and abs(current - hist_mean) > drift_threshold:
                     unintended_flags.append({
                         "factor": factor,
                         "active_exposure": current,
@@ -567,7 +582,7 @@ def compute_factor_exposures(
                         "message": (
                             f"{factor} exposure {current:.2f} has drifted "
                             f"from historical mean {hist_mean:.2f} "
-                            f"(>{2.0 * hist_std:.2f} threshold)"
+                            f"(>{drift_threshold:.2f} threshold)"
                         ),
                     })
 

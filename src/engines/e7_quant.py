@@ -239,6 +239,9 @@ class QuantEngine(BaseEngine):
     engine_name = "Quantitative & Statistical"
     engine_version = "1.0.0"
 
+    # Standard Blume (1971) adjustment weight, shrinking raw regression beta
+    # toward the market beta of 1.0: adjusted = 0.67*raw + 0.33*1.0. This is
+    # the widely-used industry-standard coefficient (not fitted here).
     BLUME_WEIGHT = 0.67
     MIN_OBSERVATIONS = 30
 
