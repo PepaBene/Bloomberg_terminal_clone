@@ -830,13 +830,14 @@ export const FI_AGENCY = {
 // Custom Classifications
 // ---------------------------------------------------------------------------
 
+// Backend router: custom_classifications.py (mounted at /v1). Real paths are
+// /v1/classifications*, NOT /v1/classifications/custom* (that gets captured by
+// the /classifications/{id} param route and 404s). There is no DELETE route.
 export const CUSTOM_CLASSIFICATIONS = {
-  list: '/v1/classifications/custom',
-  create: '/v1/classifications/custom',
-  detail: (id: string) => `/v1/classifications/custom/${id}`,
-  update: (id: string) => `/v1/classifications/custom/${id}`,
-  delete: (id: string) => `/v1/classifications/custom/${id}`,
-  assign: (id: string) => `/v1/classifications/custom/${id}/assign`,
+  list: '/v1/classifications',
+  create: '/v1/classifications',
+  detail: (id: string) => `/v1/classifications/${id}`,
+  members: (id: string) => `/v1/classifications/${id}/members`,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Yield Curve Deep Dive — Interactive Curve, Historical Shifts, Spread Analysis
 // ---------------------------------------------------------------------------
-import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 import { YieldCurveChart, TimeSeriesChart } from '@/components/charts';
 import type { YieldCurvePoint } from '@/components/charts';
-import { SpreadHistoryChart as FISpreadHistoryChart } from '@/components/fi';
-import type { SpreadDataPoint } from '@/components/fi';
+import { EmptyState } from '@/components/feedback';
 import {
   useYieldCurve,
   useYieldCurveHistory,
@@ -90,29 +90,31 @@ const CURVE_1M: YieldCurvePoint[] = TENORS.map((t, i) => ({
 
 // Additional historical curves available via curveComparison table below
 
-// --- 2s10s Spread History (1 year) -------------------------------------------
+// --- 2s10s Spread History — real GET /v1/analytics/yield-curve/spreads/history
 
-function generateSpreadHistory(): { date: string; value: number }[] {
-  const data: { date: string; value: number }[] = [];
-  let spread = -50;
-  const start = new Date('2025-03-27');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    spread += (Math.random() - 0.48) * 4;
-    spread = Math.max(-120, Math.min(20, spread));
-    data.push({ date: d.toISOString().slice(0, 10), value: Math.round(spread) });
-  }
-  return data;
+interface CurveSpreadHistoryDTO {
+  spread_type: string;
+  points: { curve_date: string; spread_value: number | null }[];
 }
 
 function SpreadHistoryChart() {
-  const data = useMemo(() => generateSpreadHistory(), []);
+  const { data, isLoading } = useQuery({
+    queryKey: ['yieldCurve', 'spreadHistory', '2s10s'],
+    queryFn: () => api.get<CurveSpreadHistoryDTO>('/v1/analytics/yield-curve/spreads/history', { spread_type: '2s10s' }),
+    retry: 0,
+  });
+  const series = (data?.points ?? [])
+    .filter((p) => p.spread_value != null)
+    .map((p) => ({ date: p.curve_date, value: Math.round(p.spread_value as number) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (isLoading) return <EmptyState icon="⏳" title="Loading spread history…" />;
+  if (series.length === 0) {
+    return <EmptyState icon="📉" title="No spread history" description="Yield-curve snapshots are required to compute the 2s10s spread series." />;
+  }
   return (
     <TimeSeriesChart
-      data={data}
+      data={series}
       height={220}
       showGrid
       series={[{ key: 'value', color: '#E05252', name: '2s10s Spread (bps)', type: 'area' }]}
@@ -148,7 +150,7 @@ export default function YieldCurveDeepDive() {
   const { data: apiHistory } = useYieldCurveHistory();
   const { data: apiForward } = useYieldCurveForward();
   const { data: apiReal } = useRealYieldCurve();
-  const { data: apiBreakeven } = useBreakevenCurve();
+  useBreakevenCurve();
   const { data: apiSwap } = useSwapCurve();
   const { data: apiSpreads } = useYieldCurveSpreads();
 
@@ -185,27 +187,14 @@ export default function YieldCurveDeepDive() {
         <SpreadHistoryChart />
       </div>
 
-      {/* Spread Analysis via FI SpreadHistoryChart Component */}
+      {/* UST 10Y OAS — no index-level OAS series endpoint exists; honest empty
+          state rather than a fabricated random walk (DATA_WIRING_AUDIT §8.3). */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
-        <h2 style={sectionTitle}>Spread Analysis (UST 10Y OAS, 12M)</h2>
-        <FISpreadHistoryChart
-          data={(() => {
-            const pts: SpreadDataPoint[] = [];
-            let oas = 42;
-            const start = new Date('2025-03-28');
-            for (let i = 0; i < 252; i++) {
-              const d = new Date(start);
-              d.setDate(d.getDate() + i);
-              const day = d.getDay();
-              if (day === 0 || day === 6) continue;
-              oas += (Math.random() - 0.48) * 2.5;
-              oas = Math.max(20, Math.min(70, oas));
-              pts.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
-            }
-            return pts;
-          })()}
-          benchmarkSpread={42}
-          height={220}
+        <h2 style={sectionTitle}>Spread Analysis (UST 10Y OAS)</h2>
+        <EmptyState
+          icon="📊"
+          title="OAS series unavailable"
+          description="No index-level UST 10Y OAS time series is wired to this deployment."
         />
       </div>
 

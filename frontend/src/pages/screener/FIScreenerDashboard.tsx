@@ -4,100 +4,123 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
+import { EmptyState } from '@/components/feedback';
 import { api } from '@/api/client';
-import { FI } from '@/api/endpoints';
 
-// --- Mock Data ---------------------------------------------------------------
+// Real backend route: POST /v2/analytics/bonds/screen (src/api/routers/
+// fi_screening.py — router self-prefixes /v2/analytics). The FI.screen
+// constant in endpoints.ts points at the legacy /v1/fi/screen/bonds path
+// that 404s, so the correct path is inlined here.
+const BOND_SCREEN_PATH = '/v2/analytics/bonds/screen';
 
-interface BondRow {
-  cusip: string;
-  issuer: string;
-  coupon: number;
-  maturity: string;
-  rating: string;
-  ratingCategory: 'IG' | 'HY';
-  sector: string;
-  maturityBucket: string;
-  oas: number;
-  ytm: number;
-  price: number;
-  duration: number;
+// --- DTOs mirroring the backend Pydantic schemas (src/schemas/fi_screening.py)
+
+interface BondScreenFilterInput {
+  field: string;
+  op: string; // GT, LT, EQ, BETWEEN
+  value: number;
+  value2?: number;
 }
 
-const mockBonds: BondRow[] = [
-  { cusip: '037833100', issuer: 'Apple Inc.',        coupon: 4.125, maturity: '2028-05-15', rating: 'AA+', ratingCategory: 'IG', sector: 'Technology', maturityBucket: '3-5Y', oas: 52,  ytm: 4.68,  price: 98.42, duration: 2.8 },
-  { cusip: '594918104', issuer: 'Microsoft Corp.',   coupon: 3.750, maturity: '2027-08-08', rating: 'AAA', ratingCategory: 'IG', sector: 'Technology', maturityBucket: '1-3Y', oas: 38,  ytm: 4.32,  price: 99.18, duration: 1.4 },
-  { cusip: '46625H100', issuer: 'JPMorgan Chase',    coupon: 5.250, maturity: '2033-01-15', rating: 'A+',  ratingCategory: 'IG', sector: 'Financials', maturityBucket: '5-10Y', oas: 95,  ytm: 5.42,  price: 101.24, duration: 6.2 },
-  { cusip: '38141G104', issuer: 'Goldman Sachs',     coupon: 5.750, maturity: '2034-10-01', rating: 'A',   ratingCategory: 'IG', sector: 'Financials', maturityBucket: '5-10Y', oas: 118, ytm: 5.88,  price: 99.86, duration: 7.1 },
-  { cusip: '172967424', issuer: 'Citigroup Inc.',    coupon: 6.125, maturity: '2036-07-15', rating: 'BBB+', ratingCategory: 'IG', sector: 'Financials', maturityBucket: '10+Y', oas: 142, ytm: 6.18,  price: 97.62, duration: 8.4 },
-  { cusip: '345370860', issuer: 'Ford Motor Co.',    coupon: 6.625, maturity: '2028-02-15', rating: 'BB+', ratingCategory: 'HY', sector: 'Consumer Disc.', maturityBucket: '1-3Y', oas: 225, ytm: 6.84,  price: 100.52, duration: 1.8 },
-  { cusip: '120568AE5', issuer: 'T-Mobile US',      coupon: 5.375, maturity: '2031-04-15', rating: 'BBB', ratingCategory: 'IG', sector: 'Telecom',    maturityBucket: '5-10Y', oas: 108, ytm: 5.52,  price: 98.94, duration: 4.8 },
-  { cusip: '26884LAC8', issuer: 'Energy Transfer',   coupon: 7.125, maturity: '2029-08-01', rating: 'BB',  ratingCategory: 'HY', sector: 'Energy',     maturityBucket: '3-5Y', oas: 268, ytm: 7.34,  price: 99.28, duration: 3.2 },
-];
+interface BondScreenRequest {
+  filters: BondScreenFilterInput[];
+  sort_by?: string;
+  ascending?: boolean;
+  limit?: number;
+}
+
+interface BondScreenResult {
+  cusip: string;
+  name: string | null;
+  coupon_rate: number | null;
+  maturity_date: string | null;
+  spread_bps: number | null;
+  yield_to_worst: number | null;
+  liquidity_score: number | null;
+  is_investment_grade: boolean | null;
+}
+
+interface BondScreenResponse {
+  results: BondScreenResult[];
+  total: number;
+}
+
+// Map the ScreenBuilder operator vocabulary to the backend op codes.
+const OP_MAP: Record<ScreenFilter['operator'], string> = {
+  '>': 'GT',
+  '<': 'LT',
+  '=': 'EQ',
+  between: 'BETWEEN',
+};
 
 // --- Bond-specific ScreenBuilder metrics -------------------------------------
+// Keys are the real backend filterable fields (see the bond_dict built in
+// fi_screening.py's screen_bonds), so a ScreenFilter maps 1:1 to a backend
+// filter. Duration/price are dropped — the backend exposes no such field.
 
 const BOND_METRICS: MetricDef[] = [
-  { key: 'oas', label: 'OAS (bps)', category: 'Spread' },
-  { key: 'ytm', label: 'Yield to Maturity (%)', category: 'Yield' },
-  { key: 'duration', label: 'Duration (yrs)', category: 'Risk' },
-  { key: 'coupon', label: 'Coupon (%)', category: 'Income' },
-  { key: 'price', label: 'Price', category: 'Pricing' },
+  { key: 'spread_bps', label: 'G-Spread (bps)', category: 'Spread' },
+  { key: 'yield_to_worst', label: 'Yield to Worst (%)', category: 'Yield' },
+  { key: 'coupon_rate', label: 'Coupon (%)', category: 'Income' },
+  { key: 'liquidity_score', label: 'Liquidity Score', category: 'Liquidity' },
 ];
 
 // --- ScreenResults columns ---------------------------------------------------
+// Only fields present on BondScreenResult. `grade` is derived from the real
+// is_investment_grade boolean below.
 
 const BOND_COLUMNS: ScreenResultColumn[] = [
   { key: 'cusip', label: 'CUSIP' },
-  { key: 'issuer', label: 'Issuer' },
-  { key: 'rating', label: 'Rating' },
-  { key: 'coupon', label: 'Coupon', format: 'percent' },
-  { key: 'maturity', label: 'Maturity' },
-  { key: 'oas', label: 'OAS (bps)', format: 'number' },
-  { key: 'duration', label: 'Duration', format: 'number' },
-  { key: 'ytm', label: 'YTM', format: 'percent' },
-  { key: 'price', label: 'Price', format: 'number' },
+  { key: 'name', label: 'Issuer' },
+  { key: 'grade', label: 'Grade' },
+  { key: 'coupon_rate', label: 'Coupon', format: 'percent' },
+  { key: 'maturity_date', label: 'Maturity' },
+  { key: 'spread_bps', label: 'G-Spread (bps)', format: 'number' },
+  { key: 'yield_to_worst', label: 'YTW', format: 'percent' },
+  { key: 'liquidity_score', label: 'Liquidity', format: 'number' },
 ];
 
 // --- Component ---------------------------------------------------------------
 
 export default function FIScreenerDashboard() {
   const [filters, setFilters] = useState<ScreenFilter[]>([]);
-  const [backendResults, setBackendResults] = useState<BondRow[] | null>(null);
+  const [results, setResults] = useState<BondScreenResult[] | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'done'>('idle');
 
   const handleRunScreen = useCallback(async () => {
+    setStatus('loading');
     try {
-      const result = await api.post(FI.screen, { filters });
-      setBackendResults((result as any)?.results ?? null);
-    } catch { setBackendResults(null); }
-  }, [filters]);
-
-  const filtered = useMemo(() => {
-    if (filters.length === 0) return mockBonds;
-    return mockBonds.filter((bond) => {
-      return filters.every((f) => {
-        const val = (bond as unknown as Record<string, unknown>)[f.metric];
-        if (typeof val !== 'number') return true;
-        switch (f.operator) {
-          case '>': return val > f.value;
-          case '<': return val < f.value;
-          case '=': return Math.abs(val - f.value) < 0.01;
-          case 'between': return val >= f.value && val <= (f.valueTo ?? Infinity);
-          default: return true;
-        }
-      });
-    });
+      const body: BondScreenRequest = {
+        filters: filters.map((f) => ({
+          field: f.metric,
+          op: OP_MAP[f.operator],
+          value: f.value,
+          value2: f.operator === 'between' ? f.valueTo : undefined,
+        })),
+        sort_by: 'spread_bps',
+        ascending: false,
+        limit: 50,
+      };
+      const response = await api.post<BondScreenResponse>(BOND_SCREEN_PATH, body);
+      setResults(response.results ?? []);
+      setStatus('done');
+    } catch {
+      setResults(null);
+      setStatus('error');
+    }
   }, [filters]);
 
   const handleFiltersChange = useCallback((newFilters: ScreenFilter[]) => {
     setFilters(newFilters);
   }, []);
 
-  const displayData = backendResults ?? filtered;
-
   const resultRows = useMemo(
-    () => displayData.map((b) => ({ ...b } as Record<string, unknown>)),
-    [displayData],
+    () =>
+      (results ?? []).map((b) => ({
+        ...b,
+        grade: b.is_investment_grade == null ? '—' : b.is_investment_grade ? 'IG' : 'HY',
+      })) as Record<string, unknown>[],
+    [results],
   );
 
   return (
@@ -109,7 +132,7 @@ export default function FIScreenerDashboard() {
           Fixed Income Screener
         </h1>
         <p style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-          Screen bonds by Rating, OAS, Duration, Coupon, and Maturity
+          Screen corporate bonds by G-Spread, Yield to Worst, Coupon, and Liquidity
         </p>
       </div>
 
@@ -126,6 +149,7 @@ export default function FIScreenerDashboard() {
       <div style={{ marginBottom: 'var(--panel-gap)' }}>
         <button
           onClick={handleRunScreen}
+          disabled={status === 'loading'}
           style={{
             fontFamily: 'var(--font-ui)',
             fontSize: 'var(--text-sm)',
@@ -135,19 +159,31 @@ export default function FIScreenerDashboard() {
             color: '#fff',
             border: 'none',
             borderRadius: '4px',
-            cursor: 'pointer',
+            cursor: status === 'loading' ? 'default' : 'pointer',
+            opacity: status === 'loading' ? 0.6 : 1,
           }}
         >
-          Run Screen
+          {status === 'loading' ? 'Running…' : 'Run Screen'}
         </button>
       </div>
 
       {/* LivePreviewCount between builder and results */}
-      <LivePreviewCount count={displayData.length} total={mockBonds.length} />
+      <LivePreviewCount count={results ? results.length : null} loading={status === 'loading'} />
 
-      {/* ScreenResults replaces inline results table */}
+      {/* Results */}
       <div style={{ marginTop: 'var(--panel-gap)' }}>
-        <ScreenResults results={resultRows} columns={BOND_COLUMNS} />
+        {status === 'idle' && (
+          <EmptyState icon="🔎" title="Run a screen to see results" description="Add filters above (optional) and click Run Screen to query the bond universe." />
+        )}
+        {status === 'error' && (
+          <EmptyState icon="⚠️" title="Screen failed" description="The bond screening request could not be completed. Please try again." action={{ label: 'Retry', onClick: handleRunScreen }} />
+        )}
+        {status === 'done' && resultRows.length === 0 && (
+          <EmptyState icon="📭" title="No bonds matched" description="No bonds matched the current filters. Try relaxing your criteria." />
+        )}
+        {status === 'done' && resultRows.length > 0 && (
+          <ScreenResults results={resultRows} columns={BOND_COLUMNS} />
+        )}
       </div>
     </div>
   );

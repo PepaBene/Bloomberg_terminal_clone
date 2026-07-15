@@ -403,8 +403,12 @@ export function useIndustryCycle(gicsCode: string | undefined) {
   });
 }
 
-export function useIndustryRankings() {
-  return useApiQuery(['industry', 'rankings'], INDUSTRY.rankings);
+// GET /v3/industry/rankings REQUIRES a `metric` query param (one of
+// median_roic, median_gross_margin, median_operating_margin,
+// revenue_growth_3y_cagr, revenue_growth_5y_cagr, total_market_cap,
+// company_count, roic_wacc_spread) — omitting it 422s.
+export function useIndustryRankings(metric: string = 'median_roic') {
+  return useApiQuery(['industry', 'rankings', metric], INDUSTRY.rankings, { metric });
 }
 
 export function useIndustryList() {
