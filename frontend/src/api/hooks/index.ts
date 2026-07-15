@@ -34,3 +34,6 @@ export * from './usePortfolioWatchlists';
 export * from './useResearch';
 export * from './useDeals';
 export * from './useAuth';
+export * from './useSmartMoney';
+export * from './useAutoModel';
+export * from './useComplexStructure';

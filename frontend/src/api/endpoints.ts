@@ -1037,3 +1037,52 @@ export const EXPORTS = {
   exportExcel: '/v4/exports/excel',
   exportPdf: '/v4/exports/pdf',
 } as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Smart Money / Notable-Filer Tracking
+// Real routes: src/api/routers/smart_money.py, mounted with prefix /v1 (see
+// src/api/app.py). Tracks notable 13F managers, corporate insiders, and
+// politicians (STOCK Act) using only free public filings already ingested.
+// DATA_WIRING_AUDIT.md flagged this as ✅ REAL with zero web frontend
+// consumers -- API/desktop-GUI only until now.
+// ---------------------------------------------------------------------------
+
+export const SMART_MONEY = {
+  investors: (category?: string) =>
+    category ? `/v1/smart-money/investors?category=${encodeURIComponent(category)}` : '/v1/smart-money/investors',
+  investor: (key: string) => `/v1/smart-money/investors/${key}`,
+  filerProfile: (key: string) => `/v1/smart-money/filers/${key}/profile`,
+  congress: '/v1/smart-money/congress',
+  consensus: '/v1/smart-money/consensus',
+  flow: (ticker: string) => `/v1/smart-money/flow/${ticker}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Automatic Model Builder
+// Real routes: src/api/routers/auto_model.py, mounted with prefix /v1. Scored
+// analytical models (ECONOMIC/MARKET/INDUSTRY/CORPORATE/COMPANY scopes).
+// `/company/{id}` assembles inputs from real fundamentals/DCF/comps/scores;
+// `/build` accepts caller-supplied metrics for any scope. Previously zero
+// web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const AUTO_MODEL = {
+  scopes: '/v1/models/scopes',
+  build: '/v1/models/build',
+  company: (entityId: string) => `/v1/models/company/${entityId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Complex Financial Structure Analysis
+// Real routes: src/api/routers/complex_structure.py, mounted with prefix
+// /v1. Subsidiary org tree, multi-class equity control-wedge, off-balance-
+// sheet/VIE exposure, and debt subordination waterfall. `/entity/{id}`
+// enriches with real stored data (capital structure, EX-21 subsidiaries,
+// disclosed share classes); `/analyze` accepts a caller-supplied payload.
+// Previously zero web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const COMPLEX_STRUCTURE = {
+  analyze: '/v1/complex-structure/analyze',
+  entity: (entityId: string) => `/v1/complex-structure/entity/${entityId}`,
+} as const;

@@ -57,6 +57,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/company/filings': 'Filings',
   '/company/credit': 'Credit',
   '/company/intelligence': 'Intelligence',
+  '/company/complex-structure': 'Complex Structure',
   '/screener': 'Screener',
   '/screener/fi': 'FI Screener',
   '/sector': 'Sector',
@@ -85,8 +86,10 @@ const ROUTE_LABELS: Record<string, string> = {
   '/research/thesis': 'Thesis Builder',
   '/research/qa': 'Analyst QA',
   '/research/themes': 'Themes',
+  '/research/model-builder': 'Model Builder',
   '/flows': 'Flows',
   '/custom': 'Custom Data',
+  '/smart-money': 'Smart Money',
   '/settings': 'Settings',
 };
 
