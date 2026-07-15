@@ -23,6 +23,7 @@ from src.schemas.investment_thesis_schema import (
     ThesisResponse,
     ThesisSlideOutlineResponse,
     ThesisUpdateRequest,
+    ThesisValidationResponse,
     ThesisVersionResponse,
 )
 
@@ -647,4 +648,72 @@ async def get_thesis_elevator_pitch(
         thesis_id=row.id,
         thesis_title=row.thesis_title,
         elevator_pitch=row.elevator_pitch,
+    )
+
+
+@router.post(
+    "/research/thesis/{thesis_id}/validate",
+    response_model=ThesisValidationResponse,
+)
+async def validate_thesis(
+    thesis_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Validate an existing thesis's structural completeness and freshness.
+
+    This is a REAL, deterministic completeness/freshness check -- the same
+    ``_QUALITY_FIELDS`` convention ``generate_thesis()`` already uses for
+    ``quality_metrics.data_coverage`` -- NOT an AI or analyst judgment of
+    whether the underlying investment case is actually correct. Frontend
+    callers should present this as "is this thesis filled out and current",
+    not "is this a good thesis".
+    """
+    result = await session.execute(
+        select(InvestmentThesis).where(InvestmentThesis.id == thesis_id)
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Thesis not found")
+
+    missing_fields = [f for f in _QUALITY_FIELDS if not getattr(row, f, None)]
+    data_coverage = round((len(_QUALITY_FIELDS) - len(missing_fields)) / len(_QUALITY_FIELDS), 2)
+
+    driver_count = len(_parse_driver_items(row.key_drivers))
+    risk_count = len(_parse_risk_items(row.primary_risks))
+    catalyst_count = len(_parse_catalyst_items(row.catalysts))
+    has_valuation = _parse_valuation(row.valuation_scenarios) is not None
+
+    updated_at = getattr(row, "updated_at", None)
+    staleness_days = 0
+    if updated_at is not None:
+        # SQLite (tests) returns naive datetimes even for
+        # DateTime(timezone=True) columns; Postgres (prod) returns
+        # tz-aware. Normalize both to naive UTC before subtracting.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        naive_updated = updated_at.replace(tzinfo=None) if updated_at.tzinfo else updated_at
+        staleness_days = (now - naive_updated).days
+
+    is_complete = not missing_fields and driver_count > 0 and risk_count > 0
+
+    summary_parts = [f"{int(data_coverage * 100)}% field coverage"]
+    summary_parts.append(f"{driver_count} driver(s), {risk_count} risk(s), {catalyst_count} catalyst(s)")
+    if not has_valuation:
+        summary_parts.append("no complete valuation scenario")
+    if missing_fields:
+        summary_parts.append(f"missing: {', '.join(missing_fields)}")
+    summary_parts.append(f"last updated {staleness_days}d ago")
+    summary = "; ".join(summary_parts) + "."
+
+    return ThesisValidationResponse(
+        thesis_id=thesis_id,
+        is_complete=is_complete,
+        data_coverage=data_coverage,
+        missing_fields=missing_fields,
+        driver_count=driver_count,
+        risk_count=risk_count,
+        catalyst_count=catalyst_count,
+        has_valuation_scenarios=has_valuation,
+        staleness_days=staleness_days,
+        summary=summary,
     )

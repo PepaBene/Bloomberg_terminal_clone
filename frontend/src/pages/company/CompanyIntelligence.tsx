@@ -218,9 +218,6 @@ export default function CompanyIntelligence() {
       ].filter((r) => r.value !== '--')
     : [];
 
-  // NOTE: revenue-drivers/cost-structure/margin-analysis/swot/porter-forces
-  // have no backing route in the backend yet (see @/types/intelligence) --
-  // these stay whatever shape the (currently always-erroring) hook returns.
   const drivers = apiRevDrivers?.drivers;
   const costs = apiCostStruct?.items;
   const margins = apiMargins?.margins;
@@ -328,18 +325,22 @@ export default function CompanyIntelligence() {
             <h2 style={sectionTitle}>Revenue Drivers</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {drivers.map((d) => (
-                <div key={d.driver} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
+                <div key={d.segment_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <div>
-                    <div style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 500 }}>{d.driver}</div>
-                    <div style={{ ...labelStyle, fontSize: 'var(--text-xs)' }}>Impact: {d.impact} &middot; {d.trend}</div>
+                    <div style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 500 }}>{d.segment_name}</div>
+                    <div style={{ ...labelStyle, fontSize: 'var(--text-xs)' }}>
+                      {d.classification.replace('_', ' ')} &middot; {d.revenue_share_pct != null ? `${d.revenue_share_pct.toFixed(1)}% of revenue` : '\u2014'}
+                    </div>
                   </div>
-                  <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{d.contribution?.toFixed(1) ?? '\u2014'}%</span>
+                  <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>
+                    {d.yoy_growth_pct != null ? `${d.yoy_growth_pct >= 0 ? '+' : ''}${d.yoy_growth_pct.toFixed(1)}%` : '\u2014'}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Revenue Drivers" message="Not yet available -- no backend endpoint implemented" />
+          <EmptyPanel title="Revenue Drivers" message="No segment data ingested for this entity" />
         )}
 
         {/* Cost Structure */}
@@ -353,10 +354,10 @@ export default function CompanyIntelligence() {
                 <div key={c.category}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span style={labelStyle}>{c.category}</span>
-                    <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{c.pctRevenue?.toFixed(1) ?? '\u2014'}% of Rev</span>
+                    <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{c.pct_of_revenue?.toFixed(1) ?? '\u2014'}% of Rev</span>
                   </div>
                   <div style={{ height: '4px', background: 'var(--color-surface-border)', borderRadius: '2px' }}>
-                    <div style={{ height: '100%', width: `${Math.min(c.pctRevenue ?? 0, 100)}%`, background: 'var(--color-accent-secondary)', borderRadius: '2px' }} />
+                    <div style={{ height: '100%', width: `${Math.min(c.pct_of_revenue ?? 0, 100)}%`, background: 'var(--color-accent-secondary)', borderRadius: '2px' }} />
                   </div>
                   <div style={{ ...labelStyle, fontSize: 'var(--text-xs)', marginTop: '2px', textAlign: 'right' }}>Trend: {c.trend}</div>
                 </div>
@@ -364,7 +365,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Cost Structure" message="Not yet available -- no backend endpoint implemented" />
+          <EmptyPanel title="Cost Structure" message="No fundamentals data available for cost breakdown" />
         )}
 
         {/* Margin Analysis */}
@@ -384,17 +385,17 @@ export default function CompanyIntelligence() {
               <tbody>
                 {margins.map((m) => (
                   <tr key={m.metric} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{m.metric}</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{m.current?.toFixed(1) ?? '\u2014'}%</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.prior?.toFixed(1) ?? '\u2014'}%</td>
-                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{m.fiveYrAvg?.toFixed(1) ?? '\u2014'}%</td>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{m.metric.replace('_', ' ')}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{m.current_pct?.toFixed(1) ?? '\u2014'}%</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.prior_pct?.toFixed(1) ?? '\u2014'}%</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{m.five_year_avg_pct?.toFixed(1) ?? '\u2014'}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <EmptyPanel title="Margin Analysis" message="Not yet available -- no backend endpoint implemented" />
+          <EmptyPanel title="Margin Analysis" message="No fundamentals data available for margin trends" />
         )}
       </div>
 
@@ -447,7 +448,7 @@ export default function CompanyIntelligence() {
                   </div>
                   <ul style={{ margin: 0, paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {(swot[key] ?? []).map((item, i) => (
-                      <li key={i} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>{item}</li>
+                      <li key={i} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>{item.text}</li>
                     ))}
                   </ul>
                 </div>
@@ -455,7 +456,7 @@ export default function CompanyIntelligence() {
             </div>
           </div>
         ) : (
-          <EmptyPanel title="SWOT Analysis" message="Not yet available -- no backend endpoint implemented" />
+          <EmptyPanel title="SWOT Analysis" message="No competitive signals available for this entity" />
         )}
 
         {/* Porter's Five Forces */}
@@ -465,21 +466,24 @@ export default function CompanyIntelligence() {
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Porter's Five Forces</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {forces.map((f) => (
-                <div key={f.name}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={labelStyle}>{f.name}</span>
-                    <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color: f.score >= 7 ? 'var(--color-signal-negative)' : f.score >= 4 ? 'var(--color-signal-warning)' : 'var(--color-signal-positive)' }}>{f.level}</span>
+              {forces.map((f) => {
+                const color = f.level === 'HIGH' ? 'var(--color-signal-negative)' : f.level === 'MODERATE' ? 'var(--color-signal-warning)' : f.level === 'LOW' ? 'var(--color-signal-positive)' : 'var(--color-text-tertiary)';
+                return (
+                  <div key={f.name}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={labelStyle}>{f.name.replace(/_/g, ' ')}</span>
+                      <span style={{ ...dataStyle, fontSize: 'var(--text-sm)', fontWeight: 600, color }}>{f.level}</span>
+                    </div>
+                    <div style={{ height: '4px', background: 'var(--color-surface-border)', borderRadius: '2px' }}>
+                      <div style={{ height: '100%', width: `${f.score ?? 0}%`, background: color, borderRadius: '2px' }} />
+                    </div>
                   </div>
-                  <div style={{ height: '4px', background: 'var(--color-surface-border)', borderRadius: '2px' }}>
-                    <div style={{ height: '100%', width: `${(f.score / 10) * 100}%`, background: f.score >= 7 ? 'var(--color-signal-negative)' : f.score >= 4 ? 'var(--color-signal-warning)' : 'var(--color-signal-positive)', borderRadius: '2px' }} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : (
-          <EmptyPanel title="Porter's Five Forces" message="Not yet available -- no backend endpoint implemented" />
+          <EmptyPanel title="Porter's Five Forces" message="No competitive signals available for this entity" />
         )}
       </div>
     </div>

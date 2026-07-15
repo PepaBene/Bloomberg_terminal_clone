@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.entity import Entity
@@ -166,6 +167,226 @@ async def test_get_governance_red_flags(client: AsyncClient, session: AsyncSessi
     """GET /v3/company/{entity_id}/governance/red-flags returns 200 or 404."""
     resp = await client.get(f"/v3/company/{uuid4()}/governance/red-flags")
     assert resp.status_code in (200, 404)
+
+
+# ── Previously-missing endpoints: real backend implementations ────────
+
+
+async def _seed_segments(session: AsyncSession, entity: Entity, periods: list) -> None:
+    """Seed BUSINESS + GEOGRAPHIC segments across the entity's periods,
+    with a clearly growing and a clearly shrinking product segment."""
+    from src.models.fundamentals import SegmentData
+
+    growth = [180e6, 260e6]  # grows YoY
+    drag = [140e6, 90e6]  # shrinks YoY
+    for period, g_rev, d_rev in zip(periods, growth, drag):
+        session.add(SegmentData(
+            segment_id=uuid.uuid4(), period_id=period.period_id, entity_id=entity.entity_id,
+            segment_type="BUSINESS", segment_name="Cloud", revenue=g_rev,
+        ))
+        session.add(SegmentData(
+            segment_id=uuid.uuid4(), period_id=period.period_id, entity_id=entity.entity_id,
+            segment_type="BUSINESS", segment_name="Legacy", revenue=d_rev,
+        ))
+        session.add(SegmentData(
+            segment_id=uuid.uuid4(), period_id=period.period_id, entity_id=entity.entity_id,
+            segment_type="GEOGRAPHIC", segment_name="Americas", revenue=(g_rev + d_rev) * 0.6,
+        ))
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_get_revenue_drivers_404_no_fundamentals(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/revenue-drivers 404s with no fundamentals."""
+    resp = await client.get(f"/v3/company/{uuid4()}/revenue-drivers")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_revenue_drivers_real_segment_decomposition(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/revenue-drivers returns real per-segment
+    growth decomposition, not a placeholder -- a growing segment is
+    classified GROWTH_DRIVER, a shrinking one DRAG."""
+    entity = await _seed_entity_with_fundamentals(session)
+    periods = (
+        await session.execute(
+            select(FinancialPeriod)
+            .where(FinancialPeriod.entity_id == entity.entity_id)
+            .order_by(FinancialPeriod.period_end_date.asc())
+        )
+    ).scalars().all()
+    await _seed_segments(session, entity, periods)
+
+    resp = await client.get(f"/v3/company/{entity.entity_id}/revenue-drivers")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["periods_analyzed"] == 2
+    by_name = {d["segment_name"]: d for d in data["drivers"]}
+    assert by_name["Cloud"]["classification"] == "GROWTH_DRIVER"
+    assert by_name["Legacy"]["classification"] == "DRAG"
+    # Geographic segments are excluded from the drivers list.
+    assert "Americas" not in by_name
+    assert data["revenue_concentration_hhi"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_cost_structure_404_no_fundamentals(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/cost-structure")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_cost_structure_real_trend(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/cost-structure returns real COGS/SG&A
+    percent-of-revenue figures derived from seeded fundamentals."""
+    entity = await _seed_entity_with_fundamentals(session)
+    resp = await client.get(f"/v3/company/{entity.entity_id}/cost-structure")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["periods_analyzed"] == 2
+    by_cat = {i["category"]: i for i in data["items"]}
+    # 2024: cogs=340e6, revenue=600e6 -> 56.67%
+    assert by_cat["COGS"]["pct_of_revenue"] == pytest.approx(56.67, abs=0.1)
+    assert by_cat["SG&A"]["pct_of_revenue"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_margin_analysis_404_no_fundamentals(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/margin-analysis")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_margin_analysis_real_trend(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/margin-analysis returns real gross/
+    operating/net margin figures, not a placeholder."""
+    entity = await _seed_entity_with_fundamentals(session)
+    resp = await client.get(f"/v3/company/{entity.entity_id}/margin-analysis")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["periods_analyzed"] == 2
+    by_metric = {m["metric"]: m for m in data["margins"]}
+    # 2024: opinc=120e6, revenue=600e6 -> 20.0%
+    assert by_metric["operating_margin"]["current_pct"] == pytest.approx(20.0, abs=0.1)
+    assert by_metric["operating_margin"]["trend"] in ("EXPANDING", "STABLE")
+
+
+@pytest.mark.asyncio
+async def test_get_growth_profile_404_no_fundamentals(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/growth-profile")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_growth_profile_real_yoy(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/growth-profile returns real YoY growth
+    for revenue/net_income/eps/fcf from seeded fundamentals."""
+    entity = await _seed_entity_with_fundamentals(session)
+    resp = await client.get(f"/v3/company/{entity.entity_id}/growth-profile")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["periods_analyzed"] == 2
+    by_metric = {s["metric"]: s for s in data["growth_series"]}
+    # revenue: 500e6 -> 600e6 = +20%
+    assert by_metric["revenue"]["latest_yoy_growth_pct"] == pytest.approx(20.0, abs=0.1)
+
+
+@pytest.mark.asyncio
+async def test_get_operating_leverage_404_no_fundamentals(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/operating-leverage")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_operating_leverage_real_trend(client: AsyncClient, session: AsyncSession):
+    entity = await _seed_entity_with_fundamentals(session)
+    resp = await client.get(f"/v3/company/{entity.entity_id}/operating-leverage")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["operating_leverage_trend"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_get_quality_metrics_404_no_data(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/quality-metrics")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_quality_metrics_real_scores(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/quality-metrics re-exposes real,
+    already-computed Piotroski/Altman/Beneish scores."""
+    from src.models.analytics import AnalyticsResult
+    from src.models.security import Security
+
+    entity = await _seed_entity_with_fundamentals(session)
+    security = Security(
+        security_id=uuid.uuid4(), name="Quality Test Corp Common Stock",
+        security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+    today = date.today()
+    for name, val in [("piotroski_f_score", 8.0), ("altman_z_score", 3.5), ("beneish_m_score", -2.1)]:
+        session.add(AnalyticsResult(
+            result_id=uuid.uuid4(), security_id=security.security_id, entity_id=entity.entity_id,
+            engine_id="E3", metric_name=name, metric_category="QUALITY", value=val,
+            period="TTM", as_of_date=today,
+        ))
+    await session.commit()
+
+    resp = await client.get(f"/v3/company/{entity.entity_id}/quality-metrics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["piotroski_f_score"] == 8.0
+    assert data["altman_z_score"] == 3.5
+    assert data["beneish_m_score"] == -2.1
+
+
+@pytest.mark.asyncio
+async def test_get_risk_profile_404_no_signals(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/risk-profile")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_risk_profile_real_composite(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/risk-profile combines real, already-
+    computed signals (z-score from the balance-sheet-risk assessment) into
+    a composite risk view."""
+    entity = await _seed_entity_with_fundamentals(session)
+    # Trigger real computation/persistence of BalanceSheetRiskAssessment.
+    intel_resp = await client.get(f"/v3/company/{entity.entity_id}/intelligence")
+    assert intel_resp.status_code == 200
+
+    resp = await client.get(f"/v3/company/{entity.entity_id}/risk-profile")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["overall_risk_tier"] in ("LOW", "MODERATE", "ELEVATED", "HIGH")
+    assert data["data_completeness"] > 0.0
+
+
+@pytest.mark.asyncio
+async def test_get_working_capital_404_no_assessment(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/company/{uuid4()}/working-capital")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_working_capital_real_ccc(client: AsyncClient, session: AsyncSession):
+    """GET /v3/company/{entity_id}/working-capital exposes the real
+    CCC/DIO/DSO/DPO breakdown already computed by the capital-allocation
+    engine."""
+    entity = await _seed_entity_with_fundamentals(session)
+    intel_resp = await client.get(f"/v3/company/{entity.entity_id}/intelligence")
+    assert intel_resp.status_code == 200
+
+    resp = await client.get(f"/v3/company/{entity.entity_id}/working-capital")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["working_capital"] is not None
+    assert "ccc" in data["working_capital"]
 
 
 # ── Balance Sheet Risk tests ─────────────────────────────────────────

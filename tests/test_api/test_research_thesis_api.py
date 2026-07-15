@@ -365,3 +365,108 @@ async def test_elevator_with_data(client: AsyncClient, session: AsyncSession, te
     assert resp.status_code == 200
     data = resp.json()
     assert data["elevator_pitch"] == "Elevator pitch v1."
+
+
+# ── POST /research/thesis/{thesis_id}/validate (previously missing) ──
+
+
+@pytest.mark.asyncio
+async def test_validate_requires_auth(client: AsyncClient, session: AsyncSession):
+    resp = await client.post(f"/v4/research/thesis/{uuid.uuid4()}/validate")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_validate_not_found(client: AsyncClient, session: AsyncSession, auth_headers):
+    resp = await client.post(f"/v4/research/thesis/{uuid.uuid4()}/validate", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_validate_incomplete_thesis(client: AsyncClient, session: AsyncSession, test_user, auth_headers):
+    """A thesis whose key_drivers/primary_risks/catalysts don't use the
+    real {"items": [...]} convention has driver/risk/catalyst counts of 0
+    and is correctly flagged incomplete, even though the fields themselves
+    are non-empty dicts."""
+    entity = await _seed_entity(session)
+    # _seed_thesis's fixture shapes ({"drivers": [...]}) don't match the
+    # real {"items": [...]} convention -- exactly the gap this endpoint
+    # should catch, not silently count as populated.
+    thesis = await _seed_thesis(session, entity.entity_id, test_user.user_id, version=1)
+
+    resp = await client.post(f"/v4/research/thesis/{thesis.id}/validate", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["driver_count"] == 0
+    assert data["risk_count"] == 0
+    assert data["catalyst_count"] == 0
+    assert data["has_valuation_scenarios"] is False  # missing bull/base/bear sub-keys
+    assert data["data_coverage"] == 1.0  # all 6 top-level fields ARE non-empty
+    assert data["missing_fields"] == []
+    assert "driver(s)" in data["summary"]
+
+
+@pytest.mark.asyncio
+async def test_validate_complete_thesis(client: AsyncClient, session: AsyncSession, test_user, auth_headers):
+    """A thesis with real {"items": [...]}-shaped drivers/risks/catalysts
+    and a complete valuation is correctly flagged complete."""
+    entity = await _seed_entity(session)
+    thesis = InvestmentThesis(
+        id=uuid.uuid4(),
+        entity_id=entity.entity_id,
+        analyst_id=test_user.user_id,
+        version=1,
+        thesis_title="Complete Thesis",
+        investment_horizon="12M",
+        conviction_level="HIGH",
+        executive_summary="A real summary.",
+        key_drivers={"items": [{"driver": "Cloud growth", "current_impact": "HIGH"}]},
+        primary_risks={"items": [{"risk": "Competition", "severity": "MODERATE"}]},
+        valuation_scenarios={
+            "current_price": 100.0,
+            "bull": {"target_price": 140.0, "implied_return": 40.0},
+            "base": {"target_price": 120.0, "implied_return": 20.0},
+            "bear": {"target_price": 80.0, "implied_return": -20.0},
+        },
+        catalysts={"items": [{"description": "Q3 earnings"}]},
+        ai_enabled=False,
+    )
+    session.add(thesis)
+    await session.flush()
+
+    resp = await client.post(f"/v4/research/thesis/{thesis.id}/validate", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_complete"] is True
+    assert data["data_coverage"] == 1.0
+    assert data["missing_fields"] == []
+    assert data["driver_count"] == 1
+    assert data["risk_count"] == 1
+    assert data["catalyst_count"] == 1
+    assert data["has_valuation_scenarios"] is True
+    assert data["staleness_days"] == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_missing_fields_reported(client: AsyncClient, session: AsyncSession, test_user, auth_headers):
+    """A thesis missing required top-level fields reports them by name and
+    is flagged incomplete."""
+    entity = await _seed_entity(session)
+    thesis = InvestmentThesis(
+        id=uuid.uuid4(),
+        entity_id=entity.entity_id,
+        analyst_id=test_user.user_id,
+        version=1,
+        thesis_title="Sparse Thesis",
+        ai_enabled=False,
+    )
+    session.add(thesis)
+    await session.flush()
+
+    resp = await client.post(f"/v4/research/thesis/{thesis.id}/validate", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_complete"] is False
+    assert "executive_summary" in data["missing_fields"]
+    assert "key_drivers" in data["missing_fields"]
+    assert data["data_coverage"] < 1.0

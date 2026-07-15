@@ -229,56 +229,181 @@ export interface BalanceSheetRiskAssessment {
 }
 
 // ---------------------------------------------------------------------------
-// Revenue drivers / cost structure / margin analysis / SWOT / Porter's Five
-// Forces: COMPANY_INTEL.revenueDrivers/costStructure/marginAnalysis and
-// COMPETITIVE.swot/porterForces (frontend/src/api/endpoints.ts) do not
-// correspond to any implemented backend route or Pydantic schema today (no
-// `/revenue-drivers`, `/cost-structure`, `/margin-analysis`, `/swot`, or
-// `/porter-forces` endpoint exists in src/api/routers/*). These hooks will
-// error until that backend work lands. The shapes below document only what
-// the frontend already expects to render, not a verified backend contract.
+// Revenue drivers / cost structure / margin analysis / growth profile /
+// operating leverage / quality metrics / risk profile / working capital.
+// All 8 now have real backend implementations
+// (src/api/routers/company_intel_p2.py) computed on-the-fly from real
+// fundamentals/already-computed signals -- see each engine's module
+// docstring (src/engines/revenue_drivers_engine.py,
+// growth_profile_engine.py, margin_cost_engine.py, risk_profile_engine.py)
+// for exactly what's measured vs. a documented heuristic/proxy. These
+// mirror src/schemas/company_intelligence_p2.py's real response models
+// field-for-field.
+// ---------------------------------------------------------------------------
+
+export interface RevenueDriver {
+  segment_name: string;
+  latest_revenue: number | null;
+  revenue_share_pct: number | null;
+  yoy_growth_pct: number | null;
+  cagr_pct: number | null;
+  contribution_to_growth_pct: number | null;
+  classification: 'GROWTH_DRIVER' | 'DRAG' | 'STABLE' | 'INSUFFICIENT_DATA';
+}
+
 export interface RevenueDriversResponse {
-  entity_id?: string;
-  drivers?: Array<{
-    driver: string;
-    impact?: string;
-    trend?: string;
-    contribution?: number;
-  }>;
+  entity_id: string;
+  drivers: RevenueDriver[];
+  revenue_concentration_hhi: number | null;
+  total_revenue_yoy_growth_pct: number | null;
+  periods_analyzed: number;
+}
+
+export interface CostLineItem {
+  category: 'COGS' | 'SG&A' | 'R&D';
+  pct_of_revenue: number | null;
+  prior_pct_of_revenue: number | null;
+  trend: 'RISING' | 'FALLING' | 'STABLE' | 'UNKNOWN';
 }
 
 export interface CostStructureResponse {
-  entity_id?: string;
-  items?: Array<{
-    category: string;
-    pctRevenue?: number;
-    trend?: string;
-  }>;
+  entity_id: string;
+  items: CostLineItem[];
+  periods_analyzed: number;
+}
+
+export interface MarginMetric {
+  metric: 'gross_margin' | 'operating_margin' | 'net_margin';
+  current_pct: number | null;
+  prior_pct: number | null;
+  five_year_avg_pct: number | null;
+  trend: 'EXPANDING' | 'CONTRACTING' | 'STABLE' | 'UNKNOWN';
 }
 
 export interface MarginAnalysisResponse {
-  entity_id?: string;
-  margins?: Array<{
-    metric: string;
-    current?: number;
-    prior?: number;
-    fiveYrAvg?: number;
-  }>;
+  entity_id: string;
+  margins: MarginMetric[];
+  periods_analyzed: number;
+}
+
+export interface GrowthSeries {
+  metric: 'revenue' | 'net_income' | 'eps' | 'fcf';
+  latest_yoy_growth_pct: number | null;
+  cagr_pct: number | null;
+  growth_volatility: number | null;
+  growth_trend: 'ACCELERATING' | 'DECELERATING' | 'STABLE' | 'UNKNOWN';
+  positive_growth_period_pct: number | null;
+}
+
+export interface GrowthProfileResponse {
+  entity_id: string;
+  growth_series: GrowthSeries[];
+  periods_analyzed: number;
+}
+
+export interface OperatingLeverageTrendPoint {
+  period_end_date: string | null;
+  operating_leverage?: number;
+  incremental_margin?: number;
+}
+
+export interface OperatingLeverageResponse {
+  entity_id: string;
+  avg_operating_leverage: number | null;
+  operating_leverage_stability: number | null;
+  operating_leverage_trend: OperatingLeverageTrendPoint[];
+  incremental_margin_trend: OperatingLeverageTrendPoint[];
+}
+
+// Real, already-computed Piotroski/Altman/Beneish scores (Pillar 2 E3),
+// re-exposed under the company-intelligence namespace -- not new
+// computation.
+export interface QualityMetricsResponse {
+  entity_id: string;
+  piotroski_f_score: number | null;
+  altman_z_score: number | null;
+  beneish_m_score: number | null;
+  accruals_quality: number | null;
+  as_of_date: string | null;
+}
+
+export interface RiskFactor {
+  factor: string;
+  severity: 'LOW' | 'MODERATE' | 'HIGH';
+  metric: string;
+  value: number;
+}
+
+export interface RiskProfileResponse {
+  entity_id: string;
+  credit_risk_score: number | null;
+  earnings_quality_risk_score: number | null;
+  market_risk_score: number | null;
+  overall_risk_score: number | null;
+  overall_risk_tier: 'LOW' | 'MODERATE' | 'ELEVATED' | 'HIGH' | 'UNKNOWN';
+  data_completeness: number;
+  risk_factors: RiskFactor[];
+}
+
+export interface WorkingCapitalResponse {
+  entity_id: string;
+  working_capital: {
+    ccc: number | null;
+    dio: number | null;
+    dso: number | null;
+    dpo: number | null;
+    ccc_trend: string;
+  } | null;
+  as_of_date: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// SWOT / Porter's Five Forces / supply chain (src/api/routers/competitive.py)
+// -- mirror src/schemas/competitive_intelligence.py's real response models.
+// ---------------------------------------------------------------------------
+
+export interface SWOTItem {
+  text: string;
+  metric: string;
+  value: number | string;
+  severity: 'LOW' | 'MODERATE' | 'HIGH';
 }
 
 export interface SWOTAssessment {
-  entity_id?: string;
-  strengths?: string[];
-  weaknesses?: string[];
-  opportunities?: string[];
-  threats?: string[];
+  entity_id: string;
+  strengths: SWOTItem[];
+  weaknesses: SWOTItem[];
+  opportunities: SWOTItem[];
+  threats: SWOTItem[];
+  signals_available: number;
+}
+
+export interface PorterForce {
+  name: 'supplier_power' | 'buyer_power' | 'competitive_rivalry' | 'substitute_threat' | 'new_entrant_threat';
+  score: number | null;
+  level: 'LOW' | 'MODERATE' | 'HIGH' | 'UNKNOWN';
 }
 
 export interface PorterForcesResponse {
-  entity_id?: string;
-  forces?: Array<{
-    name: string;
-    score: number;
-    level: string;
-  }>;
+  entity_id: string;
+  forces: PorterForce[];
+  overall_industry_attractiveness_score: number | null;
+  dominant_force: string | null;
+  data_completeness: number;
+}
+
+export interface SupplyChainRelationship {
+  entity_id: string | null;
+  entity_name: string | null;
+  revenue_percentage: number | null;
+  cost_percentage: number | null;
+  contract_value: number | null;
+  is_single_source: boolean | null;
+  materiality_score: number | null;
+}
+
+export interface SupplyChainResponse {
+  entity_id: string;
+  customers: SupplyChainRelationship[];
+  suppliers: SupplyChainRelationship[];
 }

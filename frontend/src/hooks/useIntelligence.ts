@@ -20,12 +20,18 @@ import type {
   CapitalAllocationAssessment,
   CompanyIntelligenceOverview,
   CostStructureResponse,
+  GrowthProfileResponse,
   ManagementQualityAssessment,
   MarginAnalysisResponse,
   MoatAssessment,
+  OperatingLeverageResponse,
   PorterForcesResponse,
+  QualityMetricsResponse,
   RevenueDriversResponse,
+  RiskProfileResponse,
+  SupplyChainResponse,
   SWOTAssessment,
+  WorkingCapitalResponse,
 } from '@/types/intelligence';
 import type {
   CompanyPrimer,
@@ -261,63 +267,56 @@ export function useBalanceSheetRisk(entityId: string | undefined) {
   });
 }
 
-// The 8 hooks below (revenue-drivers/cost-structure/growth-profile/
-// quality-metrics/risk-profile/operating-leverage/margin-analysis/
-// working-capital) have NO backing route anywhere in src/api/routers/
-// (verified by grep) -- not a path bug, a missing backend feature.
-// `enabled: false` so they never fire a request against a path that will
-// never resolve; remove the override once the corresponding backend
-// endpoint actually exists.
+// The 8 hooks below now have real backend implementations
+// (src/api/routers/company_intel_p2.py) -- see @/types/intelligence for
+// the real response shapes, mirroring the actual Pydantic schemas
+// (src/schemas/company_intelligence_p2.py).
 
-// See RevenueDriversResponse in @/types/intelligence for the shape this
-// hook expects once a real endpoint exists.
 export function useRevenueDrivers(entityId: string | undefined) {
   return useApiQuery<RevenueDriversResponse>(['intelligence', entityId, 'revenue-drivers'], COMPANY_INTEL.revenueDrivers(entityId!), undefined, {
-    enabled: false,
+    enabled: !!entityId,
   });
 }
 
-// See CostStructureResponse in @/types/intelligence.
 export function useCostStructure(entityId: string | undefined) {
   return useApiQuery<CostStructureResponse>(['intelligence', entityId, 'cost-structure'], COMPANY_INTEL.costStructure(entityId!), undefined, {
-    enabled: false,
+    enabled: !!entityId,
   });
 }
 
 export function useGrowthProfile(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'growth-profile'], COMPANY_INTEL.growthProfile(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<GrowthProfileResponse>(['intelligence', entityId, 'growth-profile'], COMPANY_INTEL.growthProfile(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 
 export function useQualityMetrics(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'quality-metrics'], COMPANY_INTEL.qualityMetrics(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<QualityMetricsResponse>(['intelligence', entityId, 'quality-metrics'], COMPANY_INTEL.qualityMetrics(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 
 export function useRiskProfile(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'risk-profile'], COMPANY_INTEL.riskProfile(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<RiskProfileResponse>(['intelligence', entityId, 'risk-profile'], COMPANY_INTEL.riskProfile(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 
 export function useOperatingLeverage(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'operating-leverage'], COMPANY_INTEL.operatingLeverage(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<OperatingLeverageResponse>(['intelligence', entityId, 'operating-leverage'], COMPANY_INTEL.operatingLeverage(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 
-// See MarginAnalysisResponse in @/types/intelligence.
 export function useMarginAnalysis(entityId: string | undefined) {
   return useApiQuery<MarginAnalysisResponse>(['intelligence', entityId, 'margin-analysis'], COMPANY_INTEL.marginAnalysis(entityId!), undefined, {
-    enabled: false,
+    enabled: !!entityId,
   });
 }
 
 export function useWorkingCapital(entityId: string | undefined) {
-  return useApiQuery(['intelligence', entityId, 'working-capital'], COMPANY_INTEL.workingCapital(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<WorkingCapitalResponse>(['intelligence', entityId, 'working-capital'], COMPANY_INTEL.workingCapital(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 
@@ -349,29 +348,24 @@ export function useMarketShare(entityId: string | undefined) {
   });
 }
 
-// NOTE: COMPETITIVE.swot has no backing route in src/api/routers/*.py yet
-// (no SWOT schema/model exists anywhere in the backend) -- see
-// SWOTAssessment in @/types/intelligence. `enabled: false` so this never
-// fires a request against a path that will never resolve.
+// SWOT / Porter's Five Forces / supply-chain now have real backend
+// implementations (src/api/routers/competitive.py) -- see
+// @/types/intelligence for the real response shapes.
 export function useSWOT(entityId: string | undefined) {
   return useApiQuery<SWOTAssessment>(['competitive', entityId, 'swot'], COMPETITIVE.swot(entityId!), undefined, {
-    enabled: false,
+    enabled: !!entityId,
   });
 }
 
-// NOTE: COMPETITIVE.porterForces has no backing route yet -- see
-// PorterForcesResponse in @/types/intelligence.
 export function usePorterForces(entityId: string | undefined) {
   return useApiQuery<PorterForcesResponse>(['competitive', entityId, 'porter'], COMPETITIVE.porterForces(entityId!), undefined, {
-    enabled: false,
+    enabled: !!entityId,
   });
 }
 
-// NOTE: COMPETITIVE.supplyChain has no backing route either -- unused today
-// (no page calls this hook), disabled for the same reason as swot/porter.
 export function useSupplyChain(entityId: string | undefined) {
-  return useApiQuery(['competitive', entityId, 'supply-chain'], COMPETITIVE.supplyChain(entityId!), undefined, {
-    enabled: false,
+  return useApiQuery<SupplyChainResponse>(['competitive', entityId, 'supply-chain'], COMPETITIVE.supplyChain(entityId!), undefined, {
+    enabled: !!entityId,
   });
 }
 

@@ -61,15 +61,18 @@ export default function ThesisBuilder() {
   const activeTargetPrice = valuation?.base?.target_price;
   const activeCurrentPrice = valuation?.current_price;
 
-  // Neither action has a working backend counterpart today (see
-  // RESEARCH.thesis.generate/.validate in @/api/endpoints.ts for exactly
-  // why -- a paradigm mismatch and a genuinely missing route,
-  // respectively). Disabling both rather than letting them silently fail
-  // on every click.
+  // Generate still has no working backend counterpart -- see
+  // RESEARCH.thesis.generate in @/api/endpoints.ts for why (a paradigm
+  // mismatch: the real create endpoint requires a full analyst write-up,
+  // not this quick ticker/direction/target form). Disabled rather than
+  // letting it silently fail on every click.
+  //
+  // Validate now has a real backend endpoint
+  // (POST /research/thesis/{thesis_id}/validate) -- a structural
+  // completeness/freshness check, not an AI/analyst judgment of the
+  // thesis's investment merit; see the endpoint's docstring.
   const GENERATE_UNAVAILABLE_REASON =
     'Thesis creation requires sign-in and a full analyst write-up (title, drivers, risks, catalysts) -- this quick ticker/direction/target form does not match the real backend request shape yet.';
-  const VALIDATE_UNAVAILABLE_REASON =
-    'No thesis-validation endpoint exists on the backend yet.';
 
   const handleGenerate = async () => {
     if (!newTicker.trim()) return;
@@ -253,8 +256,8 @@ export default function ThesisBuilder() {
         <button className="btn-ghost" onClick={() => setShowCreateForm(!showCreateForm)} style={{ marginLeft: activeTargetPrice != null ? '8px' : 'auto' }}>
           New Thesis
         </button>
-        <button className="btn-primary" onClick={handleValidate} disabled={validating || true} title={VALIDATE_UNAVAILABLE_REASON} style={{ marginLeft: '4px' }}>
-          {validating ? 'Validating...' : 'Validate Thesis (unavailable)'}
+        <button className="btn-primary" onClick={handleValidate} disabled={validating} style={{ marginLeft: '4px' }}>
+          {validating ? 'Validating...' : 'Validate Thesis'}
         </button>
       </div>
       {showCreateForm && (

@@ -120,3 +120,20 @@ class ThesisElevatorPitchResponse(BaseModel):
     thesis_id: UUID
     thesis_title: str | None = None
     elevator_pitch: str | None = None
+
+
+class ThesisValidationResponse(BaseModel):
+    """Structural completeness/freshness check -- NOT an AI or analyst
+    judgment of whether the thesis's investment case is actually correct.
+    """
+
+    thesis_id: UUID
+    is_complete: bool
+    data_coverage: float  # 0.0-1.0, same _QUALITY_FIELDS convention as generate_thesis()
+    missing_fields: list[str]
+    driver_count: int
+    risk_count: int
+    catalyst_count: int
+    has_valuation_scenarios: bool
+    staleness_days: int
+    summary: str
