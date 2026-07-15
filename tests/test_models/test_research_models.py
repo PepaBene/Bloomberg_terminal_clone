@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from src.models.auth import User
 from src.models.entity import Entity
 from src.models.company_primer_model import CompanyPrimer, PrimerRefreshLog
 from src.models.morning_briefing import MorningBriefing, BriefingPreference
@@ -29,6 +30,20 @@ async def _seed_entity(session, entity_id: uuid.UUID | None = None) -> Entity:
     session.add(entity)
     await session.flush()
     return entity
+
+
+async def _seed_user(session) -> uuid.UUID:
+    """M-004: MorningBriefing/BriefingPreference.user_id is now a real FK
+    to users.user_id."""
+    user_id = uuid.uuid4()
+    session.add(User(
+        user_id=user_id,
+        username=f"user_{user_id.hex[:8]}",
+        email=f"{user_id.hex[:8]}@test.example",
+        hashed_password="x",
+    ))
+    await session.flush()
+    return user_id
 
 
 # ── CompanyPrimer Tests ──────────────────────────────────────────────
@@ -184,10 +199,11 @@ async def test_create_primer_refresh_log(session):
 @pytest.mark.asyncio
 async def test_create_morning_briefing(session):
     """Create a morning briefing with all JSONB fields."""
+    user_id = await _seed_user(session)
     bid = uuid.uuid4()
     briefing = MorningBriefing(
         id=bid,
-        user_id="analyst_001",
+        user_id=user_id,
         briefing_date=date(2025, 11, 1),
         regional_context="US",
         executive_summary="Markets mixed amid Fed uncertainty.",
@@ -206,7 +222,7 @@ async def test_create_morning_briefing(session):
         select(MorningBriefing).where(MorningBriefing.id == bid)
     )
     fetched = result.scalar_one()
-    assert fetched.user_id == "analyst_001"
+    assert fetched.user_id == user_id
     assert fetched.briefing_date == date(2025, 11, 1)
     assert fetched.regional_context == "US"
     assert fetched.portfolio_impact["top_movers"][0]["ticker"] == "AAPL"
@@ -216,10 +232,11 @@ async def test_create_morning_briefing(session):
 @pytest.mark.asyncio
 async def test_morning_briefing_defaults(session):
     """Verify default values for ai_enabled."""
+    user_id = await _seed_user(session)
     bid = uuid.uuid4()
     briefing = MorningBriefing(
         id=bid,
-        user_id="analyst_002",
+        user_id=user_id,
         briefing_date=date(2025, 11, 2),
     )
     session.add(briefing)
@@ -238,10 +255,11 @@ async def test_morning_briefing_defaults(session):
 @pytest.mark.asyncio
 async def test_create_briefing_preference(session):
     """Create briefing preferences with JSONB portfolio IDs."""
+    user_id = await _seed_user(session)
     pid = uuid.uuid4()
     pref = BriefingPreference(
         id=pid,
-        user_id="analyst_003",
+        user_id=user_id,
         portfolio_entity_ids={"ids": ["uuid1", "uuid2"]},
         watchlist_entity_ids={"ids": ["uuid3"]},
         sector_focus={"sectors": ["Technology", "Healthcare"]},
@@ -258,7 +276,7 @@ async def test_create_briefing_preference(session):
         select(BriefingPreference).where(BriefingPreference.id == pid)
     )
     fetched = result.scalar_one()
-    assert fetched.user_id == "analyst_003"
+    assert fetched.user_id == user_id
     assert fetched.portfolio_entity_ids == {"ids": ["uuid1", "uuid2"]}
     assert fetched.risk_tolerance == "MODERATE"
     assert fetched.delivery_time_utc == "06:30"
@@ -268,12 +286,13 @@ async def test_create_briefing_preference(session):
 @pytest.mark.asyncio
 async def test_briefing_preference_unique_user(session):
     """user_id should be unique on briefing_preferences."""
+    user_id = await _seed_user(session)
     pid1 = uuid.uuid4()
     pid2 = uuid.uuid4()
-    session.add(BriefingPreference(id=pid1, user_id="unique_analyst"))
+    session.add(BriefingPreference(id=pid1, user_id=user_id))
     await session.flush()
 
-    session.add(BriefingPreference(id=pid2, user_id="unique_analyst"))
+    session.add(BriefingPreference(id=pid2, user_id=user_id))
     with pytest.raises(IntegrityError):
         await session.flush()
     await session.rollback()

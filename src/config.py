@@ -66,6 +66,44 @@ class Settings(BaseSettings):
     # Finnhub (Index constituents)
     FINNHUB_API_KEY: str = ""
 
+    # Alpha Vantage (forward consensus estimates -- Finnhub's free tier 403s
+    # on /stock/eps-estimate and /stock/price-target)
+    ALPHA_VANTAGE_API_KEY: str = ""
+    ALPHA_VANTAGE_RATE_LIMIT: int = 5  # requests per minute (free tier)
+
+    # EPA Envirofacts (secondary ESG environmental-score input; free, no key)
+    EPA_ENVIROFACTS_BASE_URL: str = "https://data.epa.gov/efservice"
+
+    # EIA (US Energy Information Administration) -- free API key, same signup
+    # model as FRED. Powers real commodity supply/demand stock-level data
+    # (weekly petroleum/natural-gas/gasoline stocks) for
+    # GET /global/commodities/{code}/supply-demand.
+    EIA_API_KEY: str = ""
+    EIA_RATE_LIMIT: int = 30  # requests per minute (documented EIA v2 default)
+
+    # Agency (GSE) bonds -- FHLB Office of Finance publishes free CSV/XML
+    # consolidated-obligation data with no formal API; override if the feed
+    # URL changes.
+    FHLB_OF_DATA_URL: str = ""
+    AGENCY_BONDS_FEED_URL: str = ""
+    AGENCY_BONDS_API_KEY: str = ""
+
+    # Primary-market bond issuances -- no free structured feed exists;
+    # AGENCY_BONDS-style configurable JSON feed as a fallback path.
+    BOND_ISSUANCES_FEED_URL: str = ""
+    BOND_ISSUANCES_API_KEY: str = ""
+
+    # FINRA TRACE -- requires registered credentials (Academic/BTDS), not a
+    # keyless public API. FINRA_TRACE_LOCAL_FILE points at a downloaded bulk
+    # dissemination file when no live feed is configured.
+    FINRA_TRACE_FEED_URL: str = ""
+    FINRA_TRACE_API_KEY: str = ""
+    FINRA_TRACE_LOCAL_FILE: str = ""
+
+    # ESG controversies -- no free structured feed exists; GDELT (already
+    # used for geopolitical events) is the best-effort free source.
+    ESG_CONTROVERSY_FEED_URL: str = ""
+
     # AI Services (Claude narratives, Gemini embeddings)
     ANTHROPIC_API_KEY: str = ""
     GOOGLE_API_KEY: str = ""

@@ -1,26 +1,60 @@
 """FINRA TRACE corporate bond trade ingestion connector.
 
-Ingests OTC corporate bond trade prints from a FINRA TRACE dissemination feed
-and loads them into the bond master + pricing tables:
+Ingests OTC corporate bond trade prints from FINRA TRACE and loads them into
+the bond master + pricing tables:
 
   * ``CorporateBond``  — bond reference (upserted by CUSIP)
   * ``BondTrade``      — individual trade prints
   * ``BondEODPrice``   — per-CUSIP end-of-day OHLC/VWAP roll-up
 
-FLAG — NEEDS FINRA CREDENTIALS + LIVE VALIDATION
-------------------------------------------------
-The real FINRA TRACE (BTDS / Academic TRACE) feed requires a registered
-subscription and API credentials; it is **not** a keyless public source. This
-connector is therefore implemented to-pattern against a *configurable* endpoint
-with a pluggable auth-header hook, and unit-tested against a representative
-sample payload. The transform/load logic is real, but the extract() path and
-the exact wire schema must be validated against the live credentialed feed
-before production use. No fake bond rows are fabricated: bonds whose issuer
-cannot be resolved to an existing entity are skipped, not invented.
+FLAG — TWO EXTRACT PATHS, ONE REAL TODAY AND ONE STILL A STUB
+---------------------------------------------------------------
+FINRA TRACE data is registration-gated either way — there is no keyless live
+feed. Two extract() paths exist:
+
+1. **Local-file path (real, usable today)** — ``local_file`` /
+   ``settings.FINRA_TRACE_LOCAL_FILE``. A human registers once for FINRA's
+   Academic/Historical TRACE (BTDS) program outside of this environment
+   (e.g. via WRDS or direct FINRA registration for non-commercial/academic
+   use), downloads a bulk dissemination extract, and this connector ingests
+   that file from disk via :meth:`FINRATraceConnector._extract_from_file` —
+   no live API call required. Academic TRACE bulk files are pipe-delimited
+   (occasionally comma- or tab-delimited) text with one row per trade report
+   and real column names resembling:
+
+     CUSIP_ID, BOND_SYM_ID, COMPANY_SYMBOL, TRD_EXCTN_DT (YYYYMMDD),
+     TRD_EXCTN_TM (HHMMSS), RPTD_PR (reported price, e.g. 101.500000),
+     YLD_PT (yield), ENTRD_VOL_QT (entered volume / par value),
+     RPT_SIDE_CD (B/S), CNTRA_MP_ID (contra party), SCRTY_TYPE_CD.
+
+   These are mapped by :func:`_map_academic_trace_row` into the same dict
+   shape :func:`normalize_trade` already expects. Academic TRACE files do
+   **not** include an issuer CIK or issuer name — only CUSIP — so brand-new
+   CUSIPs that aren't already present in the ``corporate_bonds`` table
+   cannot be issuer-resolved from the file alone. ``load()`` already handles
+   this correctly without any change: it looks up ``CorporateBond.cusip``
+   first (so trades for CUSIPs already on file attach normally), and for a
+   genuinely new CUSIP with no resolvable issuer CIK it skips + logs the
+   trades rather than fabricating a bond/issuer. Bulk-loading brand-new
+   issuers from an Academic TRACE extract therefore requires a supplementary
+   CUSIP-to-CIK/entity mapping step (e.g. an OpenFIGI or WRDS CUSIP master)
+   run before this connector, which is out of scope here.
+
+2. **Live-feed path (still a stub)** — ``endpoint_url`` /
+   ``settings.FINRA_TRACE_FEED_URL``, requiring registered subscription
+   credentials and a pluggable auth-header hook. It is implemented
+   to-pattern and unit-tested against a representative sample payload, but
+   the exact wire schema must be validated against the live credentialed
+   feed before production use.
+
+In both paths the transform/load logic is real and shared: no fake bond rows
+are ever fabricated — bonds whose issuer cannot be resolved to an existing
+entity are skipped, not invented.
 """
 
 from __future__ import annotations
 
+import csv
 import logging
 import uuid
 from collections import defaultdict
@@ -36,6 +70,10 @@ from src.config import settings
 from src.ingestion.base import BaseConnector
 
 logger = logging.getLogger(__name__)
+
+# Candidate delimiters for local Academic TRACE bulk files, tried in order.
+# Pipe is the documented standard delimiter for Academic/BTDS TRACE extracts.
+_CANDIDATE_DELIMITERS = ("|", ",", "\t")
 
 # Minimum distinct trades in a day for an EOD price to be considered reliable.
 _LIQUID_TRADE_THRESHOLD = 5
@@ -94,6 +132,50 @@ def _parse_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _map_academic_trace_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Map one raw Academic/Historical TRACE bulk-file row to the generic
+    dict shape :func:`normalize_trade` expects.
+
+    Real Academic TRACE column names (see module docstring):
+        CUSIP_ID       -> cusip
+        TRD_EXCTN_DT   -> trade_date        (YYYYMMDD)
+        TRD_EXCTN_TM   -> trade_time        (HHMMSS)
+        RPTD_PR        -> price
+        YLD_PT         -> yield
+        ENTRD_VOL_QT   -> quantity
+        RPT_SIDE_CD    -> side              (B/S)
+        BOND_SYM_ID, COMPANY_SYMBOL, CNTRA_MP_ID, SCRTY_TYPE_CD are carried
+        through for logging/diagnostics but are not consumed by
+        normalize_trade (Academic TRACE has no issuer name/CIK column).
+
+    Pure (no I/O) so it can be unit-tested directly. Returns ``None`` if the
+    row lacks the minimum required fields (CUSIP + trade date).
+    """
+    # Header names in real extracts are consistently upper-cased, but be
+    # lenient about stray whitespace/case from hand-edited or re-exported files.
+    normalized = {(k or "").strip().upper(): v for k, v in row.items() if k is not None}
+
+    cusip = _clean(normalized.get("CUSIP_ID"))
+    trade_date = _clean(normalized.get("TRD_EXCTN_DT"))
+    if not cusip or not trade_date:
+        return None
+
+    return {
+        "cusip": cusip,
+        "trade_date": trade_date,
+        "trade_time": _clean(normalized.get("TRD_EXCTN_TM")),
+        "price": _clean(normalized.get("RPTD_PR")),
+        "yield": _clean(normalized.get("YLD_PT")),
+        "quantity": _clean(normalized.get("ENTRD_VOL_QT")),
+        "side": _clean(normalized.get("RPT_SIDE_CD")),
+        # Diagnostic-only fields; not consumed by normalize_trade().
+        "bond_symbol": _clean(normalized.get("BOND_SYM_ID")),
+        "company_symbol": _clean(normalized.get("COMPANY_SYMBOL")),
+        "contra_party": _clean(normalized.get("CNTRA_MP_ID")),
+        "security_type": _clean(normalized.get("SCRTY_TYPE_CD")),
+    }
 
 
 def normalize_trade(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -205,12 +287,16 @@ class FINRATraceConnector(BaseConnector):
         endpoint_url: str | None = None,
         api_key: str | None = None,
         params: dict[str, Any] | None = None,
+        local_file: str | None = None,
     ):
         # Configurable — the real credentialed endpoint is supplied via settings
         # or the caller. Empty by default so extract() no-ops rather than 404s.
         self.endpoint_url = endpoint_url or getattr(settings, "FINRA_TRACE_FEED_URL", "")
         self.api_key = api_key or getattr(settings, "FINRA_TRACE_API_KEY", "")
         self.params = params or {}
+        # Local Academic/Historical TRACE bulk file — preferred over the live
+        # feed when set, since it requires no live credentialed API call.
+        self.local_file = local_file or getattr(settings, "FINRA_TRACE_LOCAL_FILE", "")
 
     def auth_headers(self) -> dict[str, str]:
         """Auth-header hook — override / configure for the real credentialed feed."""
@@ -220,10 +306,16 @@ class FINRATraceConnector(BaseConnector):
         return headers
 
     async def extract(self) -> list[dict[str, Any]]:
+        # Prefer the local Academic/Historical TRACE bulk file when configured
+        # — it requires no live credentialed API call.
+        if self.local_file:
+            return self._extract_from_file(self.local_file)
+
         if not self.endpoint_url:
             logger.warning(
-                "[%s] no FINRA_TRACE_FEED_URL configured — needs credentials + "
-                "live validation; skipping extraction",
+                "[%s] no FINRA_TRACE_LOCAL_FILE or FINRA_TRACE_FEED_URL configured "
+                "— live feed needs credentials + live validation, and no local bulk "
+                "file was given; skipping extraction",
                 self.name,
             )
             return []
@@ -235,6 +327,68 @@ class FINRATraceConnector(BaseConnector):
             data = resp.json()
         records = data if isinstance(data, list) else data.get("trades", data.get("data", []))
         logger.info("[%s] fetched %d raw trade messages", self.name, len(records))
+        return records
+
+    def _extract_from_file(self, path: str) -> list[dict[str, Any]]:
+        """Read a local Academic/Historical TRACE bulk dissemination file.
+
+        Auto-detects the delimiter (pipe first — the documented Academic
+        TRACE standard — falling back to comma, then tab) and maps each row
+        via :func:`_map_academic_trace_row`. File-not-found and per-row
+        parsing errors are logged and skipped rather than raised, so a
+        malformed row (or a missing file) never crashes the whole batch —
+        extract() just returns whatever could be read.
+        """
+        try:
+            with open(path, "r", newline="", encoding="utf-8-sig") as f:
+                first_line = f.readline()
+                f.seek(0)
+
+                delimiter = _CANDIDATE_DELIMITERS[0]
+                for candidate in _CANDIDATE_DELIMITERS:
+                    if candidate in first_line:
+                        delimiter = candidate
+                        break
+
+                reader = csv.DictReader(f, delimiter=delimiter)
+                records: list[dict[str, Any]] = []
+                skipped = 0
+                for i, row in enumerate(reader, start=1):
+                    try:
+                        mapped = _map_academic_trace_row(row)
+                    except Exception:
+                        logger.exception(
+                            "[%s] skipping malformed row %d in %s", self.name, i, path
+                        )
+                        skipped += 1
+                        continue
+                    if mapped is None:
+                        skipped += 1
+                        continue
+                    records.append(mapped)
+        except FileNotFoundError:
+            logger.warning(
+                "[%s] local TRACE bulk file not found: %s — skipping extraction",
+                self.name,
+                path,
+            )
+            return []
+        except OSError:
+            logger.exception(
+                "[%s] failed to read local TRACE bulk file %s — skipping extraction",
+                self.name,
+                path,
+            )
+            return []
+
+        logger.info(
+            "[%s] read %d raw trade rows (%d skipped) from local file %s using '%s' delimiter",
+            self.name,
+            len(records),
+            skipped,
+            path,
+            delimiter,
+        )
         return records
 
     async def validate(

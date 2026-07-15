@@ -102,6 +102,7 @@ import src.models.performance  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.attribution  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.portfolio_risk  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
+import src.models.subsidiary  # noqa: F401  (Complex Structure data-source build)
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
@@ -183,3 +184,34 @@ async def client(_api_connection, session) -> AsyncGenerator[AsyncClient, None]:
         yield c
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def test_user(session: AsyncSession):
+    """A real, active User row (M-004/M-005: full-auth tests need a real
+    account to authenticate as, not just an arbitrary user_id string)."""
+    import uuid as _uuid
+
+    from src.api.auth.security import hash_password
+    from src.models.auth import User
+
+    user = User(
+        user_id=_uuid.uuid4(),
+        username=f"test_user_{_uuid.uuid4().hex[:8]}",
+        email=f"{_uuid.uuid4().hex[:8]}@test.example",
+        hashed_password=hash_password("test-password-123"),
+        role="ANALYST",
+        is_active=True,
+    )
+    session.add(user)
+    await session.flush()
+    return user
+
+
+@pytest_asyncio.fixture
+async def auth_headers(test_user) -> dict[str, str]:
+    """Bearer-token Authorization header for `test_user`."""
+    from src.api.auth.jwt import create_access_token
+
+    token = create_access_token(data={"sub": test_user.username, "role": test_user.role})
+    return {"Authorization": f"Bearer {token}"}

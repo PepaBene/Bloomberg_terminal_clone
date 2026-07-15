@@ -257,7 +257,13 @@ def compute_rolling_aggregates(
         open_market_buy_count_90d, insider_count_buying_30d,
         insider_count_selling_30d.
     """
-    as_of = date.fromisoformat(as_of_date_str)
+    # E-034: as_of_date_str is caller-supplied; malformed input shouldn't
+    # crash the whole rolling-aggregate computation (same tolerance the
+    # per-transaction date parsing above already gets).
+    try:
+        as_of = date.fromisoformat(as_of_date_str)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid as_of_date_str: {as_of_date_str!r}") from exc
 
     windows = {
         "30d": timedelta(days=30),

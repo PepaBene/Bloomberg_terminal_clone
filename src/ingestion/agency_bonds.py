@@ -3,22 +3,49 @@
 Ingests U.S. federal-agency / GSE debt reference data (FNMA, FHLMC, FHLB,
 FFCB, TVA, GNMA, SBA, ...) into the ``AgencyBond`` table.
 
-FLAG — NEEDS A DATA-SOURCE DECISION + LIVE VALIDATION
------------------------------------------------------
-There is no single clean, keyless public feed for the full GSE/agency debt
-universe. Fannie Mae, Freddie Mac and the FHLBanks publish debt-issuance data
-on their own investor-relations sites (often as XML/CSV/Excel behind bespoke
-schemas), and the consolidated feeds (e.g. Bloomberg / ICE / Refinitiv) are
-paid. This connector is therefore implemented to-pattern against a
-*configurable* JSON feed URL (mirroring how ``congress_trades.py`` takes a
-configurable feed URL) with a normalizing transform/load for ``AgencyBond``.
-The transform/load is real and unit-tested against a representative sample;
-the extract() source must be chosen and validated against live data before
-production use. No agency bond rows are fabricated.
+FLAG — UNTESTED AGAINST LIVE DATA
+----------------------------------
+What's real: ``extract()`` fetches ``settings.FHLB_OF_DATA_URL`` — the FHLB
+(Federal Home Loan Banks) Office of Finance's free, keyless
+consolidated-obligation debt-issuance download. The FHLBanks are the one GSE
+issuer group that publishes this data through a single "Office of Finance"
+umbrella site (fhlb-of.com) rather than per-bank paid feeds, which is why
+this connector targets FHLB specifically rather than the full agency
+universe (Fannie Mae / Freddie Mac debt-issuance data lives on their own
+investor-relations sites with different, unconfirmed schemas — out of scope
+here). The response is parsed as either CSV (Python's built-in ``csv``
+module — this codebase's ingestion connectors avoid pandas, e.g.
+``sanctions_entries.py``) or a plain JSON array, branching on the response
+``Content-Type`` header (with a body-sniffing fallback if the header is
+missing/generic, since static-file hosts often serve CSV as
+``text/plain`` or ``application/octet-stream``). Parsed rows are mapped
+through the *documented* column mapping in ``_CSV_COLUMN_MAP`` below into
+the exact dict shape the existing, unit-tested ``transform()``/``load()``
+already expect — those two methods are unchanged.
+
+What's unvalidated: ``FHLB_OF_DATA_URL`` defaults to ``""`` (a no-op) because
+the live URL and, more importantly, the *actual column names* of the current
+FHLB Office of Finance download must be confirmed against the live file
+before this can run for real — FHLB has changed report formats/URLs before,
+and this sandbox cannot reach fhlb-of.com to verify either (outbound network
+access to external domains is blocked here). ``_CSV_COLUMN_MAP`` documents
+the column names this connector currently expects; whoever wires up the real
+URL must diff that mapping against the live file's actual header row and
+adjust it (or override via the ``column_map`` constructor argument) before
+trusting the output. Deals whose CUSIP/maturity can't be parsed are dropped
+by the existing ``validate()`` — nothing is fabricated. Fannie Mae, Freddie
+Mac, FFCB, TVA, GNMA and SBA debt are NOT covered by this extract() path;
+the pre-existing configurable JSON feed (``AGENCY_BONDS_FEED_URL`` /
+``--feed-url``) remains available as a fallback/override for a consolidated
+paid feed covering the full agency universe, and takes priority over the
+FHLB path when configured.
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 import uuid
 from datetime import date, datetime
@@ -33,6 +60,26 @@ from src.config import settings
 from src.ingestion.base import BaseConnector
 
 logger = logging.getLogger(__name__)
+
+# Documented expected column mapping for the FHLB Office of Finance
+# consolidated-obligation debt-issuance CSV/XML-as-CSV export.
+# ⚠ UNCONFIRMED against a live file — see module docstring. Column names are
+# our best guess at FHLB Office of Finance's conventional field naming
+# (matching the terminology used in their public debt-issuance summaries);
+# override via ``AgencyBondsConnector(column_map=...)`` once the real header
+# row is known, without needing a code change.
+_CSV_COLUMN_MAP: dict[str, str] = {
+    "cusip": "CUSIP",
+    "issuer_name": "Issuer",
+    "coupon_rate": "Coupon Rate",
+    "coupon_type": "Coupon Type",
+    "maturity_date": "Maturity Date",
+    "issue_date": "Issue Date",
+    "original_amount_mm": "Issue Amount ($MM)",
+    "outstanding_amount_mm": "Amount Outstanding ($MM)",
+    "first_call_date": "First Call Date",
+    "is_callable": "Callable",
+}
 
 # Normalize common issuer descriptors onto our short agency_type codes.
 _AGENCY_TYPE_MAP = {
@@ -114,15 +161,39 @@ def _agency_type(issuer: Any, explicit: Any = None) -> str | None:
 
 
 class AgencyBondsConnector(BaseConnector):
-    """Ingest GSE/agency debt reference data from a configurable JSON feed."""
+    """Ingest GSE/agency debt reference data.
+
+    Primary path: the FHLB Office of Finance's free, keyless
+    consolidated-obligation debt-issuance download (``fhlb_url`` /
+    ``settings.FHLB_OF_DATA_URL``), parsed as CSV or JSON depending on the
+    response ``Content-Type`` (see module docstring for the column-mapping
+    caveats).
+
+    Fallback path: a configurable JSON feed (``feed_url`` /
+    ``AGENCY_BONDS_FEED_URL``), preserved for a future consolidated paid feed
+    covering the full agency universe (Fannie Mae, Freddie Mac, FFCB, TVA,
+    GNMA, SBA, ...). If ``feed_url`` is set it takes priority over the FHLB
+    path.
+    """
 
     name = "Agency Bonds"
     connector_type = "BATCH_API"
     data_domain = "FIXED_INCOME"
 
-    def __init__(self, *, feed_url: str | None = None, api_key: str | None = None):
+    def __init__(
+        self,
+        *,
+        feed_url: str | None = None,
+        api_key: str | None = None,
+        fhlb_url: str | None = None,
+        column_map: dict[str, str] | None = None,
+    ):
         self.feed_url = feed_url or getattr(settings, "AGENCY_BONDS_FEED_URL", "")
         self.api_key = api_key or getattr(settings, "AGENCY_BONDS_API_KEY", "")
+        self.fhlb_url = fhlb_url or getattr(settings, "FHLB_OF_DATA_URL", "")
+        # Overridable so the real column names can be supplied without a code
+        # change once confirmed against a live FHLB Office of Finance file.
+        self.column_map = dict(column_map) if column_map else dict(_CSV_COLUMN_MAP)
 
     def auth_headers(self) -> dict[str, str]:
         headers = {"User-Agent": settings.SEC_USER_AGENT, "Accept": "application/json"}
@@ -130,21 +201,92 @@ class AgencyBondsConnector(BaseConnector):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    async def extract(self) -> list[dict[str, Any]]:
-        if not self.feed_url:
-            logger.warning(
-                "[%s] no AGENCY_BONDS_FEED_URL configured — needs a data-source "
-                "decision + live validation; skipping extraction",
-                self.name,
-            )
+    def _normalize_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Map a raw FHLB row (CSV ``DictReader`` row or JSON object) onto our
+        internal field names via ``self.column_map``.
+
+        Tries the internal field name directly first (covers a JSON endpoint
+        that already happens to use our field names), then falls back to the
+        documented source column name (covers CSV rows, and a JSON endpoint
+        that just serializes the CSV's own column headers as JSON keys).
+        Every row from this connector's FHLB path is FHLB debt by
+        construction, so ``agency_type`` defaults to "FHLB" unless the source
+        row explicitly overrides it.
+        """
+        mapped: dict[str, Any] = {}
+        for internal_key, source_col in self.column_map.items():
+            direct = row.get(internal_key)
+            mapped[internal_key] = direct if direct not in (None, "") else row.get(source_col)
+        mapped.setdefault("agency_type", None)
+        if not mapped.get("agency_type"):
+            mapped["agency_type"] = row.get("agency_type") or "FHLB"
+        return mapped
+
+    def _parse_csv_body(self, body: str) -> list[dict[str, Any]]:
+        reader = csv.DictReader(io.StringIO(body))
+        return [self._normalize_row(row) for row in reader]
+
+    def _parse_json_body(self, body: str) -> list[dict[str, Any]]:
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("[%s] FHLB response was not valid JSON", self.name)
             return []
+        if isinstance(data, dict):
+            data = data.get("bonds") or data.get("data") or data.get("issuances") or []
+        if not isinstance(data, list):
+            return []
+        return [self._normalize_row(r) for r in data if isinstance(r, dict)]
+
+    async def _extract_from_fhlb(self) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            resp = await client.get(
+                self.fhlb_url, headers={"User-Agent": settings.SEC_USER_AGENT}
+            )
+            resp.raise_for_status()
+            content_type = (resp.headers.get("content-type") or "").lower()
+            body = resp.text
+
+        if "json" in content_type:
+            records = self._parse_json_body(body)
+        elif "csv" in content_type:
+            records = self._parse_csv_body(body)
+        else:
+            # Content-Type is missing or generic (static-file hosts commonly
+            # serve CSV as text/plain or application/octet-stream) — sniff
+            # the body instead.
+            stripped = body.lstrip()
+            if stripped[:1] in ("[", "{"):
+                records = self._parse_json_body(body)
+            else:
+                records = self._parse_csv_body(body)
+
+        logger.info(
+            "[%s] fetched %d raw rows from FHLB Office of Finance (content-type=%s)",
+            self.name, len(records), content_type or "unknown",
+        )
+        return records
+
+    async def _extract_from_feed(self) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(self.feed_url, headers=self.auth_headers())
             resp.raise_for_status()
             data = resp.json()
         records = data if isinstance(data, list) else data.get("bonds", data.get("data", []))
-        logger.info("[%s] fetched %d raw rows", self.name, len(records))
+        logger.info("[%s] fetched %d raw rows from configured feed", self.name, len(records))
         return records
+
+    async def extract(self) -> list[dict[str, Any]]:
+        if self.feed_url:
+            return await self._extract_from_feed()
+        if not self.fhlb_url:
+            logger.warning(
+                "[%s] no FHLB_OF_DATA_URL / AGENCY_BONDS_FEED_URL configured — "
+                "skipping extraction",
+                self.name,
+            )
+            return []
+        return await self._extract_from_fhlb()
 
     async def validate(
         self, records: list[dict[str, Any]]

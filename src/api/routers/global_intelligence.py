@@ -1,7 +1,7 @@
 """Global Intelligence API endpoints (Pillar 3 Phase 3B)."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -24,6 +24,7 @@ from src.models.global_macro import (
 )
 from src.models.commodity_intelligence import (
     CommodityCompanyExposure,
+    CommodityInventory,
     CommodityPrice,
     CommodityProfile,
 )
@@ -950,35 +951,109 @@ async def get_commodity_supply_demand(
     code: str,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get supply/demand balance for a commodity (derived from price trends)."""
-    result = await session.execute(
+    """Get supply/demand balance for a commodity.
+
+    Real signal (``signal_source: "INVENTORY_YOY"``) when EIA stock-level
+    data exists for this commodity (see
+    ``src/ingestion/eia_commodity_inventory.py`` -- currently WTI, GASOLINE,
+    NATGAS): compares the latest reported stock level to the report from
+    ~1 year prior. Falling stocks YoY beyond a +/-3% threshold is classified
+    DEFICIT (tightening supply); rising stocks beyond that threshold is
+    SURPLUS (loosening supply).
+
+    Falls back to a price-deviation-from-30-day-average heuristic
+    (``signal_source: "PRICE_HEURISTIC_FALLBACK"``) for commodities with no
+    ingested inventory data (BRENT, metals, agriculture -- no free/keyless
+    US-stocks-equivalent source is wired up for those; see
+    CONNECTING_TO_REAL_DATA.md). This fallback is explicitly labeled as a
+    proxy in the response, not presented as a real supply/demand
+    measurement.
+    """
+    code = code.upper()
+
+    inventory_result = await session.execute(
+        select(CommodityInventory)
+        .where(CommodityInventory.commodity_code == code)
+        .order_by(CommodityInventory.as_of_date.desc())
+        .limit(1)
+    )
+    latest_inventory = inventory_result.scalar_one_or_none()
+
+    price_result = await session.execute(
         select(CommodityPrice)
-        .where(CommodityPrice.commodity_code == code.upper())
+        .where(CommodityPrice.commodity_code == code)
         .order_by(CommodityPrice.price_date.desc())
         .limit(30)
     )
-    rows = result.scalars().all()
-    if not rows:
-        raise HTTPException(status_code=404, detail="No price data found for commodity")
-    prices = [float(r.close_price) for r in rows if r.close_price is not None]
+    price_rows = price_result.scalars().all()
+
+    if latest_inventory is None and not price_rows:
+        raise HTTPException(status_code=404, detail="No price or inventory data found for commodity")
+
+    prices = [float(r.close_price) for r in price_rows if r.close_price is not None]
     avg_price = sum(prices) / len(prices) if prices else None
     latest_price = prices[0] if prices else None
+
+    if latest_inventory is not None:
+        prior_year_result = await session.execute(
+            select(CommodityInventory)
+            .where(
+                CommodityInventory.commodity_code == code,
+                CommodityInventory.as_of_date >= latest_inventory.as_of_date - timedelta(days=380),
+                CommodityInventory.as_of_date <= latest_inventory.as_of_date - timedelta(days=350),
+            )
+            .order_by(CommodityInventory.as_of_date.desc())
+            .limit(1)
+        )
+        prior_year_inventory = prior_year_result.scalar_one_or_none()
+
+        yoy_change_pct = None
+        trend = "NEUTRAL"
+        if prior_year_inventory is not None and prior_year_inventory.stock_level:
+            yoy_change_pct = float(
+                (latest_inventory.stock_level - prior_year_inventory.stock_level)
+                / prior_year_inventory.stock_level
+                * 100
+            )
+            # +/-3% YoY stock-level move is the disclosed threshold for
+            # calling a real trend vs. noise -- not a claim of precision
+            # beyond what a weekly stock report actually supports.
+            if yoy_change_pct <= -3.0:
+                trend = "DEFICIT"
+            elif yoy_change_pct >= 3.0:
+                trend = "SURPLUS"
+
+        return {
+            "commodity_code": code,
+            "latest_price": latest_price,
+            "avg_30d_price": round(avg_price, 4) if avg_price else None,
+            "supply_demand_indicator": trend,
+            "data_points": len(prices),
+            "signal_source": "INVENTORY_YOY",
+            "latest_stock_level": float(latest_inventory.stock_level),
+            "latest_stock_unit": latest_inventory.stock_unit,
+            "latest_stock_as_of": latest_inventory.as_of_date.isoformat(),
+            "stock_metric": latest_inventory.metric_name,
+            "stock_yoy_change_pct": round(yoy_change_pct, 2) if yoy_change_pct is not None else None,
+            "stock_source": latest_inventory.source,
+        }
+
+    # No ingested inventory data for this commodity -- honestly fall back to
+    # the price-deviation proxy rather than claiming a real supply/demand
+    # measurement.
     trend = "NEUTRAL"
     if latest_price and avg_price:
-        # PLACEHOLDER: Supply/demand signal is a naive heuristic based on
-        # price deviation from the 30-day average.  A real implementation
-        # should incorporate actual supply/demand data (e.g. EIA inventory
-        # reports, USDA crop estimates, exchange warehouse stocks).
         if latest_price > avg_price * 1.05:
             trend = "DEFICIT"
         elif latest_price < avg_price * 0.95:
             trend = "SURPLUS"
     return {
-        "commodity_code": code.upper(),
+        "commodity_code": code,
         "latest_price": latest_price,
         "avg_30d_price": round(avg_price, 4) if avg_price else None,
         "supply_demand_indicator": trend,
         "data_points": len(prices),
+        "signal_source": "PRICE_HEURISTIC_FALLBACK",
     }
 
 

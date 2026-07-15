@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 import pytest_asyncio
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -97,15 +98,18 @@ import src.models.attribution  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.portfolio_risk  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.congressional_trades  # noqa: F401  (Financial Analysis Suite)
+import src.models.subsidiary  # noqa: F401  (Complex Structure data-source build)
 
 
-# Patch JSONB columns to use plain JSON under SQLite
+# Patch JSONB (and pgvector Vector) columns to use plain JSON under SQLite —
+# SQLite has no native JSONB or vector type, and tests don't need real ANN
+# search, just round-tripping a list[float].
 @event.listens_for(Base.metadata, "before_create")
 def _remap_jsonb(target, connection, **kw):
     if connection.dialect.name == "sqlite":
         for table in target.tables.values():
             for col in table.columns:
-                if isinstance(col.type, JSONB):
+                if isinstance(col.type, (JSONB, Vector)):
                     col.type = JSON()
 
 

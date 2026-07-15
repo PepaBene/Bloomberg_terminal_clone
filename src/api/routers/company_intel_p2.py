@@ -13,7 +13,11 @@ from src.engines import (
     balance_sheet_risk_engine,
     business_model_engine,
     capital_allocation_engine,
+    growth_profile_engine,
     management_quality_engine,
+    margin_cost_engine,
+    revenue_drivers_engine,
+    risk_profile_engine,
 )
 from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
@@ -29,7 +33,15 @@ from src.schemas.company_intelligence_p2 import (
     BusinessModelResponse,
     CapitalAllocationResponse,
     CompanyIntelligenceResponse,
+    CostStructureResponse,
+    GrowthProfileResponse,
     ManagementQualityResponse,
+    MarginAnalysisResponse,
+    OperatingLeverageResponse,
+    QualityMetricsResponse,
+    RevenueDriversResponse,
+    RiskProfileResponse,
+    WorkingCapitalResponse,
 )
 
 router = APIRouter(tags=["Company Intelligence"])
@@ -78,9 +90,11 @@ async def _assemble_fundamentals(session: AsyncSession, entity_id: uuid.UUID) ->
             d["revenue"] = rev
             d["cogs"] = _f(inc.cost_of_revenue)
             d["operating_income"] = _f(inc.operating_income)
+            d["ebit"] = d["operating_income"]  # alias -- growth_profile_engine reads "ebit"
             d["net_income"] = _f(inc.net_income)
             d["ebitda"] = _f(inc.ebitda)
             d["sga"] = _f(inc.selling_general_admin)
+            d["rd"] = _f(inc.research_development)
             d["depreciation"] = _f(inc.depreciation_amortization)
             d["interest_expense"] = _f(inc.interest_expense)
             d["eps"] = _f(inc.diluted_eps)
@@ -111,7 +125,7 @@ async def _assemble_fundamentals(session: AsyncSession, entity_id: uuid.UUID) ->
     history = [_period_dict(p) for p in periods]
     financials = dict(history[-1])  # latest period is the "current" snapshot
 
-    # ROIC / WACC from batch analytics (latest values).
+    # ROIC / WACC / quality / risk metrics from batch analytics (latest values).
     metrics = {}
     rows = (
         await session.execute(
@@ -119,7 +133,11 @@ async def _assemble_fundamentals(session: AsyncSession, entity_id: uuid.UUID) ->
             .where(
                 AnalyticsResult.entity_id == entity_id,
                 AnalyticsResult.metric_name.in_(
-                    ["roic", "wacc", "beneish_m_score", "altman_z_score"]
+                    [
+                        "roic", "wacc", "beneish_m_score", "altman_z_score",
+                        "piotroski_f_score", "beta_market", "beta_blume_adjusted",
+                        "annualized_volatility",
+                    ]
                 ),
             )
             .order_by(AnalyticsResult.as_of_date.desc())
@@ -163,11 +181,34 @@ async def _assemble_fundamentals(session: AsyncSession, entity_id: uuid.UUID) ->
         {"name": n, "revenue": float(r) if r is not None else None} for n, r in product_segments
     ]
 
+    # Per-period segment breakdown (revenue-drivers engine input) -- joined
+    # to the SAME `periods` fetched above so segment_history lines up 1:1,
+    # oldest -> newest, with `history`/`revenue_history`.
+    period_seg_rows = (
+        await session.execute(
+            select(
+                SegmentData.period_id, SegmentData.segment_name,
+                SegmentData.segment_type, SegmentData.revenue,
+            ).where(SegmentData.period_id.in_([p.period_id for p in periods]))
+        )
+    ).all()
+    segs_by_period: dict = {}
+    for period_id, name, seg_type, rev in period_seg_rows:
+        segs_by_period.setdefault(period_id, []).append(
+            {"name": name, "type": seg_type, "revenue": float(rev) if rev is not None else None}
+        )
+    segment_history = [
+        {"period_end_date": p.period_end_date.isoformat(), "segments": segs_by_period.get(p.period_id, [])}
+        for p in periods
+    ]
+
     return {
         "financials": financials,
         "history": history,
         "gross_margin_history": gross_margin_history,
         "margin_history": margin_history,
+        "revenue_history": revenue_history,
+        "segment_history": segment_history,
         "roic": metrics.get("roic"),
         "wacc": metrics.get("wacc"),
     }
@@ -203,7 +244,12 @@ async def _compute_and_persist_intelligence(session: AsyncSession, entity_id: uu
         switching_cost_score=bm.durability.switching_cost_score,
         moat_type=bm.durability.moat_type,
         disruption_vulnerability=bm.durability.disruption_vulnerability,
-        revenue_decomposition={"segments": financials.get("segments", [])},
+        # E-017: surface whether cyclicality_score is a real measurement or
+        # the 50.0 neutral default (< 3 periods of revenue_history).
+        revenue_decomposition={
+            "segments": financials.get("segments", []),
+            "cyclicality_data_sufficient": bm.revenue_quality.cyclicality_data_sufficient,
+        },
         ai_enabled=False,
     ))
 
@@ -918,3 +964,308 @@ async def get_fi_market_cost_debt(
         "spread_to_benchmark": fi.get("spread_to_benchmark"),
         "interest_coverage": float(r.interest_coverage) if r.interest_coverage is not None else None,
     }
+
+
+# ── Revenue Drivers (previously missing -- real per-segment growth
+# decomposition from SegmentData joined per-period, see
+# src/engines/revenue_drivers_engine.py) ───────────────────────────────
+
+
+@router.get(
+    "/company/{entity_id}/revenue-drivers",
+    response_model=RevenueDriversResponse,
+)
+async def get_revenue_drivers(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get per-segment revenue growth decomposition for a company."""
+    await _get_entity(session, entity_id)
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available to compute revenue drivers")
+
+    result = revenue_drivers_engine.analyze_revenue_drivers(
+        assembled["segment_history"], assembled["revenue_history"]
+    )
+    return RevenueDriversResponse(
+        entity_id=entity_id,
+        drivers=[asdict(d) for d in result.drivers],
+        revenue_concentration_hhi=result.revenue_concentration_hhi,
+        total_revenue_yoy_growth_pct=result.total_revenue_yoy_growth_pct,
+        periods_analyzed=result.periods_analyzed,
+    )
+
+
+# ── Cost Structure / Margin Analysis (previously missing -- real
+# per-period transforms of the same fundamentals history the deep-
+# intelligence engines already consume) ─────────────────────────────────
+
+
+@router.get(
+    "/company/{entity_id}/cost-structure",
+    response_model=CostStructureResponse,
+)
+async def get_cost_structure(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get COGS/SG&A/R&D cost-structure trend for a company."""
+    await _get_entity(session, entity_id)
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available to compute cost structure")
+
+    result = margin_cost_engine.analyze_cost_structure(assembled["history"])
+    return CostStructureResponse(
+        entity_id=entity_id,
+        items=[asdict(i) for i in result.items],
+        periods_analyzed=result.periods_analyzed,
+    )
+
+
+@router.get(
+    "/company/{entity_id}/margin-analysis",
+    response_model=MarginAnalysisResponse,
+)
+async def get_margin_analysis(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get gross/operating/net margin trend for a company."""
+    await _get_entity(session, entity_id)
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available to compute margin analysis")
+
+    result = margin_cost_engine.analyze_margin_trends(assembled["history"])
+    return MarginAnalysisResponse(
+        entity_id=entity_id,
+        margins=[asdict(m) for m in result.margins],
+        periods_analyzed=result.periods_analyzed,
+    )
+
+
+# ── Growth Profile / Operating Leverage (previously missing -- real
+# multi-period revenue/earnings growth trend + full operating-leverage
+# series, see src/engines/growth_profile_engine.py) ─────────────────────
+
+
+@router.get(
+    "/company/{entity_id}/growth-profile",
+    response_model=GrowthProfileResponse,
+)
+async def get_growth_profile(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get revenue/net-income/EPS/FCF growth trend for a company."""
+    await _get_entity(session, entity_id)
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available to compute growth profile")
+
+    result = growth_profile_engine.analyze_growth_profile(assembled["history"])
+    return GrowthProfileResponse(
+        entity_id=entity_id,
+        growth_series=[asdict(s) for s in result.growth_series],
+        periods_analyzed=result.periods_analyzed,
+    )
+
+
+@router.get(
+    "/company/{entity_id}/operating-leverage",
+    response_model=OperatingLeverageResponse,
+)
+async def get_operating_leverage(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get the full multi-period operating-leverage trend for a company."""
+    await _get_entity(session, entity_id)
+    assembled = await _assemble_fundamentals(session, entity_id)
+    if assembled is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available to compute operating leverage")
+
+    result = growth_profile_engine.analyze_growth_profile(assembled["history"])
+    ol = result.operating_leverage
+    return OperatingLeverageResponse(
+        entity_id=entity_id,
+        avg_operating_leverage=ol.avg_operating_leverage,
+        operating_leverage_stability=ol.operating_leverage_stability,
+        operating_leverage_trend=ol.operating_leverage_trend,
+        incremental_margin_trend=ol.incremental_margin_trend,
+    )
+
+
+# ── Quality Metrics (previously missing -- re-exposes already-computed
+# Piotroski/Altman/Beneish/accruals-quality scores under the
+# company-intelligence namespace; these are real Pillar 2 batch-computed
+# metrics, not new computation) ──────────────────────────────────────────
+
+
+@router.get(
+    "/company/{entity_id}/quality-metrics",
+    response_model=QualityMetricsResponse,
+)
+async def get_quality_metrics(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get accounting/earnings quality scores (Piotroski/Altman/Beneish) for a company."""
+    await _get_entity(session, entity_id)
+
+    rows = (
+        await session.execute(
+            select(AnalyticsResult.metric_name, AnalyticsResult.value, AnalyticsResult.as_of_date)
+            .where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_name.in_(
+                    ["piotroski_f_score", "altman_z_score", "beneish_m_score"]
+                ),
+            )
+            .order_by(AnalyticsResult.as_of_date.desc())
+        )
+    ).all()
+    metrics: dict = {}
+    as_of: date | None = None
+    for name, value, as_of_date in rows:
+        if value is not None and name not in metrics:
+            metrics[name] = float(value)
+            if as_of is None or as_of_date > as_of:
+                as_of = as_of_date
+
+    mqa_result = await session.execute(
+        select(ManagementQualityAssessment.accruals_quality, ManagementQualityAssessment.as_of_date)
+        .where(ManagementQualityAssessment.entity_id == entity_id)
+        .order_by(ManagementQualityAssessment.as_of_date.desc())
+        .limit(1)
+    )
+    mqa_row = mqa_result.first()
+    accruals_quality = float(mqa_row[0]) if mqa_row and mqa_row[0] is not None else None
+
+    if not metrics and accruals_quality is None:
+        raise HTTPException(status_code=404, detail="No quality metrics computed for this entity")
+
+    return QualityMetricsResponse(
+        entity_id=entity_id,
+        piotroski_f_score=metrics.get("piotroski_f_score"),
+        altman_z_score=metrics.get("altman_z_score"),
+        beneish_m_score=metrics.get("beneish_m_score"),
+        accruals_quality=accruals_quality,
+        as_of_date=as_of.isoformat() if as_of else None,
+    )
+
+
+# ── Risk Profile (previously missing -- composite risk score synthesized
+# from already-real signals: Altman Z, Piotroski, Beneish, leverage, beta,
+# volatility. See src/engines/risk_profile_engine.py.) ──────────────────
+
+
+@router.get(
+    "/company/{entity_id}/risk-profile",
+    response_model=RiskProfileResponse,
+)
+async def get_risk_profile(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a composite credit/earnings-quality/market risk profile for a company."""
+    await _get_entity(session, entity_id)
+
+    metric_rows = (
+        await session.execute(
+            select(AnalyticsResult.metric_name, AnalyticsResult.value, AnalyticsResult.as_of_date)
+            .where(
+                AnalyticsResult.entity_id == entity_id,
+                AnalyticsResult.metric_name.in_(
+                    [
+                        "piotroski_f_score", "beneish_m_score", "beta_market",
+                        "beta_blume_adjusted", "annualized_volatility",
+                    ]
+                ),
+            )
+            .order_by(AnalyticsResult.as_of_date.desc())
+        )
+    ).all()
+    metrics: dict = {}
+    for name, value, _asof in metric_rows:
+        if value is not None and name not in metrics:
+            metrics[name] = float(value)
+
+    bsra_result = await session.execute(
+        select(BalanceSheetRiskAssessment)
+        .where(BalanceSheetRiskAssessment.entity_id == entity_id)
+        .order_by(BalanceSheetRiskAssessment.as_of_date.desc())
+        .limit(1)
+    )
+    bsra = bsra_result.scalar_one_or_none()
+
+    mqa_result = await session.execute(
+        select(ManagementQualityAssessment.accruals_quality)
+        .where(ManagementQualityAssessment.entity_id == entity_id)
+        .order_by(ManagementQualityAssessment.as_of_date.desc())
+        .limit(1)
+    )
+    mqa_row = mqa_result.first()
+
+    signals = {
+        "z_score": float(bsra.z_score) if bsra and bsra.z_score is not None else None,
+        "net_debt_ebitda": float(bsra.net_debt_ebitda) if bsra and bsra.net_debt_ebitda is not None else None,
+        "refinancing_risk_score": float(bsra.refinancing_risk_score) if bsra and bsra.refinancing_risk_score is not None else None,
+        "piotroski_f_score": metrics.get("piotroski_f_score"),
+        "beneish_m_score": metrics.get("beneish_m_score"),
+        "accruals_quality": float(mqa_row[0]) if mqa_row and mqa_row[0] is not None else None,
+        # Prefer the Blume-adjusted beta when available (a more stable
+        # forward estimate); fall back to the raw regression beta.
+        "beta": metrics.get("beta_blume_adjusted", metrics.get("beta_market")),
+        "annualized_volatility": metrics.get("annualized_volatility"),
+    }
+    if not any(v is not None for v in signals.values()):
+        raise HTTPException(status_code=404, detail="No risk signals available for this entity")
+
+    result = risk_profile_engine.assess_risk_profile(signals)
+    return RiskProfileResponse(
+        entity_id=entity_id,
+        credit_risk_score=result.credit_risk_score,
+        earnings_quality_risk_score=result.earnings_quality_risk_score,
+        market_risk_score=result.market_risk_score,
+        overall_risk_score=result.overall_risk_score,
+        overall_risk_tier=result.overall_risk_tier,
+        data_completeness=result.data_completeness,
+        risk_factors=[asdict(f) for f in result.risk_factors],
+    )
+
+
+# ── Working Capital (previously missing -- re-exposes the CCC/DIO/DSO/DPO
+# breakdown the capital-allocation engine already computes and stores in
+# CapitalAllocationAssessment.working_capital_discipline, under its own
+# dedicated endpoint) ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/company/{entity_id}/working-capital",
+    response_model=WorkingCapitalResponse,
+)
+async def get_working_capital(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get working-capital discipline (CCC/DIO/DSO/DPO) for a company."""
+    await _get_entity(session, entity_id)
+
+    result = await session.execute(
+        select(CapitalAllocationAssessment)
+        .where(CapitalAllocationAssessment.entity_id == entity_id)
+        .order_by(CapitalAllocationAssessment.as_of_date.desc())
+        .limit(1)
+    )
+    r = result.scalar_one_or_none()
+    if not r:
+        raise HTTPException(status_code=404, detail="No capital allocation assessment found")
+
+    return WorkingCapitalResponse(
+        entity_id=entity_id,
+        working_capital=r.working_capital_discipline,
+        as_of_date=r.as_of_date.isoformat() if r.as_of_date else None,
+    )

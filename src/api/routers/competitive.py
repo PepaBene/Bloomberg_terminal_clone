@@ -12,6 +12,7 @@ from src.api.deps import get_session
 from src.engines import competitive_landscape as cl_engine
 from src.engines import concentration_risk as cr_engine
 from src.engines import moat_assessment as moat_engine
+from src.engines import porter_forces_engine, swot_engine
 from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
 from src.models.fundamentals import FinancialPeriod, IncomeStatement, SegmentData
@@ -22,6 +23,12 @@ from src.models.competitive_intelligence import (
     MoatAssessment,
     MoatHistory,
 )
+from src.models.company_intelligence import (
+    BalanceSheetRiskAssessment,
+    BusinessModelAnalysis,
+    CapitalAllocationAssessment,
+    ManagementQualityAssessment,
+)
 from src.models.industry_intelligence import IndustryCompetitiveStructure, IndustryProfile
 from src.schemas.competitive_intelligence import (
     CompetitiveLandscapeResponse,
@@ -30,6 +37,10 @@ from src.schemas.competitive_intelligence import (
     MoatHistoryEntry,
     MoatHistoryResponse,
     PeerComparisonResponse,
+    PorterForcesResponse,
+    SupplyChainRelationship,
+    SupplyChainResponse,
+    SWOTResponse,
 )
 
 router = APIRouter(tags=["Competitive Intelligence"])
@@ -758,3 +769,217 @@ async def get_value_chain(
         "value_chain_position": row.value_chain_position,
         "peer_group": row.peer_group or {},
     }
+
+
+# ── SWOT / Porter's Five Forces (previously missing -- deterministic
+# rules-derived synthesis of already-real, already-computed signals from
+# MoatAssessment, ConcentrationRiskAssessment, CompetitiveLandscape, and
+# the company_intel_p2 deep-intelligence assessments. See
+# src/engines/swot_engine.py and src/engines/porter_forces_engine.py.) ──
+
+
+async def _gather_swot_porter_signals(session: AsyncSession, entity: Entity) -> dict:
+    """Assemble the union of real signals SWOT/Porter's Five Forces need,
+    computing the underlying assessments on-demand (same pattern as the
+    other competitive/company-intel endpoints) when none exist yet."""
+    entity_id = entity.entity_id
+
+    moat = (await session.execute(
+        select(MoatAssessment).where(MoatAssessment.entity_id == entity_id)
+        .order_by(MoatAssessment.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+    conc = (await session.execute(
+        select(ConcentrationRiskAssessment).where(ConcentrationRiskAssessment.entity_id == entity_id)
+        .order_by(ConcentrationRiskAssessment.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+    if moat is None or conc is None:
+        if await _compute_competitive(session, entity):
+            if moat is None:
+                moat = (await session.execute(
+                    select(MoatAssessment).where(MoatAssessment.entity_id == entity_id)
+                    .order_by(MoatAssessment.as_of_date.desc()).limit(1)
+                )).scalar_one_or_none()
+            if conc is None:
+                conc = (await session.execute(
+                    select(ConcentrationRiskAssessment).where(ConcentrationRiskAssessment.entity_id == entity_id)
+                    .order_by(ConcentrationRiskAssessment.as_of_date.desc()).limit(1)
+                )).scalar_one_or_none()
+
+    landscape = (await session.execute(
+        select(CompetitiveLandscape).where(CompetitiveLandscape.entity_id == entity_id)
+        .order_by(CompetitiveLandscape.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    bma = (await session.execute(
+        select(BusinessModelAnalysis).where(BusinessModelAnalysis.entity_id == entity_id)
+        .order_by(BusinessModelAnalysis.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+    bsra = (await session.execute(
+        select(BalanceSheetRiskAssessment).where(BalanceSheetRiskAssessment.entity_id == entity_id)
+        .order_by(BalanceSheetRiskAssessment.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+    caa = (await session.execute(
+        select(CapitalAllocationAssessment).where(CapitalAllocationAssessment.entity_id == entity_id)
+        .order_by(CapitalAllocationAssessment.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+    mqa = (await session.execute(
+        select(ManagementQualityAssessment).where(ManagementQualityAssessment.entity_id == entity_id)
+        .order_by(ManagementQualityAssessment.as_of_date.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    def _flt(v):
+        return float(v) if v is not None else None
+
+    return {
+        # Moat
+        "moat_width": moat.moat_width if moat else None,
+        "moat_score": _flt(moat.moat_score) if moat else None,
+        "dominant_moat_source": moat.dominant_moat_source if moat else None,
+        "market_share_trend": moat.market_share_trend if moat else None,
+        "gross_margin_10y_std": _flt(moat.gross_margin_10y_std) if moat else None,
+        "switching_costs_score": _flt(moat.switching_costs_score) if moat else None,
+        "efficient_scale_score": _flt(moat.efficient_scale_score) if moat else None,
+        "cost_advantage_score": _flt(moat.cost_advantage_score) if moat else None,
+        # Business model
+        "diversification_score": _flt(bma.diversification_score) if bma else None,
+        "cyclicality_score": _flt(bma.cyclicality_score) if bma else None,
+        "disruption_vulnerability": _flt(bma.disruption_vulnerability) if bma else None,
+        "switching_cost_score": _flt(bma.switching_cost_score) if bma else None,
+        "operating_leverage": _flt(bma.operating_leverage) if bma else None,
+        # Balance sheet risk
+        "net_debt_ebitda": _flt(bsra.net_debt_ebitda) if bsra else None,
+        "z_score": _flt(bsra.z_score) if bsra else None,
+        "refinancing_risk_score": _flt(bsra.refinancing_risk_score) if bsra else None,
+        "liquidity_ratio": _flt(bsra.liquidity_ratio) if bsra else None,
+        # Capital allocation
+        "overall_score": _flt(caa.overall_score) if caa else None,
+        "roic_vs_wacc_spread": _flt(caa.roic_vs_wacc_spread) if caa else None,
+        # Management quality
+        "overall_quality_score": _flt(mqa.overall_quality_score) if mqa else None,
+        "governance_score": _flt(mqa.governance_score) if mqa else None,
+        "beneish_m_score": _flt(mqa.beneish_m_score) if mqa else None,
+        # Concentration risk
+        "customer_top1_pct": _flt(conc.customer_top1_pct) if conc else None,
+        "overall_concentration_risk": conc.overall_concentration_risk if conc else None,
+        "overall_risk_score": _flt(conc.overall_risk_score) if conc else None,
+        # Concentration risk (supplier-power inputs for Porter's Forces)
+        "supplier_single_source_count": conc.supplier_single_source_count if conc else None,
+        "supplier_critical_count": conc.supplier_critical_count if conc else None,
+        "supplier_concentration_risk": conc.supplier_concentration_risk if conc else None,
+        # NOTE: ConcentrationRiskAssessment has no customer_hhi column --
+        # only top1/top5/top10 percentiles are real/persisted. Buyer power
+        # is scored from customer_top1_pct alone rather than fabricating an
+        # HHI figure the data doesn't support.
+        "customer_hhi": None,
+        # Competitive landscape (rivalry proxy)
+        "margin_vs_peers": _flt(landscape.margin_vs_peers) if landscape else None,
+    }
+
+
+@router.get(
+    "/competitive/{entity_id}/swot",
+    response_model=SWOTResponse,
+)
+async def get_swot(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a SWOT analysis for a company.
+
+    Each bullet is deterministically derived from a real, already-computed
+    metric crossing a documented threshold (see swot_engine.py's rule
+    table) -- not an AI-generated or analyst-authored judgment.
+    """
+    entity = await _get_entity(session, entity_id)
+    signals = await _gather_swot_porter_signals(session, entity)
+    if not any(v is not None for v in signals.values()):
+        raise HTTPException(status_code=404, detail="No competitive signals available for this entity")
+
+    result = swot_engine.derive_swot(signals)
+    return SWOTResponse(
+        entity_id=entity_id,
+        strengths=[asdict(i) for i in result.strengths],
+        weaknesses=[asdict(i) for i in result.weaknesses],
+        opportunities=[asdict(i) for i in result.opportunities],
+        threats=[asdict(i) for i in result.threats],
+        signals_available=result.signals_available,
+    )
+
+
+@router.get(
+    "/competitive/{entity_id}/porter-forces",
+    response_model=PorterForcesResponse,
+)
+async def get_porter_forces(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get quantitative Porter's Five Forces proxy scores for a company.
+
+    These are deterministic proxy scores built from real concentration/
+    moat/margin signals (see porter_forces_engine.py's module docstring),
+    not a substitute for genuine industry-structure research.
+    """
+    entity = await _get_entity(session, entity_id)
+    signals = await _gather_swot_porter_signals(session, entity)
+    if not any(v is not None for v in signals.values()):
+        raise HTTPException(status_code=404, detail="No competitive signals available for this entity")
+
+    result = porter_forces_engine.assess_porter_forces(signals)
+    return PorterForcesResponse(
+        entity_id=entity_id,
+        forces=[asdict(f) for f in result.forces],
+        overall_industry_attractiveness_score=result.overall_industry_attractiveness_score,
+        dominant_force=result.dominant_force,
+        data_completeness=result.data_completeness,
+    )
+
+
+# ── Supply Chain (previously missing -- real customer/supplier
+# relationships from BusinessRelationship, the same NLP-extracted-from-10-K
+# data source ingest_relationships.py populates and this router already
+# reads for concentration risk) ─────────────────────────────────────────
+
+
+@router.get(
+    "/competitive/{entity_id}/supply-chain",
+    response_model=SupplyChainResponse,
+)
+async def get_supply_chain(
+    entity_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get real customer/supplier relationships for a company, from
+    BusinessRelationship rows (NLP-extracted from 10-K Item 1 disclosures).
+    """
+    await _get_entity(session, entity_id)
+
+    rows = (
+        await session.execute(
+            select(BusinessRelationship, Entity.legal_name)
+            .join(Entity, Entity.entity_id == BusinessRelationship.target_entity_id)
+            .where(
+                BusinessRelationship.source_entity_id == entity_id,
+                BusinessRelationship.is_active == True,  # noqa: E712
+                BusinessRelationship.relationship_type.in_(["CUSTOMER", "SUPPLIER"]),
+            )
+        )
+    ).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No supply-chain relationships found for this entity")
+
+    def _rel(r, name) -> SupplyChainRelationship:
+        return SupplyChainRelationship(
+            entity_id=r.target_entity_id,
+            entity_name=name,
+            revenue_percentage=float(r.revenue_percentage) if r.revenue_percentage is not None else None,
+            cost_percentage=float(r.cost_percentage) if r.cost_percentage is not None else None,
+            contract_value=float(r.contract_value) if r.contract_value is not None else None,
+            is_single_source=r.is_single_source,
+            materiality_score=float(r.materiality_score) if r.materiality_score is not None else None,
+        )
+
+    customers = [_rel(r, name) for r, name in rows if r.relationship_type == "CUSTOMER"]
+    suppliers = [_rel(r, name) for r, name in rows if r.relationship_type == "SUPPLIER"]
+
+    return SupplyChainResponse(entity_id=entity_id, customers=customers, suppliers=suppliers)

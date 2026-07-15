@@ -156,11 +156,17 @@ export default function FilingsView() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
-  const { data: apiFilings } = useFilingEvents(resolvedId) as { data: FilingEventsListApi | undefined };
-  const { data: apiDiffs } = useFilingDiffs(resolvedId) as { data: FilingDiffResponseApi | undefined };
-  const { data: apiInsiders } = useFilingInsiders(resolvedId) as { data: InsiderSummaryApi | undefined };
-  const { data: apiRiskFactors } = useFilingRiskFactors(resolvedId) as { data: RiskFactorsDiffApi | undefined };
-  const { data: apiMDNA } = useFilingMDNA(resolvedId) as { data: MDNAItemApi[] | { items?: MDNAItemApi[] } | undefined };
+  // F-012: none of these 5 hooks previously destructured isLoading/isError,
+  // so a failed fetch was indistinguishable from "no filings for this
+  // entity yet" — both silently rendered the same empty state.
+  const { data: apiFilings, isLoading: filingsLoading, isError: filingsError } = useFilingEvents(resolvedId) as { data: FilingEventsListApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiDiffs, isLoading: diffsLoading, isError: diffsError } = useFilingDiffs(resolvedId) as { data: FilingDiffResponseApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiInsiders, isLoading: insidersLoading, isError: insidersError } = useFilingInsiders(resolvedId) as { data: InsiderSummaryApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiRiskFactors, isLoading: riskFactorsLoading, isError: riskFactorsError } = useFilingRiskFactors(resolvedId) as { data: RiskFactorsDiffApi | undefined; isLoading: boolean; isError: boolean };
+  const { data: apiMDNA, isLoading: mdnaLoading, isError: mdnaError } = useFilingMDNA(resolvedId) as { data: MDNAItemApi[] | { items?: MDNAItemApi[] } | undefined; isLoading: boolean; isError: boolean };
+
+  const isLoading = resolvedId != null && (filingsLoading || diffsLoading || insidersLoading || riskFactorsLoading || mdnaLoading);
+  const isError = filingsError || diffsError || insidersError || riskFactorsError || mdnaError;
 
   // [P1-FP-010 fix] `EightKEventsListResponse` is `{events: [...], total_count}`,
   // not a bare array. Field names differ from the "Recent Filings" table's
@@ -235,6 +241,8 @@ export default function FilingsView() {
           SEC Filings &amp; Insider Activity
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>{primary?.ticker ?? '—'} &mdash; {primary?.name ?? '—'}</p>
+        {isLoading && <p style={{ ...labelStyle, marginTop: '8px' }}>Loading filing data...</p>}
+        {isError && <p style={{ ...labelStyle, marginTop: '8px', color: 'var(--color-signal-negative)' }}>Some filing data failed to load.</p>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
@@ -309,7 +317,9 @@ export default function FilingsView() {
             })}
           </div>
         ) : (
-          <p style={labelStyle}>No risk factor data available. Select a security to load filings.</p>
+          <p style={{ ...labelStyle, color: riskFactorsError ? 'var(--color-signal-negative)' : undefined }}>
+            {riskFactorsError ? 'Failed to load risk factor data.' : 'No risk factor data available. Select a security to load filings.'}
+          </p>
         )}
       </div>
 
@@ -337,7 +347,9 @@ export default function FilingsView() {
               ))}
             </div>
           ) : (
-            <p style={labelStyle}>No MD&A data available. Select a security to load filings.</p>
+            <p style={{ ...labelStyle, color: mdnaError ? 'var(--color-signal-negative)' : undefined }}>
+              {mdnaError ? 'Failed to load MD&A data.' : 'No MD&A data available. Select a security to load filings.'}
+            </p>
           );
         })()}
       </div>

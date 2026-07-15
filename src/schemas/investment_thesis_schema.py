@@ -20,9 +20,11 @@ class ThesisCreateRequest(BaseModel):
 
     Any section not in this shape is simply omitted from the slide outline
     rather than rejected -- the CRUD endpoints accept any dict.
+
+    analyst_id is no longer part of the request body -- it's derived from
+    the authenticated caller (Depends(get_current_active_user)).
     """
 
-    analyst_id: str
     thesis_title: str | None = None
     investment_horizon: str | None = None
     conviction_level: str | None = None
@@ -36,7 +38,7 @@ class ThesisCreateRequest(BaseModel):
 class ThesisResponse(BaseModel):
     id: UUID
     entity_id: UUID
-    analyst_id: str
+    analyst_id: UUID
     version: int
     thesis_title: str | None = None
     investment_horizon: str | None = None
@@ -48,7 +50,12 @@ class ThesisResponse(BaseModel):
     catalysts: dict | None = None
     quality_metrics: dict | None = None
     elevator_pitch: str | None = None
-    slide_outline: dict | None = None
+    # _build_slide_outline() (research_thesis.py) returns list[dict] (one
+    # entry per slide) -- was previously typed `dict | None` here, which
+    # made every response with a real slide_outline 422 on serialization.
+    # Existing tests never caught this because their fixtures seeded
+    # {"slides": [...]} (a dict) rather than the real list shape.
+    slide_outline: list[dict] | None = None
     ai_enabled: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -80,7 +87,7 @@ class ThesisDiffResponse(BaseModel):
 class ThesisListResponse(BaseModel):
     id: UUID
     entity_id: UUID
-    analyst_id: str
+    analyst_id: UUID
     version: int
     thesis_title: str | None = None
     conviction_level: str | None = None
@@ -111,10 +118,27 @@ class ThesisQualityReportResponse(BaseModel):
 class ThesisSlideOutlineResponse(BaseModel):
     thesis_id: UUID
     thesis_title: str | None = None
-    slide_outline: dict | None = None
+    slide_outline: list[dict] | None = None
 
 
 class ThesisElevatorPitchResponse(BaseModel):
     thesis_id: UUID
     thesis_title: str | None = None
     elevator_pitch: str | None = None
+
+
+class ThesisValidationResponse(BaseModel):
+    """Structural completeness/freshness check -- NOT an AI or analyst
+    judgment of whether the thesis's investment case is actually correct.
+    """
+
+    thesis_id: UUID
+    is_complete: bool
+    data_coverage: float  # 0.0-1.0, same _QUALITY_FIELDS convention as generate_thesis()
+    missing_fields: list[str]
+    driver_count: int
+    risk_count: int
+    catalyst_count: int
+    has_valuation_scenarios: bool
+    staleness_days: int
+    summary: str

@@ -5,6 +5,7 @@ the DB load of ESGControversy rows against a seeded entity. No network.
 """
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import httpx
@@ -13,7 +14,11 @@ from sqlalchemy import select
 
 from src.ingestion.edgar_esg_controversies import (
     EsgControversiesConnector,
+    _bump_for_recency,
+    _classify_article,
+    _gdelt_keyword_query,
     _parse_date,
+    _parse_seendate,
     _to_decimal,
 )
 
@@ -129,3 +134,240 @@ async def test_load_skips_unresolved_cik(session):
     stats = await conn.load(recs, session)
     assert stats["skipped"] == 1
     assert stats["inserted"] == 0
+
+
+# --------------------------------------------------------------------------
+# GDELT extract path
+# --------------------------------------------------------------------------
+
+# Realistic fixture matching GDELT DOC 2.0 API's documented artlist/JSON
+# response shape: {"articles": [{"url":..., "title":..., "seendate":...,
+# "domain":..., "sourcecountry":...}, ...]}
+SAMPLE_GDELT_RESPONSE = {
+    "articles": [
+        {
+            "url": "https://news.example.com/acme-lawsuit-filed",
+            "title": "Acme Corp faces class action lawsuit over data breach",
+            "seendate": "20260710T120000Z",
+            "domain": "news.example.com",
+            "sourcecountry": "United States",
+        },
+        {
+            "url": "https://wire.example.com/acme-epa-fine",
+            "title": "Acme Corp fined by regulators for emissions violation",
+            "seendate": "20260601T090000Z",
+            "domain": "wire.example.com",
+            "sourcecountry": "United States",
+        },
+        {
+            # Missing title -> dropped in _extract_gdelt
+            "url": "https://wire.example.com/no-title",
+            "seendate": "20260601T090000Z",
+            "domain": "wire.example.com",
+        },
+    ]
+}
+
+
+def test_gdelt_keyword_query_groups_all_keywords():
+    query = _gdelt_keyword_query()
+    assert query.startswith("(") and query.endswith(")")
+    assert "lawsuit" in query
+    assert '"class action"' in query  # multiword keywords are quoted
+
+
+def test_classify_article_matches_keyword_and_defaults():
+    assert _classify_article("Company sued in class action lawsuit") == ("LEGAL", "high")
+    assert _classify_article("Regulators issue fine for pollution violation") == (
+        "REGULATORY",
+        "moderate",
+    )
+    assert _classify_article("Whistleblower alleges accounting fraud") == (
+        "REPUTATIONAL",
+        "severe",
+    )
+    assert _classify_article("Company announces new product line") == ("OTHER", "moderate")
+
+
+def test_bump_for_recency_bumps_only_within_window():
+    today = date(2026, 7, 15)
+    # 3 days old -> bumped one rank
+    assert _bump_for_recency("moderate", date(2026, 7, 12), today=today) == "high"
+    # 30 days old -> no bump
+    assert _bump_for_recency("moderate", date(2026, 6, 15), today=today) == "moderate"
+    # Capped at "severe" even if already "severe"
+    assert _bump_for_recency("severe", date(2026, 7, 14), today=today) == "severe"
+    # No seendate -> unchanged
+    assert _bump_for_recency("high", None, today=today) is not None
+
+
+def test_parse_seendate():
+    assert _parse_seendate("20260710T120000Z") == date(2026, 7, 10)
+    assert _parse_seendate(None) is None
+    assert _parse_seendate("garbage") is None
+
+
+@pytest.mark.asyncio
+async def test_extract_gdelt_mocked_http(monkeypatch):
+    captured_params: dict = {}
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        @property
+        def text(self):
+            import json
+
+            return json.dumps(SAMPLE_GDELT_RESPONSE)
+
+        def json(self):
+            return SAMPLE_GDELT_RESPONSE
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def get(self, url, params=None):
+            captured_params.update(params or {})
+            return _Resp()
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    conn = EsgControversiesConnector(
+        entities=[{"cik": "0009000789", "legal_name": "Acme Corp"}],
+        gdelt_lookback_days=90,
+        max_articles_per_entity=5,
+    )
+    raw = await conn.extract()
+    await conn.close()
+
+    # 2 articles kept (one dropped for missing title)
+    assert len(raw) == 2
+    assert '"Acme Corp"' in captured_params["query"]
+    assert "tone<-2" in captured_params["query"]
+    assert captured_params["timespan"] == "90d"
+
+    lawsuit_row = next(r for r in raw if "lawsuit" in r["description"].lower())
+    assert lawsuit_row["controversy_type"] == "LEGAL"
+    assert lawsuit_row["severity"] in ("high", "severe")  # may be recency-bumped
+    assert lawsuit_row["cik"] == "0009000789"
+    assert lawsuit_row["source"] == "GDELT"
+    assert lawsuit_row["source_url"] == "https://news.example.com/acme-lawsuit-filed"
+
+
+@pytest.mark.asyncio
+async def test_extract_dispatches_to_gdelt_when_no_feed_url(monkeypatch):
+    """extract() should use GDELT when no feed_url is set but entities are given."""
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        @property
+        def text(self):
+            import json
+
+            return json.dumps({"articles": []})
+
+        def json(self):
+            return {"articles": []}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def get(self, url, params=None):
+            return _Resp()
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    conn = EsgControversiesConnector(entities=[{"cik": "123", "legal_name": "Foo Inc"}])
+    raw = await conn.extract()
+    await conn.close()
+    assert raw == []
+
+
+@pytest.mark.asyncio
+async def test_extract_returns_empty_with_no_feed_and_no_entities():
+    conn = EsgControversiesConnector()
+    raw = await conn.extract()
+    assert raw == []
+
+
+@pytest.mark.asyncio
+async def test_gdelt_end_to_end_transform_and_load(monkeypatch, session):
+    from src.models.entity import Entity, EntityIdentifier
+    from src.models.esg import ESGControversy
+
+    eid = uuid.uuid4()
+    session.add(
+        Entity(
+            entity_id=eid,
+            entity_type="PUBLIC_COMPANY",
+            legal_name="Acme Corp",
+            status="ACTIVE",
+            source="TEST",
+        )
+    )
+    session.add(
+        EntityIdentifier(
+            id=uuid.uuid4(),
+            entity_id=eid,
+            identifier_type="CIK",
+            identifier_value="0009000789",
+        )
+    )
+    await session.flush()
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        @property
+        def text(self):
+            import json
+
+            return json.dumps(SAMPLE_GDELT_RESPONSE)
+
+        def json(self):
+            return SAMPLE_GDELT_RESPONSE
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def get(self, url, params=None):
+            return _Resp()
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    conn = EsgControversiesConnector(
+        entities=[{"cik": "0009000789", "legal_name": "Acme Corp"}]
+    )
+    raw = await conn.extract()
+    valid = await conn.validate(raw)
+    transformed = await conn.transform(valid)
+    stats = await conn.load(transformed, session)
+    await conn.close()
+
+    assert stats["inserted"] == 2
+    rows = (await session.execute(select(ESGControversy))).scalars().all()
+    assert len(rows) == 2
+    assert all(r.entity_id == eid for r in rows)
+    assert all(r.source == "GDELT" for r in rows)

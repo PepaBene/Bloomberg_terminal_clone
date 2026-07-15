@@ -17,6 +17,22 @@ from src.schemas.economic_calendar import (
 
 router = APIRouter(tags=["Economic Calendar"])
 
+# R-028: single canonical source for each endpoint's CalendarEvent.event_type
+# filter, instead of the same literal list duplicated inline per endpoint
+# (where it could silently drift out of sync with what ingestion actually
+# writes to CalendarEvent.event_type — see CalendarEvent.event_type
+# docstring for the full space of values a producer may emit).
+CENTRAL_BANK_EVENT_TYPES = (
+    "FOMC", "FOMC_MEETING", "CENTRAL_BANK",
+    "ECB_MEETING", "BOJ_MEETING", "BOE_MEETING",
+)
+EARNINGS_EVENT_TYPES = ("EARNINGS", "EARNINGS_RELEASE")
+REGULATORY_EVENT_TYPES = ("REGULATORY", "SEC_FILING_DEADLINE", "REGULATORY_HEARING")
+CORPORATE_EVENT_TYPES = (
+    "DIVIDEND", "STOCK_SPLIT", "MERGER", "ACQUISITION",
+    "SPINOFF", "IPO", "SECONDARY_OFFERING",
+)
+
 
 # ── Static routes (MUST be before parametric) ────────────────────────
 
@@ -136,10 +152,7 @@ async def get_central_bank_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
-                    "FOMC", "FOMC_MEETING", "CENTRAL_BANK",
-                    "ECB_MEETING", "BOJ_MEETING", "BOE_MEETING",
-                ]),
+                CalendarEvent.event_type.in_(CENTRAL_BANK_EVENT_TYPES),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -177,7 +190,7 @@ async def get_earnings_calendar_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_(["EARNINGS", "EARNINGS_RELEASE"]),
+                CalendarEvent.event_type.in_(EARNINGS_EVENT_TYPES),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -215,9 +228,7 @@ async def get_regulatory_calendar(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
-                    "REGULATORY", "SEC_FILING_DEADLINE", "REGULATORY_HEARING",
-                ]),
+                CalendarEvent.event_type.in_(REGULATORY_EVENT_TYPES),
             )
         )
         .order_by(CalendarEvent.event_date)
@@ -255,10 +266,7 @@ async def get_corporate_events(
             and_(
                 CalendarEvent.event_date >= today,
                 CalendarEvent.event_date <= end,
-                CalendarEvent.event_type.in_([
-                    "DIVIDEND", "STOCK_SPLIT", "MERGER", "ACQUISITION",
-                    "SPINOFF", "IPO", "SECONDARY_OFFERING",
-                ]),
+                CalendarEvent.event_type.in_(CORPORATE_EVENT_TYPES),
             )
         )
         .order_by(CalendarEvent.event_date)

@@ -7,7 +7,7 @@ from datetime import date
 
 class MorningBriefingResponse(BaseModel):
     id: UUID
-    user_id: str
+    user_id: UUID
     briefing_date: date
     regional_context: str | None = None
     executive_summary: str | None = None
@@ -23,7 +23,9 @@ class MorningBriefingResponse(BaseModel):
 
 
 class BriefingPreferenceRequest(BaseModel):
-    user_id: str
+    """user_id is no longer part of the request body -- it's derived from
+    the authenticated caller (Depends(get_current_active_user))."""
+
     portfolio_entity_ids: dict | None = None
     watchlist_entity_ids: dict | None = None
     sector_focus: dict | None = None
@@ -36,7 +38,7 @@ class BriefingPreferenceRequest(BaseModel):
 
 class BriefingPreferenceResponse(BaseModel):
     id: UUID
-    user_id: str
+    user_id: UUID
     portfolio_entity_ids: dict | None = None
     watchlist_entity_ids: dict | None = None
     sector_focus: dict | None = None

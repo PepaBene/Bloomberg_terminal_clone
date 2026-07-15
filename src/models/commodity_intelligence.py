@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +47,37 @@ class CommodityPrice(TimestampMixin, Base):
 
     __table_args__ = (
         {"comment": "Daily commodity OHLCV price data"},
+    )
+
+
+class CommodityInventory(TimestampMixin, Base):
+    """Periodic physical supply/inventory (stocks-in-storage) report for a
+    commodity, e.g. EIA weekly petroleum/natural-gas/gasoline stocks.
+
+    This is the real data source the ``/global/commodities/{code}/supply-demand``
+    endpoint (src/api/routers/global_intelligence.py) needs to compute an actual
+    supply/demand signal instead of inferring one from price movement alone.
+    One row per (commodity_code, as_of_date): the total reported stock level
+    for that reporting period.
+    """
+
+    __tablename__ = "commodity_inventories"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    commodity_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    stock_level: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    stock_unit: Mapped[str | None] = mapped_column(String(30))
+    metric_name: Mapped[str | None] = mapped_column(String(100))
+    source: Mapped[str | None] = mapped_column(String(20))
+
+    __table_args__ = (
+        Index(
+            "uq_commodity_inventory_code_date", "commodity_code", "as_of_date", unique=True
+        ),
+        {"comment": "Periodic commodity stock/inventory levels (supply-side reports)"},
     )
 
 

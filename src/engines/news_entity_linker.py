@@ -8,8 +8,24 @@ No database access — all functions accept and return plain data.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
+
+# E-035: fuzzy-match similarity floor, tunable without a code change via
+# NEWS_ENTITY_LINKER_FUZZY_THRESHOLD (falls back to this default when unset
+# or unparseable).
+DEFAULT_FUZZY_THRESHOLD = 0.85
+
+
+def _resolve_fuzzy_threshold() -> float:
+    raw = os.environ.get("NEWS_ENTITY_LINKER_FUZZY_THRESHOLD")
+    if not raw:
+        return DEFAULT_FUZZY_THRESHOLD
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_FUZZY_THRESHOLD
 
 
 # ── Entity Mention Dataclass ──────────────────────────────────────────────
@@ -213,7 +229,7 @@ def _simple_ratio(a: str, b: str) -> float:
 def fuzzy_match(
     text: str,
     entity_names: dict[str, str],
-    threshold: float = 0.85,
+    threshold: float | None = None,
 ) -> list[dict]:
     """Fuzzy name matching for entity resolution.
 
@@ -226,14 +242,19 @@ def fuzzy_match(
         Article text to search.
     entity_names : dict[str, str]
         Mapping of {name_lower: entity_id}.
-    threshold : float
-        Minimum similarity score (0.0 to 1.0).
+    threshold : float | None
+        Minimum similarity score (0.0 to 1.0). Defaults to
+        NEWS_ENTITY_LINKER_FUZZY_THRESHOLD (env) or DEFAULT_FUZZY_THRESHOLD
+        (E-035) when not passed explicitly.
 
     Returns
     -------
     list[dict]
         Each: {entity_id, mention_text, similarity, position, confidence}
     """
+    if threshold is None:
+        threshold = _resolve_fuzzy_threshold()
+
     # Try to use rapidfuzz for better matching
     try:
         from rapidfuzz import fuzz as _fuzz  # type: ignore[import-untyped]
@@ -440,6 +461,7 @@ def link_entities(
     text: str,
     title: str,
     entity_lookup: dict,
+    fuzzy_threshold: float | None = None,
 ) -> list[EntityMention]:
     """Full cascading entity resolution pipeline.
 
@@ -460,6 +482,9 @@ def link_entities(
         Must have keys: tickers ({ticker: entity_id}), ciks ({cik: entity_id}),
         cusips ({cusip: entity_id}), names ({name_lower: entity_id}),
         aliases ({alias_lower: entity_id}).
+    fuzzy_threshold : float | None
+        Overrides the fuzzy-match similarity floor (E-035). Falls back to
+        NEWS_ENTITY_LINKER_FUZZY_THRESHOLD / DEFAULT_FUZZY_THRESHOLD.
 
     Returns
     -------
@@ -527,7 +552,7 @@ def link_entities(
             )
 
     # 5. Fuzzy match
-    for fm in fuzzy_match(full_text, names):
+    for fm in fuzzy_match(full_text, names, threshold=fuzzy_threshold):
         entity_id = fm["entity_id"]
         if entity_id not in mentions:
             mentions[entity_id] = EntityMention(

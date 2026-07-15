@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 import { RESEARCH } from '../endpoints';
+import type { ThemeScreenResult } from '@/types/research';
 
 const STALE_30M = 30 * 60 * 1000;
 
@@ -223,8 +224,8 @@ export function useEntityThesis(entityId: string, options?: { enabled?: boolean 
 export function useGenerateThesis() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(RESEARCH.thesis.generate, body),
+    mutationFn: ({ entityId, ...body }: Record<string, unknown> & { entityId: string }) =>
+      api.post(RESEARCH.thesis.generate(entityId), body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['research', 'thesis'] });
     },
@@ -327,7 +328,7 @@ export function useThemeScreen() {
 export function useThemeSecurities(themeId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['research', 'themes', themeId, 'securities'],
-    queryFn: () => api.get(RESEARCH.themes.securities(themeId)),
+    queryFn: () => api.get<ThemeScreenResult[]>(RESEARCH.themes.securities(themeId)),
     enabled: options?.enabled ?? !!themeId,
     staleTime: STALE_30M,
   });
