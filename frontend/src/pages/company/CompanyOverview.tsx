@@ -6,24 +6,16 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
-import { CandlestickChart, BarChartComponent, GaugeChart, ScoreBreakdown } from '@/components/charts';
-import type { CandlestickDataPoint, ScoreItem } from '@/components/charts';
+import { CandlestickChart } from '@/components/charts';
+import type { CandlestickDataPoint } from '@/components/charts';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { SentimentGauge } from '@/components/intelligence';
+import { EmptyState } from '@/components/feedback';
 import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useCorporateActionsUpcoming } from '@/hooks';
 import { TimeSeriesChart } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
-
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
-}
-
-function formatM(n: number): string {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}B`;
-  return `$${n.toFixed(0)}M`;
-}
 
 // --- Skeleton ----------------------------------------------------------------
 
@@ -54,15 +46,20 @@ interface CompanyInfo {
   changePct: number;
 }
 
-const DEFAULT_COMPANY: CompanyInfo = {
-  name: '',
-  ticker: '—',
-  exchange: '',
-  sector: '',
-  industry: '',
-  price: 0,
-  changePct: 0,
-};
+interface EntityDTO {
+  entity_id: string;
+  legal_name: string;
+  short_name?: string | null;
+  gics_sector?: string | null;
+  gics_industry?: string | null;
+}
+
+interface NewsArticleDTO {
+  id: string;
+  title: string;
+  source_name?: string | null;
+  publish_date?: string | null;
+}
 
 const DEFAULT_METRICS: MetricItem[] = [
   { label: 'Market Cap',    value: '—' },
@@ -73,63 +70,7 @@ const DEFAULT_METRICS: MetricItem[] = [
   { label: 'Div Yield',     value: '—' },
 ];
 
-interface QuarterlyFinancial {
-  period: string;
-  revenue: number;
-  netIncome: number;
-  ebitda: number;
-  fcf: number;
-  eps: number;
-}
-
-const DEFAULT_QUARTERLY: QuarterlyFinancial[] = [];
-
-interface QualityScoreItem {
-  name: string;
-  value: number;
-  maxValue: number;
-  classification: string;
-}
-
-const DEFAULT_QUALITY: QualityScoreItem[] = [
-  { name: 'Piotroski F-Score', value: 0, maxValue: 9, classification: '—' },
-  { name: 'Altman Z-Score',    value: 0, maxValue: 10, classification: '—' },
-  { name: 'Composite Quality', value: 0, maxValue: 100, classification: '—' },
-];
-
-// Piotroski sub-score breakdown
-const PIOTROSKI_BREAKDOWN: ScoreItem[] = [
-  { name: 'Positive Net Income', score: 0, max: 1 },
-  { name: 'Positive Operating CF', score: 0, max: 1 },
-  { name: 'ROA Increasing', score: 0, max: 1 },
-  { name: 'CF > Net Income', score: 0, max: 1 },
-  { name: 'Lower Leverage', score: 0, max: 1 },
-  { name: 'Higher Current Ratio', score: 0, max: 1 },
-  { name: 'No Dilution', score: 0, max: 1 },
-  { name: 'Higher Gross Margin', score: 0, max: 1 },
-  { name: 'Higher Asset Turnover', score: 0, max: 1 },
-];
-
-const ALTMAN_BREAKDOWN: ScoreItem[] = [
-  { name: 'Working Capital / Assets', score: 0, max: 1, description: '—' },
-  { name: 'Retained Earnings / Assets', score: 0, max: 1, description: '—' },
-  { name: 'EBIT / Assets', score: 0, max: 1, description: '—' },
-  { name: 'Mkt Cap / Total Liabilities', score: 0, max: 1, description: '—' },
-  { name: 'Revenue / Assets', score: 0, max: 1, description: '—' },
-];
-
 const DEFAULT_CORP_ACTIONS: { date: string; type: string; description: string; status: string }[] = [];
-
-const BENEISH_BREAKDOWN: ScoreItem[] = [
-  { name: 'Days Sales in Receivables', score: 0, max: 1, description: '—' },
-  { name: 'Gross Margin Index', score: 0, max: 1, description: '—' },
-  { name: 'Asset Quality Index', score: 0, max: 1, description: '—' },
-  { name: 'Sales Growth Index', score: 0, max: 1, description: '—' },
-  { name: 'Depreciation Index', score: 0, max: 1, description: '—' },
-  { name: 'SGA Index', score: 0, max: 1, description: '—' },
-  { name: 'Leverage Index', score: 0, max: 1, description: '—' },
-  { name: 'Total Accruals', score: 0, max: 1, description: '—' },
-];
 
 interface NewsItem {
   id: string;
@@ -137,8 +78,6 @@ interface NewsItem {
   source: string;
   time: string;
 }
-
-const DEFAULT_NEWS: NewsItem[] = [];
 
 interface FilingItem {
   id: string;
@@ -167,10 +106,6 @@ const DEFAULT_HOLDERS: HolderItem[] = [];
 
 const DEFAULT_OHLC: CandlestickDataPoint[] = [];
 
-// --- Quarterly Revenue/NI bar data -------------------------------------------
-
-const DEFAULT_QUARTERLY_BAR_DATA: { period: string; revenue: number; ebitda: number; fcf: number }[] = [];
-
 function StockCandlestick() {
   return <CandlestickChart data={DEFAULT_OHLC} height={300} showVolume />;
 }
@@ -183,50 +118,44 @@ export default function CompanyOverview() {
   const primary = useSecurityStore((s) => s.primary);
   const resolvedId = entityId ?? primary?.entity_id ?? primary?.security_id;
 
-  // Fetch company profile
-  const { data: companyData, isLoading: loadingCompany } = useQuery<CompanyInfo>({
-    queryKey: ['company', 'profile', resolvedId],
-    queryFn: () => api.get(`/v1/entities/${resolvedId}/profile`),
+  // Company header comes from the real entity record (GET /v1/entities/{id})
+  // enriched with the security store (which already carries ticker/exchange/
+  // sector from search). The previous /v1/entities/{id}/profile,
+  // /ratios, /financials/quarterly and /quality endpoints DO NOT EXIST — they
+  // 404'd and fell back to fabricated placeholders (DATA_WIRING_AUDIT §8.2).
+  const { data: entityData, isLoading: loadingCompany } = useQuery<EntityDTO>({
+    queryKey: ['entity', resolvedId],
+    queryFn: () => api.get(`/v1/entities/${resolvedId}`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const company = companyData ?? DEFAULT_COMPANY;
+  const company: CompanyInfo = {
+    name: entityData?.short_name || entityData?.legal_name || primary?.name || '',
+    ticker: primary?.ticker ?? '—',
+    exchange: primary?.exchange ?? '',
+    sector: entityData?.gics_sector || primary?.gics_sector || '',
+    industry: entityData?.gics_industry || primary?.gics_industry || '',
+    price: 0,
+    changePct: 0,
+  };
 
-  // Fetch KPIs / ratios
-  const { data: kpiData, isLoading: loadingKpis } = useQuery<MetricItem[]>({
-    queryKey: ['company', 'kpis', resolvedId],
-    queryFn: () => api.get(`/v1/entities/${resolvedId}/ratios`),
-    enabled: !!resolvedId,
-    retry: 0,
-  });
-  const kpis = kpiData ?? DEFAULT_METRICS;
+  // KPIs / quality are keyed by security_id under /v2 analytics and are not
+  // wired here — shown as honest "—" placeholders rather than fabricated values.
+  const kpis = DEFAULT_METRICS;
 
-  // Fetch quarterly financials
-  const { data: quarterlyRaw, isLoading: loadingQuarterly } = useQuery<QuarterlyFinancial[]>({
-    queryKey: ['company', 'quarterly', resolvedId],
-    queryFn: () => api.get(`/v1/entities/${resolvedId}/financials/quarterly`),
-    enabled: !!resolvedId,
-    retry: 0,
-  });
-  const quarterlyData = quarterlyRaw ?? DEFAULT_QUARTERLY;
-
-  // Fetch quality scores
-  const { data: qualityRaw, isLoading: loadingQuality } = useQuery<QualityScoreItem[]>({
-    queryKey: ['company', 'quality', resolvedId],
-    queryFn: () => api.get(`/v1/entities/${resolvedId}/quality`),
-    enabled: !!resolvedId,
-    retry: 0,
-  });
-  const qualityScores = qualityRaw ?? DEFAULT_QUALITY;
-
-  // Fetch news
-  const { data: newsRaw } = useQuery<NewsItem[]>({
+  // Fetch entity news (real: GET /v3/news/{entity_id})
+  const { data: newsRaw } = useQuery<NewsArticleDTO[]>({
     queryKey: ['company', 'news', resolvedId],
-    queryFn: () => api.get(`/v1/entities/${resolvedId}/news`),
+    queryFn: () => api.get(`/v3/news/${resolvedId}`),
     enabled: !!resolvedId,
     retry: 0,
   });
-  const newsItems = newsRaw ?? DEFAULT_NEWS;
+  const newsItems: NewsItem[] = (Array.isArray(newsRaw) ? newsRaw : []).map((n) => ({
+    id: String(n.id),
+    headline: n.title,
+    source: n.source_name ?? '—',
+    time: n.publish_date ? new Date(n.publish_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
+  }));
 
   // New hooks for Phase 1
   const { data: sentimentHistory } = useSentimentHistory(resolvedId);
@@ -235,7 +164,7 @@ export default function CompanyOverview() {
   const { data: compositeScores } = useCompositeScores(resolvedId);
   const { data: corpActions } = useCorporateActionsUpcoming();
 
-  const isLoading = loadingCompany || loadingKpis || loadingQuarterly || loadingQuality;
+  const isLoading = loadingCompany;
 
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -260,17 +189,9 @@ export default function CompanyOverview() {
           <span className="terminal-data" style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>
             {company.ticker}
           </span>
-          <span className="terminal-label">{company.exchange}</span>
-          <span className="terminal-label">|</span>
-          <span className="terminal-label">{company.sector}</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span className="terminal-hero">
-              ${company.price.toFixed(2)}
-            </span>
-            <span className="terminal-data" style={{ fontSize: 'var(--text-md)', fontWeight: 500, color: signalColor(company.changePct) }}>
-              {company.changePct >= 0 ? '+' : ''}{company.changePct.toFixed(2)}%
-            </span>
-          </div>
+          {company.exchange && <span className="terminal-label">{company.exchange}</span>}
+          {company.sector && <span className="terminal-label">|</span>}
+          {company.sector && <span className="terminal-label">{company.sector}</span>}
         </div>
       )}
 
@@ -291,101 +212,36 @@ export default function CompanyOverview() {
             <StockCandlestick />
           </div>
 
-          {/* Quarterly Revenue / EBITDA / FCF */}
-          <div className="terminal-panel">
-            <h2 className="terminal-section-title">Quarterly Revenue / EBITDA / FCF</h2>
-            <BarChartComponent
-              data={DEFAULT_QUARTERLY_BAR_DATA}
-              xKey="period"
-              bars={[
-                { key: 'revenue', color: '#3B82F6', name: 'Revenue ($M)' },
-                { key: 'ebitda', color: '#D4A843', name: 'EBITDA ($M)' },
-                { key: 'fcf', color: '#2DB87D', name: 'FCF ($M)' },
-              ]}
-              height={220}
-              showLegend
-              yAxisFormat={(v: number) => `$${(v / 1000).toFixed(0)}B`}
-            />
-          </div>
-
-          {/* Financial Summary */}
+          {/* Quarterly Financials — the /financials/quarterly endpoint does not
+              exist; the income-statement series is keyed differently and isn't
+              wired here. Honest empty state rather than a fabricated bar chart. */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Quarterly Financials</h2>
-            {loadingQuarterly ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height="28px" />)}
-              </div>
-            ) : (
-              <table className="terminal-table">
-                <thead>
-                  <tr>
-                    <th>Period</th>
-                    <th className="right">Revenue</th>
-                    <th className="right">Net Income</th>
-                    <th className="right">EPS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {quarterlyData.map((q) => (
-                    <tr key={q.period}>
-                      <td style={{ fontWeight: 500 }}>{q.period}</td>
-                      <td className="right">{formatM(q.revenue)}</td>
-                      <td className="right">{formatM(q.netIncome)}</td>
-                      <td className="right">${q.eps.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <EmptyState
+              icon="📊"
+              title="Quarterly financials unavailable"
+              description="Financial statements for this company are not wired into this view yet."
+            />
           </div>
 
-          {/* Quality Scores — replaced inline progress bars with GaugeChart */}
-          <div className="terminal-panel">
-            <h2 className="terminal-section-title">Quality Scores</h2>
-            {loadingQuality ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <Skeleton width="80%" height="12px" />
-                    <div style={{ marginTop: '6px' }}><Skeleton width="40px" height="24px" /></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', justifyItems: 'center' }}>
-                {qualityScores.map((s) => (
-                  <GaugeChart
-                    key={s.name}
-                    value={s.value}
-                    max={s.maxValue}
-                    label={s.name}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Score Breakdowns — Piotroski / Altman / Beneish sub-scores */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--panel-gap)' }}>
-            <ScoreBreakdown
-              title="Piotroski F-Score"
-              overallScore={0}
-              scores={PIOTROSKI_BREAKDOWN}
-            />
-            <ScoreBreakdown
-              title="Altman Z-Score"
-              overallScore={0}
-              scores={ALTMAN_BREAKDOWN}
-            />
-            <ScoreBreakdown
-              title="Beneish M-Score"
-              overallScore={0}
-              scores={BENEISH_BREAKDOWN}
-            />
-          </div>
+          {/* Quality Scores — the Piotroski/Altman/Beneish sub-score breakdowns
+              are keyed by security_id under /v2 analytics and aren't wired here;
+              the real, batch-computed composite scores are shown below. Rather
+              than render fabricated all-zero gauges/breakdowns, show an honest
+              pointer to the composite panel. */}
+          {!compositeScores && (
+            <div className="terminal-panel">
+              <h2 className="terminal-section-title">Quality Scores</h2>
+              <EmptyState
+                icon="🎯"
+                title="Quality scores unavailable"
+                description="Batch-computed quality/valuation scores are not available for this security yet."
+              />
+            </div>
+          )}
 
           {/* Composite Scores */}
-          {compositeScores && (
+          {!!compositeScores && (
             <div className="terminal-panel">
               <h2 className="terminal-section-title">Composite Scores</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
@@ -542,15 +398,19 @@ export default function CompanyOverview() {
             </div>
           </div>
 
-          {/* Entity Sentiment */}
-          <div className="terminal-panel">
-            <h2 className="terminal-section-title">Entity Sentiment</h2>
-            <SentimentGauge
-              value={0.42}
-              momentum="IMPROVING"
-              label={`${company.ticker} Market Sentiment`}
-            />
-          </div>
+          {/* Entity Sentiment — derived from the latest real sentiment-history
+              point (not a hardcoded value). Hidden when no history exists. */}
+          {(() => {
+            const hist = (sentimentHistory as { sentiment?: number }[] | undefined) ?? [];
+            const latest = hist.length > 0 ? hist[hist.length - 1]?.sentiment : undefined;
+            if (latest == null) return null;
+            return (
+              <div className="terminal-panel">
+                <h2 className="terminal-section-title">Entity Sentiment</h2>
+                <SentimentGauge value={latest} label={`${company.ticker} Market Sentiment`} />
+              </div>
+            );
+          })()}
 
           {/* Sentiment Trend */}
           <div className="terminal-panel">

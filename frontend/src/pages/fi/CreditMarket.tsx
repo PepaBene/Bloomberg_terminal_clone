@@ -1,9 +1,22 @@
 // ---------------------------------------------------------------------------
 // Credit Market — IG/HY Spread Indices, Credit Regime, Sector Spreads
 // ---------------------------------------------------------------------------
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 import { KeySpreadsPanel, SpreadHistoryChart } from '@/components/fi';
 import type { SpreadRow, SpreadDataPoint } from '@/components/fi';
+import { EmptyState } from '@/components/feedback';
 import { useCreditSpreads, useDistressedCredit, useFIIndices, useFIBriefing } from '@/hooks';
+
+// ICE BofA US Corporate Master OAS — the canonical IG series ingested by
+// fred_credit_spreads.py (rating_category "IG").
+const IG_OAS_SERIES = 'BAMLC0A0CM';
+
+interface CreditSpreadObsDTO {
+  observation_date: string;
+  spread_bps?: number | null;
+}
+interface PaginatedSpreads { data: CreditSpreadObsDTO[] }
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -75,26 +88,6 @@ const marketSpreads: SpreadRow[] = [
   { name: 'iTraxx Xover', value: 295, change1d: -3, change1w: -8, percentile: 30 },
 ];
 
-// --- SpreadHistoryChart data for IG/HY index spreads -------------------------
-
-function generateCreditSpreadHistory(): SpreadDataPoint[] {
-  const data: SpreadDataPoint[] = [];
-  let oas = 98;
-  const start = new Date('2025-03-28');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    oas += (Math.random() - 0.48) * 4;
-    oas = Math.max(60, Math.min(160, oas));
-    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas) });
-  }
-  return data;
-}
-
-const creditSpreadHistory = generateCreditSpreadHistory();
-
 // --- Component ---------------------------------------------------------------
 
 export default function CreditMarket() {
@@ -102,6 +95,19 @@ export default function CreditMarket() {
   const { data: apiDistressed } = useDistressedCredit();
   const { data: apiIndices } = useFIIndices();
   const { data: apiBriefing } = useFIBriefing();
+
+  // IG OAS history — real FRED-sourced series (replaces the prior Math.random
+  // walk). Ascending by date for the chart.
+  const { data: igHistoryRaw, isLoading: loadingIgHistory } = useQuery({
+    queryKey: ['fi', 'spreads', 'history', IG_OAS_SERIES],
+    queryFn: () => api.get<PaginatedSpreads>('/v1/fixed-income/spreads/history', { series_id: IG_OAS_SERIES, page_size: 400 }),
+    retry: 0,
+  });
+  const creditSpreadHistory: SpreadDataPoint[] = (igHistoryRaw?.data ?? [])
+    .filter((o) => o.spread_bps != null)
+    .map((o) => ({ date: o.observation_date, oas: Math.round(o.spread_bps as number) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const latestIgOas = creditSpreadHistory.length > 0 ? creditSpreadHistory[creditSpreadHistory.length - 1]!.oas : undefined;
 
   const indicesData = (apiIndices as any[]) ?? spreadIndices;
   const sectorsData = (apiSpreads as any)?.sectors ?? sectorSpreads;
@@ -141,10 +147,16 @@ export default function CreditMarket() {
         <KeySpreadsPanel spreads={marketSpreads} />
       </div>
 
-      {/* SpreadHistoryChart for IG index */}
+      {/* SpreadHistoryChart for IG index — real ICE BofA US Corporate OAS */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
-        <h2 style={sectionTitle}>IG Corporate OAS History (12M)</h2>
-        <SpreadHistoryChart data={creditSpreadHistory} benchmarkSpread={92} height={220} />
+        <h2 style={sectionTitle}>IG Corporate OAS History</h2>
+        {loadingIgHistory ? (
+          <EmptyState icon="⏳" title="Loading spread history…" />
+        ) : creditSpreadHistory.length === 0 ? (
+          <EmptyState icon="📉" title="No spread history" description="Credit-spread ingestion (FRED) has not populated this series yet." />
+        ) : (
+          <SpreadHistoryChart data={creditSpreadHistory} benchmarkSpread={latestIgOas} height={220} />
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>

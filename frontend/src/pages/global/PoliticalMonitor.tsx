@@ -1,10 +1,28 @@
 // ---------------------------------------------------------------------------
 // Political Monitor Dashboard
+//
+// Honesty pass: the previous version mapped a SINGLE geopolitical-events hook
+// (useGeopoliticalEvents) onto all four tabs — bills, regulations, sanctions
+// and elections — with completely mismatched fields, plus silent mock
+// fallbacks (`eventsData ?? MOCK`).
+//
+// Each tab is now wired to its own real backend endpoint:
+//   - Legislation -> GET /v3/global/political/us/bills
+//   - Regulatory  -> GET /v3/global/political/us/regulations
+//   - Sanctions   -> GET /v3/global/political/sanctions
+//   - Elections   -> GET /v3/global/political/elections
+// Fields are mapped from the real response schemas and each tab shows an honest
+// empty state when it has no rows. (The SanctionsTable component is not used
+// here because it requires programs/targets/trajectory aggregates the sanctions
+// endpoint does not provide — individual entries are shown instead of fabricated
+// aggregates.)
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
-import { BillTracker, SanctionsTable } from '@/components/global';
-import type { BillRecord, SanctionRecord } from '@/components/global';
-import { useGeopoliticalEvents } from '@/hooks';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { BillTracker } from '@/components/global';
+import type { BillRecord } from '@/components/global';
+import { EmptyState } from '@/components/feedback';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -36,95 +54,120 @@ const dataStyle: React.CSSProperties = {
 };
 
 function severityColor(severity: string): string {
-  switch (severity) {
-    case 'Critical': return '#dc2626';
-    case 'High':     return 'var(--color-signal-negative)';
-    case 'Medium':   return 'var(--color-quality-2)';
-    case 'Low':      return 'var(--color-quality-4)';
+  switch (severity.toUpperCase()) {
+    case 'CRITICAL': return '#dc2626';
+    case 'HIGH':     return 'var(--color-signal-negative)';
+    case 'MEDIUM':   return 'var(--color-quality-2)';
+    case 'LOW':      return 'var(--color-quality-4)';
     default:         return 'var(--color-text-secondary)';
   }
 }
 
-// --- Mock Data ---------------------------------------------------------------
+// --- DTOs (mirror backend response schemas) ----------------------------------
+
+interface LegislativeBillDTO {
+  bill_id: string;
+  title: string;
+  summary?: string | null;
+  bill_type?: string | null;
+  status?: string | null;
+  sponsor_count?: number | null;
+  passage_probability?: number | null; // 0-100
+  affected_sectors?: string[] | Record<string, unknown> | null;
+  introduced_date?: string | null;
+  last_action_date?: string | null;
+}
+
+interface RegulatoryActionDTO {
+  id: string;
+  agency?: string | null;
+  action_type?: string | null;
+  title: string;
+  description?: string | null;
+  severity?: string | null;
+  action_date?: string | null;
+}
+
+interface SanctionsEntryDTO {
+  id: string;
+  program?: string | null;
+  country_code?: string | null;
+  target_name?: string | null;
+  target_type?: string | null;
+  status?: string | null;
+  effective_date?: string | null;
+  description?: string | null;
+}
+
+interface ElectionDTO {
+  id: string;
+  title: string;
+  description?: string | null;
+  countries_involved?: string[] | null;
+  election_date?: string | null;
+  severity?: string | null;
+}
 
 type SectionTab = 'Legislation' | 'Regulatory' | 'Sanctions' | 'Elections';
-
-interface BillRow {
-  billId: string;
-  title: string;
-  type: string;
-  status: string;
-  sponsors: string;
-  passageProb: number;
-  affectedSectors: string;
-}
-
-const bills: BillRow[] = [
-  { billId: 'HR-4821',  title: 'Digital Asset Market Structure Act',          type: 'House Bill',   status: 'Committee',  sponsors: 'McHenry (R), Waters (D)',     passageProb: 62,  affectedSectors: 'Financials, Technology' },
-  { billId: 'S-2847',   title: 'AI Safety and Innovation Act',               type: 'Senate Bill',  status: 'Floor Vote', sponsors: 'Schumer (D), Young (R)',      passageProb: 78,  affectedSectors: 'Technology, Healthcare' },
-  { billId: 'HR-6124',  title: 'Clean Energy Tax Credit Extension',          type: 'House Bill',   status: 'Committee',  sponsors: 'Pallone (D)',                 passageProb: 34,  affectedSectors: 'Energy, Utilities' },
-  { billId: 'S-3201',   title: 'Pharmaceutical Pricing Reform Act',          type: 'Senate Bill',  status: 'Introduced', sponsors: 'Sanders (I), Warren (D)',     passageProb: 15,  affectedSectors: 'Healthcare' },
-  { billId: 'HR-5567',  title: 'Critical Minerals Supply Chain Security',    type: 'House Bill',   status: 'Conference', sponsors: 'Manchin (D), Murkowski (R)', passageProb: 54,  affectedSectors: 'Materials, Industrials' },
-  { billId: 'S-1892',   title: 'Bank Capital Requirements Modernization',   type: 'Senate Bill',  status: 'Committee',  sponsors: 'Brown (D)',                   passageProb: 28,  affectedSectors: 'Financials' },
-];
-
-interface RegulatoryAction {
-  agency: string;
-  type: string;
-  title: string;
-  severity: string;
-  date: string;
-}
-
-const regulatoryActions: RegulatoryAction[] = [
-  { agency: 'SEC',  type: 'Final Rule',        title: 'Enhanced Climate Disclosure Requirements',         severity: 'High',     date: '2026-03-18' },
-  { agency: 'FDIC', type: 'Proposed Rule',      title: 'Bank Merger Review Process Overhaul',              severity: 'Medium',   date: '2026-03-14' },
-  { agency: 'FTC',  type: 'Enforcement Action', title: 'Big Tech Antitrust: Non-Compete Clause Ban',      severity: 'Critical', date: '2026-03-10' },
-  { agency: 'EPA',  type: 'Final Rule',         title: 'Methane Emissions Standards for Oil & Gas',        severity: 'High',     date: '2026-03-06' },
-  { agency: 'FDA',  type: 'Guidance',           title: 'AI/ML-Based Medical Device Approval Pathway',     severity: 'Low',      date: '2026-03-02' },
-];
-
-const electionEvents = [
-  { country: 'Germany',       date: '2026-09-28', type: 'Federal Election',     marketImpact: 'High' },
-  { country: 'Brazil',        date: '2026-10-04', type: 'Municipal Elections',   marketImpact: 'Medium' },
-  { country: 'Japan',         date: '2026-07-25', type: 'Upper House Election',  marketImpact: 'Medium' },
-];
-
 const tabs: SectionTab[] = ['Legislation', 'Regulatory', 'Sanctions', 'Elections'];
 
-// --- BillTracker component data ----------------------------------------------
-
-const billRecords: BillRecord[] = bills.map((b) => ({
-  id: b.billId,
-  title: b.title,
-  type: b.type,
-  status: b.status,
-  sponsors: b.sponsors.split(',').length,
-  passageProbability: b.passageProb,
-  affectedSectors: b.affectedSectors.split(', '),
-  lastAction: `${b.status} stage - ${b.type}`,
-}));
-
-// --- SanctionsTable component data -------------------------------------------
-
-const sanctionRecords: SanctionRecord[] = [
-  { country: 'Russia', programs: 14, targets: 1842, trajectory: 'Escalating', lastUpdated: '2026-03-25' },
-  { country: 'Iran', programs: 8, targets: 456, trajectory: 'Stable', lastUpdated: '2026-02-18' },
-  { country: 'North Korea', programs: 6, targets: 289, trajectory: 'Stable', lastUpdated: '2026-01-12' },
-  { country: 'Venezuela', programs: 4, targets: 124, trajectory: 'De-escalating', lastUpdated: '2026-02-28' },
-  { country: 'Syria', programs: 5, targets: 312, trajectory: 'Stable', lastUpdated: '2026-01-20' },
-];
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
 
 // --- Component ---------------------------------------------------------------
 
 export default function PoliticalMonitor() {
   const [activeTab, setActiveTab] = useState<SectionTab>('Legislation');
-  const { data: eventsData } = useGeopoliticalEvents();
 
-  const activeElectionEvents = eventsData ?? electionEvents;
-  const activeRegulatoryActions = eventsData ?? regulatoryActions;
-  const activeBillRecords = eventsData ?? billRecords;
-  const activeSanctionRecords = eventsData ?? sanctionRecords;
+  const { data: billsRaw, isLoading: loadingBills } = useQuery({
+    queryKey: ['political', 'us-bills'],
+    enabled: activeTab === 'Legislation',
+    retry: 0,
+    queryFn: () => api.get<LegislativeBillDTO[]>('/v3/global/political/us/bills', { limit: 50 }),
+  });
+  const billRecords: BillRecord[] = (Array.isArray(billsRaw) ? billsRaw : []).map((b) => ({
+    id: b.bill_id,
+    title: b.title,
+    type: b.bill_type ?? 'Bill',
+    status: b.status ?? 'Unknown',
+    sponsors: b.sponsor_count ?? 0,
+    passageProbability: b.passage_probability ?? 0,
+    affectedSectors: asStringList(b.affected_sectors),
+    lastAction: b.last_action_date ?? b.introduced_date ?? '—',
+  }));
+
+  const { data: regsRaw, isLoading: loadingRegs } = useQuery({
+    queryKey: ['political', 'us-regulations'],
+    enabled: activeTab === 'Regulatory',
+    retry: 0,
+    queryFn: () => api.get<RegulatoryActionDTO[]>('/v3/global/political/us/regulations', { limit: 50 }),
+  });
+  const regulatoryActions = Array.isArray(regsRaw) ? regsRaw : [];
+
+  const { data: sanctionsRaw, isLoading: loadingSanctions } = useQuery({
+    queryKey: ['political', 'sanctions'],
+    enabled: activeTab === 'Sanctions',
+    retry: 0,
+    queryFn: () => api.get<SanctionsEntryDTO[]>('/v3/global/political/sanctions', { limit: 100 }),
+  });
+  const sanctions = Array.isArray(sanctionsRaw) ? sanctionsRaw : [];
+
+  const { data: electionsRaw, isLoading: loadingElections } = useQuery({
+    queryKey: ['political', 'elections'],
+    enabled: activeTab === 'Elections',
+    retry: 0,
+    queryFn: () => api.get<ElectionDTO[]>('/v3/global/political/elections'),
+  });
+  const elections = Array.isArray(electionsRaw) ? electionsRaw : [];
+
+  const thStyle: React.CSSProperties = {
+    ...labelStyle,
+    textAlign: 'left',
+    padding: 'var(--table-cell-py) var(--table-cell-px)',
+    borderBottom: '1px solid var(--color-surface-border)',
+    whiteSpace: 'nowrap',
+  };
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -171,68 +214,99 @@ export default function PoliticalMonitor() {
 
       {/* Legislation Tab - BillTracker cards */}
       {activeTab === 'Legislation' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)' }}>
-          {activeBillRecords.map((bill) => (
-            <BillTracker key={bill.id} bill={bill} />
-          ))}
-        </div>
+        loadingBills ? (
+          <div style={panelStyle}><EmptyState icon="⏳" title="Loading bills…" /></div>
+        ) : billRecords.length === 0 ? (
+          <div style={panelStyle}>
+            <EmptyState icon="🏛️" title="No legislative bills" description="No market-moving bills have been ingested." />
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)' }}>
+            {billRecords.map((bill) => (
+              <BillTracker key={bill.id} bill={bill} />
+            ))}
+          </div>
+        )
       )}
 
       {/* Regulatory Tab */}
       {activeTab === 'Regulatory' && (
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Regulatory Actions</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Agency', 'Type', 'Title', 'Severity', 'Date'].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      ...labelStyle,
-                      textAlign: 'left',
-                      padding: 'var(--table-cell-py) var(--table-cell-px)',
-                      borderBottom: '1px solid var(--color-surface-border)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeRegulatoryActions.map((ra, i) => (
-                <tr key={i} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)', fontSize: 'var(--text-sm)' }}>{ra.agency}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.type}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.title}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: severityColor(ra.severity),
-                      background: `color-mix(in srgb, ${severityColor(ra.severity)} 15%, transparent)`,
-                      fontWeight: 600,
-                    }}>
-                      {ra.severity}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.date}</td>
+          {loadingRegs ? (
+            <EmptyState icon="⏳" title="Loading regulations…" />
+          ) : regulatoryActions.length === 0 ? (
+            <EmptyState icon="⚖️" title="No regulatory actions" description="No active regulatory rulemaking has been ingested." />
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Agency', 'Type', 'Title', 'Severity', 'Date'].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {regulatoryActions.map((ra) => (
+                  <tr key={ra.id} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)', fontSize: 'var(--text-sm)' }}>{ra.agency ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.action_type ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.title}</td>
+                    <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
+                      {ra.severity ? (
+                        <span style={{
+                          fontFamily: 'var(--font-ui)',
+                          fontSize: 'var(--text-xs)',
+                          padding: '1px 6px',
+                          borderRadius: '2px',
+                          color: severityColor(ra.severity),
+                          background: `color-mix(in srgb, ${severityColor(ra.severity)} 15%, transparent)`,
+                          fontWeight: 600,
+                        }}>
+                          {ra.severity}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{ra.action_date ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
-      {/* Sanctions Tab - SanctionsTable component */}
+      {/* Sanctions Tab */}
       {activeTab === 'Sanctions' && (
         <div style={panelStyle}>
-          <h2 style={sectionTitle}>Active Sanctions Programs</h2>
-          <SanctionsTable sanctions={activeSanctionRecords} />
+          <h2 style={sectionTitle}>Active Sanctions Entries</h2>
+          {loadingSanctions ? (
+            <EmptyState icon="⏳" title="Loading sanctions…" />
+          ) : sanctions.length === 0 ? (
+            <EmptyState icon="🚫" title="No sanctions entries" description="No sanctions entries have been ingested." />
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Program', 'Country', 'Target', 'Type', 'Status', 'Effective'].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sanctions.map((s) => (
+                  <tr key={s.id} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)', fontSize: 'var(--text-sm)' }}>{s.program ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.country_code ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.target_name ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.target_type ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.status ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.effective_date ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -240,50 +314,49 @@ export default function PoliticalMonitor() {
       {activeTab === 'Elections' && (
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Upcoming Elections</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Country', 'Date', 'Type', 'Market Impact'].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      ...labelStyle,
-                      textAlign: 'left',
-                      padding: 'var(--table-cell-py) var(--table-cell-px)',
-                      borderBottom: '1px solid var(--color-surface-border)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeElectionEvents.map((e, i) => (
-                <tr key={i} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{e.country}</td>
-                  <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.date}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.type}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: e.marketImpact === 'High' ? 'var(--color-signal-negative)' : 'var(--color-quality-2)',
-                      background: e.marketImpact === 'High'
-                        ? 'color-mix(in srgb, var(--color-signal-negative) 15%, transparent)'
-                        : 'color-mix(in srgb, var(--color-quality-2) 15%, transparent)',
-                      fontWeight: 600,
-                    }}>
-                      {e.marketImpact}
-                    </span>
-                  </td>
+          {loadingElections ? (
+            <EmptyState icon="⏳" title="Loading elections…" />
+          ) : elections.length === 0 ? (
+            <EmptyState icon="🗳️" title="No elections" description="No upcoming elections have been ingested." />
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Event', 'Countries', 'Date', 'Market Impact'].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {elections.map((e) => {
+                  const impact = e.severity ?? '';
+                  const impactColor = severityColor(impact);
+                  return (
+                    <tr key={e.id} style={{ height: 'var(--table-row-height)' }}>
+                      <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{e.title}</td>
+                      <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{asStringList(e.countries_involved).join(', ') || '—'}</td>
+                      <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{e.election_date ?? '—'}</td>
+                      <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
+                        {impact ? (
+                          <span style={{
+                            fontFamily: 'var(--font-ui)',
+                            fontSize: 'var(--text-xs)',
+                            padding: '1px 6px',
+                            borderRadius: '2px',
+                            color: impactColor,
+                            background: `color-mix(in srgb, ${impactColor} 15%, transparent)`,
+                            fontWeight: 600,
+                          }}>
+                            {impact}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

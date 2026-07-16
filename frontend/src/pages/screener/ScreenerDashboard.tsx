@@ -4,6 +4,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
+import { DemoModeBanner } from '@/components/feedback';
 import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
 
 // --- Mock Data (fallback) ----------------------------------------------------
@@ -259,9 +260,7 @@ export default function ScreenerDashboard() {
 
       {/* LivePreviewCount — [Bug 85 fix] shows demo mode when backend unreachable */}
       {isUsingMock ? (
-        <div style={{ padding: '8px 12px', marginBottom: '8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-warning, #f0ad4e) 10%, transparent)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-warning, #f0ad4e)' }}>
-          Demo mode — backend unavailable. Showing local mock results.
-        </div>
+        <DemoModeBanner message="Demo mode — backend unavailable. Showing local mock results." />
       ) : (
         <LivePreviewCount count={resultRows.length} total={totalCount ?? resultRows.length} />
       )}
