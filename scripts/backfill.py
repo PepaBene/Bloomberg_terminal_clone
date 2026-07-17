@@ -77,22 +77,30 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     "xbrl": EntityCikType(
         "xbrl", EdgarXBRLConnector, "ciks", "financial_periods", "entity_id"
     ),
+    # 8-K corporate events. days_back is a HISTORICAL window here (5y), not the
+    # connector's 30-day freshness default — the backfill wants event history,
+    # not just the last month (Apple returns 0 8-Ks at 30d, 91 at 10y).
     "corporate_actions": EntityCikType(
-        "corporate_actions", Edgar8KConnector, "ciks", "eight_k_events", "entity_id"
+        "corporate_actions", Edgar8KConnector, "ciks", "eight_k_events", "entity_id",
+        extra_kwargs={"days_back": 1825},
     ),
     "esg": EntityCikType(
         "esg", EdgarESGConnector, "cik_list", "esg_scores", "entity_id"
     ),
-    # 13F institutional ownership snapshots. institutional_holdings has no
-    # entity_id column (it is keyed by institution_id + security_id), so the
-    # per-subject "has data" / reconcile check keys on security_id — the FK
-    # that E6 reads by and the presence marker for ownership data.
-    "ownership": EntityCikType(
-        "ownership", Edgar13FConnector, "ciks", "institutional_holdings", "security_id"
-    ),
-    # SEC Form 4 insider transactions (per issuer CIK).
+    # NOTE: 13F ownership is intentionally NOT in the CIK-driven backfill.
+    # 13F-HR filings are filed BY institutional managers, not by the issuer, so
+    # querying an issuer's CIK returns nothing (confirmed: 0 institutional_holdings
+    # after hundreds of attempts). Real 13F ingestion needs an institution-CIK-
+    # driven connector (the ~5–6k 13F filers), which is a separate task.
+    # "ownership": EntityCikType(
+    #     "ownership", Edgar13FConnector, "ciks", "institutional_holdings", "security_id"
+    # ),
+    # SEC Form 4 insider transactions (per issuer CIK). 2y historical window
+    # (cut from 5y to speed up the backfill; 2y rarely exceeds the 500-filing cap
+    # even for active issuers, so history within the window isn't truncated).
     "insider": EntityCikType(
-        "insider", EdgarForm4Connector, "issuer_ciks", "insider_transactions_p3", "entity_id"
+        "insider", EdgarForm4Connector, "issuer_ciks", "insider_transactions_p3", "entity_id",
+        extra_kwargs={"days_back": 730, "max_filings_per_cik": 500},
     ),
     # DEF 14A proxy governance (proxy_filings + comp/board/proposals).
     "governance": EntityCikType(
@@ -105,6 +113,18 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
 }
 DATE_TYPES = {"prices"}
 ALL_TYPES = list(ENTITY_TYPES.keys()) + list(DATE_TYPES)
+
+# Prioritization knob: BACKFILL_SKIP="insider" (comma-separated) drops those
+# types from this run so the shared SEC 10/s budget goes entirely to the rest.
+# All EDGAR types share one rate limit, so they can't finish faster in parallel —
+# pausing the heavy insider backfill lets the light xbrl/corporate_actions types
+# drain far quicker. Clear the env var to resume the skipped types.
+import os as _os  # noqa: E402
+_BACKFILL_SKIP = {t.strip() for t in _os.environ.get("BACKFILL_SKIP", "").split(",") if t.strip()}
+if _BACKFILL_SKIP:
+    for _t in list(_BACKFILL_SKIP):
+        ENTITY_TYPES.pop(_t, None)
+    ALL_TYPES = [t for t in ALL_TYPES if t not in _BACKFILL_SKIP]
 
 
 # --------------------------------------------------------------------------- #

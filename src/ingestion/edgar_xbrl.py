@@ -337,91 +337,101 @@ class EdgarXBRLConnector(BaseConnector):
                     stats["skipped"] += 1
                     continue
 
-                # Reuse or create the filing (one filing can back several periods).
-                filing_id = seen_filings.get(accession)
-                if filing_id is None:
-                    existing_filing = (
-                        await session.execute(
-                            select(Filing.filing_id).where(
-                                Filing.accession_number == accession
+                # Wrap all mutations for this record in a SAVEPOINT. XBRL fields
+                # occasionally overflow a numeric column or exceed a varchar's
+                # length; without a savepoint the failed flush aborts the whole
+                # transaction, and every later record — and every other data type
+                # sharing this session in the same pass — then dies with
+                # PendingRollbackError. begin_nested() rolls back just this record
+                # and leaves the session usable.
+                async with session.begin_nested():
+                    # Reuse or create the filing (one filing can back several periods).
+                    filing_id = seen_filings.get(accession)
+                    if filing_id is None:
+                        existing_filing = (
+                            await session.execute(
+                                select(Filing.filing_id).where(
+                                    Filing.accession_number == accession
+                                )
                             )
+                        ).scalar_one_or_none()
+                        if existing_filing is not None:
+                            filing_id = existing_filing
+                        else:
+                            filing_id = uuid.uuid4()
+                            session.add(Filing(
+                                filing_id=filing_id,
+                                entity_id=entity_id,
+                                filing_type=filing_data["filing_type"],
+                                accession_number=accession,
+                                filing_date=filing_date,
+                                period_end_date=period_end,
+                                fiscal_year=fiscal_year,
+                                fiscal_quarter=filing_data.get("fiscal_quarter"),
+                                period_type=filing_data.get("period_type"),
+                                is_amendment=filing_data.get("is_amendment", False),
+                                processing_status="PROCESSED",
+                                processed_at=datetime.now(timezone.utc),
+                                source="SEC_EDGAR_XBRL",
+                            ))
+
+                    # Create FinancialPeriod
+                    period_start = None
+                    if period_data.get("period_start_date"):
+                        period_start = date.fromisoformat(period_data["period_start_date"])
+
+                    period_id = uuid.uuid4()
+                    period = FinancialPeriod(
+                        period_id=period_id,
+                        entity_id=entity_id,
+                        filing_id=filing_id,
+                        period_start_date=period_start,
+                        period_end_date=period_end,
+                        period_type=period_data.get("period_type", "ANNUAL"),
+                        fiscal_year=fiscal_year,
+                        fiscal_quarter=period_data.get("fiscal_quarter"),
+                        reporting_currency="USD",
+                        accounting_standard="US-GAAP",
+                        data_version="AS_REPORTED",
+                    )
+                    session.add(period)
+
+                    # Create IncomeStatement if we have data
+                    income_fields = rec.get("income_statement", {})
+                    if income_fields:
+                        stmt = IncomeStatement(
+                            statement_id=uuid.uuid4(),
+                            period_id=period_id,
+                            **{k: Decimal(str(v)) for k, v in income_fields.items()},
                         )
-                    ).scalar_one_or_none()
-                    if existing_filing is not None:
-                        filing_id = existing_filing
-                    else:
-                        filing_id = uuid.uuid4()
-                        session.add(Filing(
-                            filing_id=filing_id,
-                            entity_id=entity_id,
-                            filing_type=filing_data["filing_type"],
-                            accession_number=accession,
-                            filing_date=filing_date,
-                            period_end_date=period_end,
-                            fiscal_year=fiscal_year,
-                            fiscal_quarter=filing_data.get("fiscal_quarter"),
-                            period_type=filing_data.get("period_type"),
-                            is_amendment=filing_data.get("is_amendment", False),
-                            processing_status="PROCESSED",
-                            processed_at=datetime.now(timezone.utc),
-                            source="SEC_EDGAR_XBRL",
-                        ))
-                    seen_filings[accession] = filing_id
+                        session.add(stmt)
 
-                # Create FinancialPeriod
-                period_start = None
-                if period_data.get("period_start_date"):
-                    period_start = date.fromisoformat(period_data["period_start_date"])
+                    # Create BalanceSheet if we have data
+                    balance_fields = rec.get("balance_sheet", {})
+                    if balance_fields:
+                        stmt = BalanceSheet(
+                            statement_id=uuid.uuid4(),
+                            period_id=period_id,
+                            **{k: Decimal(str(v)) for k, v in balance_fields.items()},
+                        )
+                        session.add(stmt)
 
-                period_id = uuid.uuid4()
-                period = FinancialPeriod(
-                    period_id=period_id,
-                    entity_id=entity_id,
-                    filing_id=filing_id,
-                    period_start_date=period_start,
-                    period_end_date=period_end,
-                    period_type=period_data.get("period_type", "ANNUAL"),
-                    fiscal_year=fiscal_year,
-                    fiscal_quarter=period_data.get("fiscal_quarter"),
-                    reporting_currency="USD",
-                    accounting_standard="US-GAAP",
-                    data_version="AS_REPORTED",
-                )
-                session.add(period)
+                    # Create CashFlowStatement if we have data
+                    cashflow_fields = rec.get("cash_flow", {})
+                    if cashflow_fields:
+                        stmt = CashFlowStatement(
+                            statement_id=uuid.uuid4(),
+                            period_id=period_id,
+                            **{k: Decimal(str(v)) for k, v in cashflow_fields.items()},
+                        )
+                        session.add(stmt)
+
+                    await session.flush()
+
+                # Savepoint released cleanly — safe to remember dedup markers now.
+                seen_filings[accession] = filing_id
                 seen_periods.add(period_key)
-
-                # Create IncomeStatement if we have data
-                income_fields = rec.get("income_statement", {})
-                if income_fields:
-                    stmt = IncomeStatement(
-                        statement_id=uuid.uuid4(),
-                        period_id=period_id,
-                        **{k: Decimal(str(v)) for k, v in income_fields.items()},
-                    )
-                    session.add(stmt)
-
-                # Create BalanceSheet if we have data
-                balance_fields = rec.get("balance_sheet", {})
-                if balance_fields:
-                    stmt = BalanceSheet(
-                        statement_id=uuid.uuid4(),
-                        period_id=period_id,
-                        **{k: Decimal(str(v)) for k, v in balance_fields.items()},
-                    )
-                    session.add(stmt)
-
-                # Create CashFlowStatement if we have data
-                cashflow_fields = rec.get("cash_flow", {})
-                if cashflow_fields:
-                    stmt = CashFlowStatement(
-                        statement_id=uuid.uuid4(),
-                        period_id=period_id,
-                        **{k: Decimal(str(v)) for k, v in cashflow_fields.items()},
-                    )
-                    session.add(stmt)
-
                 stats["inserted"] += 1
-                await session.flush()
 
             except Exception as e:
                 logger.error(f"Error loading XBRL record: {e}")

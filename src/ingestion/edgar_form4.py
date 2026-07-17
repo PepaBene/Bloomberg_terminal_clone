@@ -483,125 +483,135 @@ class EdgarForm4Connector(BaseConnector):
 
         for rec in records:
             try:
-                issuer_cik = rec["issuer_cik"]
-                lookup_cik = _normalize_cik(issuer_cik)
+                # SAVEPOINT per record: a single bad transaction (a share count or
+                # value that overflows its numeric column, an over-long string)
+                # otherwise aborts the shared session and every later record — and
+                # every other data type in the pass — dies with PendingRollbackError
+                # via autoflush. begin_nested() isolates the failure to this record.
+                async with session.begin_nested():
+                    issuer_cik = rec["issuer_cik"]
+                    lookup_cik = _normalize_cik(issuer_cik)
 
-                if lookup_cik in resolution_cache:
-                    entity_id, security_id = resolution_cache[lookup_cik]
-                else:
-                    result = await session.execute(
-                        select(EntityIdentifier).where(
-                            EntityIdentifier.identifier_type == "CIK",
-                            EntityIdentifier.identifier_value == lookup_cik,
-                        )
-                    )
-                    entity_ident = result.scalar_one_or_none()
-                    entity_id = entity_ident.entity_id if entity_ident else None
-
-                    security_id = None
-                    if entity_id is not None:
-                        sec_result = await session.execute(
-                            select(Security).where(
-                                Security.issuer_entity_id == entity_id,
+                    if lookup_cik in resolution_cache:
+                        entity_id, security_id = resolution_cache[lookup_cik]
+                    else:
+                        result = await session.execute(
+                            select(EntityIdentifier).where(
+                                EntityIdentifier.identifier_type == "CIK",
+                                EntityIdentifier.identifier_value == lookup_cik,
                             )
                         )
-                        security = sec_result.scalars().first()
-                        if security is not None:
-                            security_id = security.security_id
-                    resolution_cache[lookup_cik] = (entity_id, security_id)
+                        entity_ident = result.scalar_one_or_none()
+                        entity_id = entity_ident.entity_id if entity_ident else None
 
-                # No entity means nothing can be written for this record.
-                if entity_id is None:
-                    stats["skipped"] += 1
-                    stats["p3_skipped"] += 1
-                    continue
+                        security_id = None
+                        if entity_id is not None:
+                            sec_result = await session.execute(
+                                select(Security).where(
+                                    Security.issuer_entity_id == entity_id,
+                                )
+                            )
+                            security = sec_result.scalars().first()
+                            if security is not None:
+                                security_id = security.security_id
+                        resolution_cache[lookup_cik] = (entity_id, security_id)
 
-                transaction_date_val = date.fromisoformat(rec["transaction_date"])
+                    # No entity means nothing can be written for this record.
+                    if entity_id is None:
+                        stats["skipped"] += 1
+                        stats["p3_skipped"] += 1
+                        continue
 
-                # --- insider_holdings (requires a security) ---
-                if security_id is not None:
-                    existing = await session.execute(
-                        select(InsiderHolding).where(
-                            InsiderHolding.security_id == security_id,
-                            InsiderHolding.insider_name == rec["insider_name"],
-                            InsiderHolding.transaction_date == transaction_date_val,
-                            InsiderHolding.transaction_type == rec["transaction_type"],
+                    transaction_date_val = date.fromisoformat(rec["transaction_date"])
+
+                    # --- insider_holdings (requires a security) ---
+                    if security_id is not None:
+                        existing = await session.execute(
+                            select(InsiderHolding).where(
+                                InsiderHolding.security_id == security_id,
+                                InsiderHolding.insider_name == rec["insider_name"],
+                                InsiderHolding.transaction_date == transaction_date_val,
+                                InsiderHolding.transaction_type == rec["transaction_type"],
+                            )
+                        )
+                        if existing.scalar_one_or_none() is not None:
+                            stats["skipped"] += 1
+                        else:
+                            session.add(InsiderHolding(
+                                transaction_id=uuid.uuid4(),
+                                security_id=security_id,
+                                entity_id=entity_id,
+                                insider_name=rec["insider_name"],
+                                insider_title=rec.get("insider_title"),
+                                insider_relationship=rec.get("insider_relationship"),
+                                transaction_type=rec["transaction_type"],
+                                transaction_date=transaction_date_val,
+                                shares_transacted=Decimal(str(rec["shares_transacted"])) if rec.get("shares_transacted") is not None else None,
+                                price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
+                                total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
+                                shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
+                                ownership_nature=rec.get("ownership_nature"),
+                            ))
+                            stats["inserted"] += 1
+
+                    # --- insider_transactions_p3 (requires only an entity) ---
+                    shares_dec = (
+                        Decimal(str(rec["shares_transacted"]))
+                        if rec.get("shares_transacted") is not None else None
+                    )
+                    # Natural key: entity + person + date + code + shares.
+                    p3_existing = await session.execute(
+                        select(InsiderTransactionP3.id).where(
+                            InsiderTransactionP3.entity_id == entity_id,
+                            InsiderTransactionP3.reporting_person == rec["insider_name"],
+                            InsiderTransactionP3.transaction_date == transaction_date_val,
+                            InsiderTransactionP3.transaction_code == rec.get("transaction_code"),
+                            InsiderTransactionP3.shares == shares_dec,
                         )
                     )
-                    if existing.scalar_one_or_none() is not None:
-                        stats["skipped"] += 1
+                    if p3_existing.first() is not None:
+                        stats["p3_skipped"] += 1
                     else:
-                        session.add(InsiderHolding(
-                            transaction_id=uuid.uuid4(),
-                            security_id=security_id,
+                        filing_date_val = None
+                        if rec.get("filing_date"):
+                            try:
+                                filing_date_val = date.fromisoformat(rec["filing_date"])
+                            except (ValueError, TypeError):
+                                filing_date_val = None
+
+                        filing_url = None
+                        accession = rec.get("accession_number")
+                        if accession and lookup_cik:
+                            acc_clean = accession.replace("-", "")
+                            filing_url = (
+                                f"{ARCHIVES_BASE_URL}/{lookup_cik}/{acc_clean}/"
+                                f"{accession}-index.htm"
+                            )[:500]
+
+                        session.add(InsiderTransactionP3(
                             entity_id=entity_id,
-                            insider_name=rec["insider_name"],
-                            insider_title=rec.get("insider_title"),
-                            insider_relationship=rec.get("insider_relationship"),
-                            transaction_type=rec["transaction_type"],
+                            reporting_person=rec["insider_name"][:200],
+                            reporting_person_cik=(rec.get("insider_cik") or None) if rec.get("insider_cik") else None,
+                            relationship=(rec.get("insider_relationship") or "UNKNOWN")[:30],
+                            transaction_type=rec["p3_transaction_type"][:20],
+                            transaction_code=rec.get("transaction_code"),
                             transaction_date=transaction_date_val,
-                            shares_transacted=Decimal(str(rec["shares_transacted"])) if rec.get("shares_transacted") is not None else None,
+                            shares=shares_dec,
                             price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
                             total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
                             shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
-                            ownership_nature=rec.get("ownership_nature"),
+                            is_open_market=bool(rec.get("is_open_market", False)),
+                            is_10b5_1=False,  # not reliably present in Form 4 ownership XML
+                            is_direct_ownership=bool(rec.get("is_direct_ownership", True)),
+                            filing_date=filing_date_val,
+                            filing_url=filing_url,
                         ))
-                        stats["inserted"] += 1
+                        stats["p3_inserted"] += 1
+                        touched_entities.add(entity_id)
 
-                # --- insider_transactions_p3 (requires only an entity) ---
-                shares_dec = (
-                    Decimal(str(rec["shares_transacted"]))
-                    if rec.get("shares_transacted") is not None else None
-                )
-                # Natural key: entity + person + date + code + shares.
-                p3_existing = await session.execute(
-                    select(InsiderTransactionP3.id).where(
-                        InsiderTransactionP3.entity_id == entity_id,
-                        InsiderTransactionP3.reporting_person == rec["insider_name"],
-                        InsiderTransactionP3.transaction_date == transaction_date_val,
-                        InsiderTransactionP3.transaction_code == rec.get("transaction_code"),
-                        InsiderTransactionP3.shares == shares_dec,
-                    )
-                )
-                if p3_existing.first() is not None:
-                    stats["p3_skipped"] += 1
-                else:
-                    filing_date_val = None
-                    if rec.get("filing_date"):
-                        try:
-                            filing_date_val = date.fromisoformat(rec["filing_date"])
-                        except (ValueError, TypeError):
-                            filing_date_val = None
-
-                    filing_url = None
-                    accession = rec.get("accession_number")
-                    if accession and lookup_cik:
-                        acc_clean = accession.replace("-", "")
-                        filing_url = (
-                            f"{ARCHIVES_BASE_URL}/{lookup_cik}/{acc_clean}/"
-                            f"{accession}-index.htm"
-                        )[:500]
-
-                    session.add(InsiderTransactionP3(
-                        entity_id=entity_id,
-                        reporting_person=rec["insider_name"][:200],
-                        reporting_person_cik=(rec.get("insider_cik") or None) if rec.get("insider_cik") else None,
-                        relationship=(rec.get("insider_relationship") or "UNKNOWN")[:30],
-                        transaction_type=rec["p3_transaction_type"][:20],
-                        transaction_code=rec.get("transaction_code"),
-                        transaction_date=transaction_date_val,
-                        shares=shares_dec,
-                        price_per_share=Decimal(str(rec["price_per_share"])) if rec.get("price_per_share") is not None else None,
-                        total_value=Decimal(str(rec["total_value"])) if rec.get("total_value") is not None else None,
-                        shares_owned_after=Decimal(str(rec["shares_owned_after"])) if rec.get("shares_owned_after") is not None else None,
-                        is_open_market=bool(rec.get("is_open_market", False)),
-                        is_10b5_1=False,  # not reliably present in Form 4 ownership XML
-                        is_direct_ownership=bool(rec.get("is_direct_ownership", True)),
-                        filing_date=filing_date_val,
-                        filing_url=filing_url,
-                    ))
-                    stats["p3_inserted"] += 1
-                    touched_entities.add(entity_id)
+                    # Surface any overflow/truncation now, inside this record's
+                    # savepoint, instead of via a later record's autoflush.
+                    await session.flush()
 
             except Exception as e:
                 logger.error(f"Error loading Form 4 transaction: {e}")
