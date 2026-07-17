@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 import { RESEARCH } from '../endpoints';
+import type { ThemeScreenResult } from '@/types/research';
 
 const STALE_30M = 30 * 60 * 1000;
 
@@ -223,8 +224,8 @@ export function useEntityThesis(entityId: string, options?: { enabled?: boolean 
 export function useGenerateThesis() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(RESEARCH.thesis.generate, body),
+    mutationFn: ({ entityId, ...body }: Record<string, unknown> & { entityId: string }) =>
+      api.post(RESEARCH.thesis.generate(entityId), body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['research', 'thesis'] });
     },
@@ -289,18 +290,13 @@ export function useQaSources(options?: { enabled?: boolean }) {
 // Themes
 // ---------------------------------------------------------------------------
 
-export function useThemes(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: ['research', 'themes', 'list'],
-    queryFn: () => api.get(RESEARCH.themes.list),
-    enabled: options?.enabled ?? true,
-    staleTime: STALE_30M,
-  });
-}
+// Note: theme *listing* is `useResearchThemes()` in useIntelligence.ts (hits
+// the same real `/v4/research/themes/dashboard` this file's `RESEARCH.themes.list`
+// points at) -- no separate `useThemes()` here to avoid two hooks for one endpoint.
 
 export function useThemeDetail(themeId: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['research', 'themes', themeId],
+    queryKey: ['research', 'themes', themeId, 'summary'],
     queryFn: () => api.get(RESEARCH.themes.detail(themeId)),
     enabled: options?.enabled ?? !!themeId,
     staleTime: STALE_30M,
@@ -323,32 +319,16 @@ export function useThemeScreen() {
   });
 }
 
-export function useCreateTheme() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(RESEARCH.themes.create, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['research', 'themes'] });
-    },
-  });
-}
-
-export function useUpdateTheme() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ themeId, ...body }: Record<string, unknown> & { themeId: string }) =>
-      api.put(RESEARCH.themes.update(themeId), body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['research', 'themes'] });
-    },
-  });
-}
+// No useCreateTheme/useUpdateTheme: themes are engine-assigned exposure
+// labels (macro_theme_scores is keyed by entity_id + theme), not
+// user-authored resources -- there's nothing for a "create theme" form to
+// create. A prior version of this file had CRUD hooks pointed at a
+// `/v4/research/themes` create/update pair the backend never implemented.
 
 export function useThemeSecurities(themeId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['research', 'themes', themeId, 'securities'],
-    queryFn: () => api.get(RESEARCH.themes.securities(themeId)),
+    queryFn: () => api.get<ThemeScreenResult[]>(RESEARCH.themes.securities(themeId)),
     enabled: options?.enabled ?? !!themeId,
     staleTime: STALE_30M,
   });

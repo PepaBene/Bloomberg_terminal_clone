@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { api } from '@/api/client';
 import { RESEARCH } from '@/api/endpoints';
+import type { SearchResults } from '@/types/research';
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 
@@ -31,8 +32,19 @@ export default function SemanticSearch() {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const res = await api.post(RESEARCH.search.query, { query: searchQuery, filter: activeFilter });
-      setSearchResults((res as any)?.results ?? []);
+      const res = await api.post<SearchResults>(RESEARCH.search.query, { query: searchQuery, filter: activeFilter });
+      // Map the real /research/search chunk fields (chunk_text/relevance_score/
+      // publish_date/source_type) onto this page's display shape.
+      setSearchResults(
+        (res.results ?? []).map((r, i) => ({
+          rank: i + 1,
+          title: r.title ?? r.source_id ?? 'Untitled',
+          snippet: r.chunk_text,
+          relevance: r.relevance_score ?? 0,
+          date: r.publish_date ?? '',
+          source: r.source_type,
+        }))
+      );
     } catch (error) {
       console.error('Search failed:', error);
       setSearchResults([]);

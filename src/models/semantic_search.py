@@ -4,11 +4,16 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.base import Base, TimestampMixin
+
+# gemini-embedding-002's default output dimensionality (DEFAULT_DIMENSIONS
+# in src/services/ai/embedding_client.py) — must stay in sync.
+EMBEDDING_DIMENSIONS = 3072
 
 
 class SearchDocument(Base):
@@ -33,10 +38,13 @@ class SearchDocument(Base):
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_token_count: Mapped[int | None] = mapped_column(Integer)
     embedding_model: Mapped[str | None] = mapped_column(String(50))
-    # The audit (M-001) flagged this column as needing pgvector ``VECTOR``
-    # type for true cosine similarity. Until a migration adds the
-    # extension we keep the JSONB storage but document the limitation.
+    # M-001 (legacy): pre-pgvector storage, still written alongside
+    # `embedding` for backward compatibility with any other JSONB
+    # consumer. Real ANN ranking in semantic_search() uses `embedding`.
     embedding_vector: Mapped[dict | None] = mapped_column(JSONB)
+    # M-001: real pgvector column with an HNSW cosine index (see migration
+    # 087) — replaces the JSONB + pure-Python cosine_similarity() loop.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

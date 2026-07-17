@@ -1,6 +1,7 @@
 """D8 Reference & Classification Data API endpoints (Spec 10.8)."""
 
 import logging
+import time
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -39,6 +40,11 @@ from src.schemas.reference import (
 router = APIRouter(prefix="/reference", tags=["Reference Data"])
 
 
+def _elapsed_ms(start_time: float) -> int:
+    """Milliseconds elapsed since ``start_time`` (from ``time.perf_counter()``)."""
+    return round((time.perf_counter() - start_time) * 1000)
+
+
 # ── Geographic ──────────────────────────────────────────────────────
 
 @router.get("/countries", response_model=PaginatedResponse)
@@ -51,6 +57,7 @@ async def list_countries(
     is_active: bool | None = Query(None),
 ):
     """List all countries with optional filtering."""
+    start_time = time.perf_counter()
     query = select(Country)
     count_query = select(Country)
 
@@ -79,9 +86,11 @@ async def list_countries(
     result = await session.execute(query)
     countries = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[CountryResponse.model_validate(c) for c in countries],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -125,6 +134,7 @@ async def list_currencies(
     is_active: bool | None = Query(None),
 ):
     """List all currencies."""
+    start_time = time.perf_counter()
     query = select(Currency)
     if is_active is not None:
         query = query.where(Currency.is_active == is_active)
@@ -139,9 +149,11 @@ async def list_currencies(
     result = await session.execute(items_query)
     currencies = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[CurrencyResponse.model_validate(c) for c in currencies],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -176,6 +188,7 @@ async def list_exchanges(
     market_type: str | None = Query(None),
 ):
     """List exchanges with optional filtering."""
+    start_time = time.perf_counter()
     query = select(Exchange)
     if country:
         query = query.where(Exchange.country == country.upper())
@@ -194,9 +207,11 @@ async def list_exchanges(
     result = await session.execute(items_query)
     exchanges = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[ExchangeResponse.model_validate(e) for e in exchanges],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -230,6 +245,7 @@ async def list_gics(
     industry_group_code: str | None = Query(None),
 ):
     """List full GICS hierarchy."""
+    start_time = time.perf_counter()
     query = select(GICSClassification)
     if sector_code:
         query = query.where(GICSClassification.sector_code == sector_code)
@@ -250,9 +266,11 @@ async def list_gics(
     result = await session.execute(items_query)
     gics = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[GICSResponse.model_validate(g) for g in gics],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -305,6 +323,7 @@ async def list_sic_codes(
     division: str | None = Query(None),
 ):
     """List SIC codes."""
+    start_time = time.perf_counter()
     query = select(SICCode)
     if division:
         query = query.where(SICCode.division == division.upper())
@@ -319,9 +338,11 @@ async def list_sic_codes(
     result = await session.execute(items_query)
     codes = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[SICResponse.model_validate(c) for c in codes],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -331,6 +352,7 @@ async def list_naics_codes(
     pagination: PaginationParams = Depends(get_pagination),
 ):
     """List NAICS codes."""
+    start_time = time.perf_counter()
     query = select(NAICSCode)
 
     total_result = await session.execute(
@@ -343,9 +365,11 @@ async def list_naics_codes(
     result = await session.execute(items_query)
     codes = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[NAICSResponse.model_validate(c) for c in codes],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 
@@ -360,6 +384,7 @@ async def list_trading_days(
     month: int | None = Query(None),
 ):
     """Get trading days for a calendar."""
+    start_time = time.perf_counter()
     # Find calendar
     cal_result = await session.execute(
         select(TradingCalendar).where(
@@ -392,9 +417,11 @@ async def list_trading_days(
     result = await session.execute(items_query)
     days = result.scalars().all()
 
+    meta = build_paginated_meta(total_count, pagination)
+    meta.processing_time_ms = _elapsed_ms(start_time)
     return PaginatedResponse(
         data=[TradingDayResponse.model_validate(d) for d in days],
-        meta=build_paginated_meta(total_count, pagination),
+        meta=meta,
     )
 
 

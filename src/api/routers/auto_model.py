@@ -18,7 +18,9 @@ from src.api.deps import get_session
 from src.engines.auto_model_builder import SCOPES, build_model
 from src.models.analytics import AnalyticsResult, CompsResult, DCFResult
 from src.models.entity import Entity
+from src.models.flows import InstitutionalFlowSignal
 from src.models.fundamentals import BalanceSheet, CashFlowStatement, FinancialPeriod, IncomeStatement
+from src.models.insider_intelligence import InsiderSignal
 from src.models.security import Security
 from src.schemas.auto_model import AnalyticalModelResponse, ModelBuildRequest
 
@@ -51,9 +53,23 @@ async def build_company_model_endpoint(
     quality/value/safety silently fell back to build_company_model()'s
     neutral 50.0 defaults regardless of what real DCF/comps/Altman/
     Piotroski data existed for the entity. Now wires those in too.
-    (``smart_money_signal``/``insider_buy_ratio`` remain unwired — they'd
-    need their own quarter-over-quarter diffing query, out of scope here —
-    so sentiment_score still defaults to neutral.)
+
+    ``smart_money_signal`` and ``insider_buy_ratio`` are now wired as well,
+    reusing already-computed quarter-over-quarter diffing tables rather than
+    re-deriving them here:
+      - ``smart_money_signal`` comes from ``InstitutionalFlowSignal.smart_money_flow``
+        (E6 engine, ``src/engines/e6_flows.py``), which diffs consecutive
+        13F quarterly snapshots per security and nets out whale/major-tier
+        flow into a -1..1 score. Converted to BULLISH/BEARISH/NEUTRAL with
+        the same +/-0.2 thresholds used by
+        ``src/api/routers/flows.py::get_smart_money``.
+      - ``insider_buy_ratio`` comes from ``InsiderSignal`` (Pillar 3 Form4
+        engine, ``src/engines/insider_signals.py`` via ``scripts/ingest_form4.py``),
+        using its rolling 30-day distinct-insider buy/sell counts.
+    Both are read-only lookups of pre-computed rows; if no signal has been
+    computed yet for the entity/security (e.g. no 13F/Form4 data ingested),
+    the field is left unset so sentiment_score honestly falls back to its
+    neutral default rather than fabricating a value.
     """
     entity = (
         await session.execute(select(Entity).where(Entity.entity_id == entity_id))
@@ -133,6 +149,24 @@ async def build_company_model_endpoint(
     if "altman_z_score" in scores:
         data["altman_z"] = scores["altman_z_score"]
 
+    # Insider buy ratio from the latest computed InsiderSignal (Pillar 3
+    # Form4 engine — rolling 30-day distinct-insider buy/sell counts).
+    # Left unset if no Form4 signal has been computed for this entity yet.
+    latest_insider_signal = (
+        await session.execute(
+            select(InsiderSignal)
+            .where(InsiderSignal.entity_id == entity_id)
+            .order_by(InsiderSignal.signal_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_insider_signal is not None:
+        buying = latest_insider_signal.insider_count_buying_30d or 0
+        selling = latest_insider_signal.insider_count_selling_30d or 0
+        total = buying + selling
+        if total > 0:
+            data["insider_buy_ratio"] = round(buying / total, 4)
+
     # DCF upside/downside and relative-valuation percentile need the
     # entity's primary equity security (DCF/comps results are security-keyed).
     sec_row = (
@@ -170,6 +204,24 @@ async def build_company_model_endpoint(
             # Convert 0-100 percentile to build_company_model's -1..1 scale
             # (negative = cheaper than peers, matching its sign convention).
             data["pe_vs_peers"] = round((float(pe_percentile) - 50.0) / 50.0, 4)
+
+        # Smart-money signal from the latest computed InstitutionalFlowSignal
+        # (E6 engine — real quarter-over-quarter 13F diffing, whale/major-tier
+        # weighted). Left unset if no flow signal has been computed for this
+        # security yet (e.g. thinly-held or not yet ingested).
+        latest_flow_signal = (
+            await session.execute(
+                select(InstitutionalFlowSignal)
+                .where(InstitutionalFlowSignal.security_id == security_id)
+                .order_by(InstitutionalFlowSignal.report_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest_flow_signal is not None and latest_flow_signal.smart_money_flow is not None:
+            flow = float(latest_flow_signal.smart_money_flow)
+            data["smart_money_signal"] = (
+                "BULLISH" if flow > 0.2 else "BEARISH" if flow < -0.2 else "NEUTRAL"
+            )
 
     subject = getattr(entity, "legal_name", None) or getattr(entity, "name", None) or str(entity_id)
     model = build_model("COMPANY", data, subject)

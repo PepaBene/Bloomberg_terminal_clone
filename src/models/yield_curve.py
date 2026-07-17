@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, Index, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Date, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -100,11 +100,17 @@ class ZeroCouponCurve(TimestampMixin, Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     curve_date: Mapped[date] = mapped_column(Date, nullable=False)
-    tenor_years: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    # P1-M-030: Numeric(6,2) capped at 9999.99 years (too generous) while also
+    # being unbounded below zero. Narrowed to Numeric(5,2) and constrained to
+    # a sane [0, 100] tenor range via CHECK.
+    tenor_years: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     zero_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
     discount_factor: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))
     forward_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
 
     __table_args__ = (
         Index("idx_zc_date_tenor", "curve_date", "tenor_years", unique=True),
+        CheckConstraint(
+            "tenor_years >= 0 AND tenor_years <= 100", name="ck_zc_tenor_years_range"
+        ),
     )

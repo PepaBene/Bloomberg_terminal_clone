@@ -172,12 +172,11 @@ async def get_movers_summary(
 ):
     """Return summary counts of movers across categories (live computation)."""
     latest_date, prior_date = await _resolve_dates(session, snapshot_date)
-    if latest_date is None or prior_date is None:
-        return MarketMoversSummaryResponse(
-            snapshot_date=snapshot_date or date.today(),
-            gainers_count=0,
-            losers_count=0,
-            most_active_count=0,
+    if latest_date is None:
+        raise HTTPException(status_code=404, detail="No end-of-day price data available")
+    if prior_date is None:
+        raise HTTPException(
+            status_code=404, detail="Insufficient price history to compute movers"
         )
 
     computed = await _compute_all_movers(session, latest_date, prior_date, top_n)

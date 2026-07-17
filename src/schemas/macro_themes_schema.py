@@ -19,6 +19,23 @@ class ThemeScoreResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ThemeSummaryResponse(BaseModel):
+    """Aggregate stats for a theme label across all scored entities.
+
+    Real query over ``macro_theme_scores`` -- returns zero/None fields
+    honestly (not 404) when the theme label has no scored entities yet,
+    since there's no fixed catalog of valid theme names to validate against.
+    """
+
+    theme: str
+    entity_count: int
+    avg_exposure_score: float | None = None
+    bullish_count: int = 0
+    bearish_count: int = 0
+    neutral_count: int = 0
+    latest_as_of_date: date | None = None
+
+
 class ThemeScreenRequest(BaseModel):
     theme: str
     min_exposure: float | None = None
@@ -29,6 +46,7 @@ class ThemeScreenRequest(BaseModel):
 
 class ThemeScreenResponse(BaseModel):
     entity_id: UUID
+    entity_name: str | None = None
     theme: str
     exposure_score: float | None = None
     sensitivity_direction: str | None = None

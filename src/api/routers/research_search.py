@@ -1,7 +1,6 @@
 """Semantic Search API endpoints (Pillar 3 Phase 4B)."""
 
 import asyncio
-import math
 import uuid
 from datetime import datetime, timezone
 
@@ -28,17 +27,6 @@ from src.services.ai.embedding_client import get_embedding_client
 router = APIRouter(tags=["Research - Semantic Search"])
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 # ── Static routes (MUST come before parametric routes) ──────────────
 
 
@@ -54,8 +42,9 @@ async def semantic_search(
 
     Applies the query text as a real filter (substring match on chunk text
     and title). When GOOGLE_API_KEY is configured and matching documents
-    carry a stored embedding, results are additionally re-ranked by cosine
-    similarity against a fresh query embedding.
+    carry a stored embedding, results are additionally re-ranked by real
+    pgvector cosine-distance ordering (M-001) computed in the database —
+    not pulled into Python and compared with a manual loop.
     """
     start = datetime.now(timezone.utc)
     stmt = select(SearchDocument)
@@ -73,29 +62,36 @@ async def semantic_search(
             )
         )
 
-    # Over-fetch candidates when embedding re-ranking is possible, so the
-    # final top-N reflects true similarity rather than just recency.
     embedding_client = get_embedding_client()
-    fetch_limit = body.limit * 5 if embedding_client.is_configured else body.limit
-    stmt = stmt.order_by(SearchDocument.created_at.desc().nulls_last()).limit(fetch_limit)
-    result = await session.execute(stmt)
-    rows = list(result.scalars().all())
+    is_postgres = session.bind is not None and session.bind.dialect.name == "postgresql"
 
-    scores: dict[uuid.UUID, float | None] = {row.id: None for row in rows}
-    if query_text and embedding_client.is_configured and rows:
+    scores: dict[uuid.UUID, float | None] = {}
+    if query_text and embedding_client.is_configured and is_postgres:
         try:
             query_embedding = (
                 await asyncio.to_thread(embedding_client.embed_for_query, query_text)
             ).embedding
-            for row in rows:
-                if row.embedding_vector:
-                    scores[row.id] = _cosine_similarity(query_embedding, list(row.embedding_vector))
-            rows.sort(key=lambda r: scores[r.id] if scores[r.id] is not None else -1.0, reverse=True)
+            distance = SearchDocument.embedding.cosine_distance(query_embedding)
+            ranked_stmt = (
+                stmt.add_columns(distance.label("distance"))
+                .order_by(distance.nulls_last())
+                .limit(body.limit)
+            )
+            pairs = (await session.execute(ranked_stmt)).all()
+            rows = [p[0] for p in pairs]
+            scores = {
+                p[0].id: round(1.0 - float(p[1]), 4) if p[1] is not None else None
+                for p in pairs
+            }
         except Exception:
-            # Embedding re-rank is best-effort; substring-matched rows still return.
-            pass
+            # Embedding re-rank is best-effort; fall back to recency below.
+            rows = []
 
-    rows = rows[: body.limit]
+    if not scores:
+        stmt = stmt.order_by(SearchDocument.created_at.desc().nulls_last()).limit(body.limit)
+        rows = list((await session.execute(stmt)).scalars().all())
+        scores = {row.id: None for row in rows}
+
     top_score = next((scores[r.id] for r in rows if scores[r.id] is not None), None)
     execution_time_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
@@ -254,7 +250,12 @@ async def index_document(
             chunk_text=text,
             chunk_token_count=chunk.get("token_count"),
             embedding_model=embedding_model,
+            # M-001: `embedding` (real pgvector column, used for ANN
+            # ranking in semantic_search()) is now the live write target.
+            # `embedding_vector` (legacy JSONB) is kept in sync too since
+            # it's still a documented field on the schema/response model.
             embedding_vector=embedding_vector,
+            embedding=embedding_vector,
             metadata_=chunk.get("metadata"),
         )
         session.add(doc)

@@ -109,3 +109,44 @@ class CompetitiveLandscapeResponse(BaseModel):
     competitive_threats: Any | None = None
 
     model_config = {"from_attributes": True}
+
+
+# ── Previously-missing endpoints: SWOT / Porter's Five Forces / supply
+# chain. Computed on-the-fly from already-persisted MoatAssessment /
+# ConcentrationRiskAssessment / CompetitiveLandscape rows plus
+# BusinessModelAnalysis / BalanceSheetRiskAssessment /
+# CapitalAllocationAssessment / ManagementQualityAssessment (company_intel_p2
+# router) -- no new persistence table, cheap deterministic re-derivation. ─
+
+
+class SWOTResponse(BaseModel):
+    entity_id: UUID
+    strengths: list[dict] = []
+    weaknesses: list[dict] = []
+    opportunities: list[dict] = []
+    threats: list[dict] = []
+    signals_available: int = 0
+
+
+class PorterForcesResponse(BaseModel):
+    entity_id: UUID
+    forces: list[dict] = []
+    overall_industry_attractiveness_score: float | None = None
+    dominant_force: str | None = None
+    data_completeness: float = 0.0
+
+
+class SupplyChainRelationship(BaseModel):
+    entity_id: UUID | None = None
+    entity_name: str | None = None
+    revenue_percentage: float | None = None
+    cost_percentage: float | None = None
+    contract_value: float | None = None
+    is_single_source: bool | None = None
+    materiality_score: float | None = None
+
+
+class SupplyChainResponse(BaseModel):
+    entity_id: UUID
+    customers: list[SupplyChainRelationship] = []
+    suppliers: list[SupplyChainRelationship] = []

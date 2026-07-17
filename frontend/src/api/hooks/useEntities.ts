@@ -48,9 +48,13 @@ export function useUpdateEntity() {
   return useMutation({
     mutationFn: ({ id, ...body }: Record<string, unknown> & { id: string }) =>
       api.put(ENTITIES.update(id), body),
-    onSuccess: () => {
+    // [P1-F-008 fix] — `id` is available on the mutation variables; invalidate
+    // the precise `['entities', 'detail', id]` entry in addition to the
+    // broader list/detail-root invalidation, instead of only the root.
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['entities', 'list'] });
       qc.invalidateQueries({ queryKey: ['entities', 'detail'] });
+      qc.invalidateQueries({ queryKey: ['entities', 'detail', variables.id] });
     },
   });
 }

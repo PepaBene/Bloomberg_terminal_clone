@@ -1,9 +1,44 @@
 // ---------------------------------------------------------------------------
-// FI Intelligence — Cross-Asset Signals, Fallen Angel Watch, Issuance Intel
+// FI Intelligence — Cross-Asset Signals, Credit Briefing, Issuance Intel
 // ---------------------------------------------------------------------------
-import { EarningsSurpriseChart, TranscriptViewer } from '@/components/intelligence';
-import type { EarningsSurprise, TranscriptSection } from '@/components/intelligence';
-import { useFIBriefing, useCreditSpreads, useNewIssuance, useDistressedCredit } from '@/hooks';
+import { useCreditBriefing, useFIIssuanceToday, useCrossAssetSignals } from '@/hooks';
+
+interface CreditMarketBriefing {
+  id: string;
+  briefing_date: string;
+  credit_regime: string | null;
+  ig_oas_bps: number | null;
+  hy_oas_bps: number | null;
+  ig_oas_1w_change: number | null;
+  hy_oas_1w_change: number | null;
+  fallen_angels_this_period: Record<string, unknown> | null;
+  rising_stars_this_period: Record<string, unknown> | null;
+  narrative: string | null;
+}
+
+interface IssuanceEvent {
+  id: string;
+  entity_id: string | null;
+  issue_date: string;
+  coupon_rate: number | null;
+  maturity_date: string | null;
+  size_mm: number | null;
+  spread_at_issue_bps: number | null;
+  rating: string | null;
+  use_of_proceeds: string | null;
+  oversubscribed: boolean;
+}
+
+interface CrossAssetSignalRow {
+  id: string;
+  entity_id: string;
+  signal_date: string;
+  signal_type: string | null;
+  equity_return_pct: number | null;
+  spread_change_bps: number | null;
+  severity: string | null;
+  narrative: string | null;
+}
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -34,71 +69,47 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-// --- Mock Data ---------------------------------------------------------------
-
-const crossAssetSignals = [
-  { signal: 'Equity-Credit Divergence', direction: 'Bearish', strength: 7.2, asset: 'CDX HY', detail: 'HY spreads lagging equity selloff' },
-  { signal: 'Rate Vol vs Credit Vol', direction: 'Neutral', strength: 5.0, asset: 'MOVE / CDX', detail: 'Rate vol elevated but credit vol contained' },
-  { signal: 'EM Sovereign Stress', direction: 'Bullish', strength: 3.8, asset: 'EMBI+', detail: 'EM spreads tightening on USD weakness' },
-  { signal: 'Curve-Credit Regime', direction: 'Bearish', strength: 6.5, asset: '2s10s / IG', detail: 'Curve steepening with IG widening' },
-];
-
-const fallenAngelWatch = [
-  { issuer: 'Ford Motor Co', ticker: 'F', rating: 'BBB-', outlook: 'Negative', probability: 28, debt: '$98.2B', trigger: 'Leverage above 4x for 2 quarters' },
-  { issuer: 'Kraft Heinz Co', ticker: 'KHC', rating: 'BBB-', outlook: 'Stable', probability: 15, debt: '$20.1B', trigger: 'FCF/Debt below 15%' },
-  { issuer: 'Occidental Petroleum', ticker: 'OXY', rating: 'BBB-', outlook: 'Stable', probability: 12, debt: '$18.5B', trigger: 'Oil below $55 sustained' },
-];
-
-const issuanceIntel = [
-  { issuer: 'Microsoft Corp', size: '$5.0B', tenor: '5Y/10Y/30Y', spread: 'T+55/70/90', status: 'Priced', date: '2026-03-25' },
-  { issuer: 'JPMorgan Chase', size: '$3.5B', tenor: '6NC5', spread: 'T+95', status: 'Priced', date: '2026-03-24' },
-  { issuer: 'Amazon.com', size: '$4.0B', tenor: '7Y/12Y', spread: 'Talk T+65/85', status: 'Pipeline', date: '2026-03-28' },
-  { issuer: 'UnitedHealth Grp', size: '$2.5B', tenor: '10Y', spread: 'Talk T+80', status: 'Pipeline', date: '2026-03-28' },
-];
-
-// --- Earnings & Transcript Mock Data -----------------------------------------
-
-const earningsSurprises: EarningsSurprise[] = [
-  { quarter: 'Q2 2024', actual: 1.40, estimate: 1.35, surprise_pct: 3.7 },
-  { quarter: 'Q3 2024', actual: 1.46, estimate: 1.42, surprise_pct: 2.8 },
-  { quarter: 'Q4 2024', actual: 1.64, estimate: 1.58, surprise_pct: 3.8 },
-  { quarter: 'Q1 2025', actual: 2.18, estimate: 2.10, surprise_pct: 3.8 },
-  { quarter: 'Q2 2025', actual: 1.52, estimate: 1.48, surprise_pct: 2.7 },
-  { quarter: 'Q3 2025', actual: 1.58, estimate: 1.62, surprise_pct: -2.5 },
-  { quarter: 'Q4 2025', actual: 1.72, estimate: 1.68, surprise_pct: 2.4 },
-  { quarter: 'Q1 2026', actual: 2.35, estimate: 2.22, surprise_pct: 5.9 },
-];
-
-const transcriptSections: TranscriptSection[] = [
-  {
-    title: 'Prepared Remarks',
-    paragraphs: [
-      { speaker: 'Tim Cook', role: 'CEO', text: 'Good afternoon and thank you for joining us. We are pleased to report record quarterly revenue of $119.5 billion, driven by strong performance across our product lineup and continued momentum in Services.', sentiment: 'positive' },
-      { speaker: 'Luca Maestri', role: 'CFO', text: 'Gross margin expanded to 46.8%, up 180 basis points year-over-year, primarily driven by the favorable mix shift toward Services and operational efficiencies in our supply chain.', sentiment: 'positive' },
-    ],
-  },
-  {
-    title: 'Q&A',
-    paragraphs: [
-      { speaker: 'Toni Sacconaghi', role: 'Analyst', text: 'Can you discuss the trajectory of Vision Pro and how you see the spatial computing market evolving over the next 2-3 years?', sentiment: 'neutral' },
-      { speaker: 'Tim Cook', role: 'CEO', text: 'We are very encouraged by the developer ecosystem forming around Vision Pro. We see spatial computing as a generational platform shift, though we remain measured in our near-term expectations.', sentiment: 'hedging' },
-      { speaker: 'Samik Chatterjee', role: 'Analyst', text: 'Given the macro uncertainty, how are you thinking about capital allocation priorities for the next fiscal year?', sentiment: 'neutral' },
-      { speaker: 'Luca Maestri', role: 'CFO', text: 'Our capital return program remains a top priority. We expect to return over $100 billion to shareholders through buybacks and dividends this fiscal year, while continuing to invest in R&D at record levels.', sentiment: 'positive' },
-    ],
-  },
-];
-
 // --- Component ---------------------------------------------------------------
+//
+// The "Earnings Call Transcript" and "Earnings Surprise Chart" panels that
+// used to live here were removed rather than fixed: they rendered a
+// fabricated Apple/Tim Cook transcript with invented quotes and a made-up
+// EPS-surprise series, backed by zero API call of any kind. Wiring them for
+// real would need a specific entity in context (a per-company transcript
+// makes no sense on this market-wide, entity-agnostic FI dashboard, which
+// has no security selector), and even then the real transcript endpoint
+// (`TranscriptResponse`) only exposes aggregate tone scores, not
+// paragraph-level speaker/text content the transcript viewer needs — so
+// there's no real data this page could show here without fabricating it
+// again. Removed rather than faked.
+//
+// Routing fix: this page previously called useFIBriefing/useCreditSpreads/
+// useNewIssuance/useDistressedCredit, all of which hit the unrelated
+// generic `/v1/fi/*` reference-data router (no producer backs those tables)
+// and fell back to hardcoded mock arrays on every load. Switched to the
+// real, producer-backed Pillar 3 `/v3/fi/*` endpoints
+// (src/api/routers/fi_intelligence.py) with honest empty states instead of
+// a mock fallback. `useCrossAssetSignals` (CrossAssetSignal table) has no
+// ingestion producer anywhere in the codebase yet — the panel below is
+// wired correctly and will populate the moment one exists, but is expected
+// to render empty today. Same for per-issuer fallen-angel/rising-star
+// detail: `generate_fi_briefings.py` intentionally leaves
+// fallen_angels_this_period/rising_stars_this_period null (documented as
+// needing a rating-migration history connector this codebase doesn't have)
+// -- shown as a dict below rather than fabricated into a fake issuer table.
+
+function formatBps(v: number | null): string {
+  return v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(0)}bps`;
+}
 
 export default function FIIntelligence() {
-  const { data: apiBriefing } = useFIBriefing();
-  const { data: apiSpreads } = useCreditSpreads();
-  const { data: apiIssues } = useNewIssuance();
-  const { data: apiDistressed } = useDistressedCredit();
+  const { data: creditBriefings, isLoading: briefingsLoading } = useCreditBriefing();
+  const { data: issuance, isLoading: issuanceLoading } = useFIIssuanceToday();
+  const { data: signals, isLoading: signalsLoading } = useCrossAssetSignals();
 
-  const liveSignals = (apiBriefing as any)?.signals ?? crossAssetSignals;
-  const liveFallenAngels = (apiDistressed as any)?.fallenAngels ?? fallenAngelWatch;
-  const liveIssuanceIntel = (apiIssues as any)?.recent ?? issuanceIntel;
+  const latestBriefing = ((creditBriefings as CreditMarketBriefing[] | undefined) ?? [])[0];
+  const issuanceEvents = (issuance as IssuanceEvent[] | undefined) ?? [];
+  const signalRows = (signals as CrossAssetSignalRow[] | undefined) ?? [];
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -106,95 +117,105 @@ export default function FIIntelligence() {
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
           Fixed Income Intelligence
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>Cross-asset signals, downgrade watchlist, and issuance intelligence</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>Cross-asset signals, credit market briefing, and issuance intelligence</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         {/* Cross-Asset Signals */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Cross-Asset Signals</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {liveSignals.map((s) => (
-              <div key={s.signal} style={{ padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{s.signal}</span>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: s.direction === 'Bearish' ? 'var(--color-signal-negative)' : s.direction === 'Bullish' ? 'var(--color-signal-positive)' : 'var(--color-text-secondary)' }}>{s.direction}</span>
+          {signalsLoading ? (
+            <p style={labelStyle}>Loading…</p>
+          ) : signalRows.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {signalRows.map((s) => (
+                <div key={s.id} style={{ padding: '8px', background: 'var(--color-surface-overlay)', borderRadius: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{s.signal_type ?? 'Signal'}</span>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', fontWeight: 600, color: s.severity === 'HIGH' ? 'var(--color-signal-negative)' : 'var(--color-text-secondary)' }}>{s.severity ?? '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{s.narrative ?? `${s.equity_return_pct ?? '—'}% equity vs ${formatBps(s.spread_change_bps)} spread`}</span>
+                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{s.signal_date}</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{s.detail}</span>
-                  <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-accent-primary)' }}>Strength: {s.strength.toFixed(1)}/10</span>
+              ))}
+            </div>
+          ) : (
+            <p style={labelStyle}>No cross-asset divergence signals recorded.</p>
+          )}
+        </div>
+
+        {/* Credit Market Briefing */}
+        <div style={panelStyle}>
+          <h2 style={sectionTitle}>Credit Market Briefing</h2>
+          {briefingsLoading ? (
+            <p style={labelStyle}>Loading…</p>
+          ) : latestBriefing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                <div>
+                  <div style={labelStyle}>Regime</div>
+                  <div style={{ ...dataStyle, fontWeight: 600 }}>{latestBriefing.credit_regime ?? '—'}</div>
+                </div>
+                <div>
+                  <div style={labelStyle}>Date</div>
+                  <div style={dataStyle}>{latestBriefing.briefing_date}</div>
+                </div>
+                <div>
+                  <div style={labelStyle}>IG OAS</div>
+                  <div style={dataStyle}>{latestBriefing.ig_oas_bps != null ? `${latestBriefing.ig_oas_bps.toFixed(0)}bps` : '—'} <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>({formatBps(latestBriefing.ig_oas_1w_change)} 1w)</span></div>
+                </div>
+                <div>
+                  <div style={labelStyle}>HY OAS</div>
+                  <div style={dataStyle}>{latestBriefing.hy_oas_bps != null ? `${latestBriefing.hy_oas_bps.toFixed(0)}bps` : '—'} <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-xs)' }}>({formatBps(latestBriefing.hy_oas_1w_change)} 1w)</span></div>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Fallen Angel Watch */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Fallen Angel Watch</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Issuer', 'Rating', 'Outlook', 'Prob %', 'Debt'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Issuer' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {liveFallenAngels.map((f) => (
-                <tr key={f.ticker} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <div style={{ fontWeight: 500 }}>{f.issuer}</div>
-                    <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{f.trigger}</div>
-                  </td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-warning)' }}>{f.rating}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: f.outlook === 'Negative' ? 'var(--color-signal-negative)' : 'var(--color-text-secondary)' }}>{f.outlook}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{f.probability}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.debt}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Earnings Surprise Chart */}
-        <div style={panelStyle}>
-          <EarningsSurpriseChart surprises={earningsSurprises} height={260} />
-        </div>
-
-        {/* Earnings Transcript Viewer */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Earnings Call Transcript</h2>
-          <TranscriptViewer
-            sections={transcriptSections}
-            toneScores={{ confidence: 72, hedging: 28, forwardLooking: 65 }}
-          />
+              {latestBriefing.narrative && (
+                <p style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', lineHeight: 1.5, margin: 0 }}>{latestBriefing.narrative}</p>
+              )}
+              <p style={labelStyle}>
+                {latestBriefing.fallen_angels_this_period || latestBriefing.rising_stars_this_period
+                  ? 'Rating-migration detail available in this briefing.'
+                  : 'No fallen-angel/rising-star rating migrations recorded this period.'}
+              </p>
+            </div>
+          ) : (
+            <p style={labelStyle}>No credit market briefing available.</p>
+          )}
         </div>
 
         {/* Issuance Intelligence */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
-          <h2 style={sectionTitle}>Issuance Intelligence</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Date', 'Issuer', 'Size', 'Tenor', 'Spread', 'Status'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Issuer' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {liveIssuanceIntel.map((d) => (
-                <tr key={d.issuer} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{d.date}</td>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.issuer}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.size}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.tenor}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.spread}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: d.status === 'Priced' ? 'var(--color-signal-positive)' : 'var(--color-signal-warning)' }}>{d.status}</td>
+          <h2 style={sectionTitle}>Issuance Intelligence — Today</h2>
+          {issuanceLoading ? (
+            <p style={labelStyle}>Loading…</p>
+          ) : issuanceEvents.length > 0 ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Date', 'Issuer', 'Size', 'Maturity', 'Coupon', 'Spread', 'Rating'].map((h) => (
+                    <th key={h} style={{ ...labelStyle, textAlign: h === 'Issuer' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {issuanceEvents.map((d) => (
+                  <tr key={d.id} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{d.issue_date}</td>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.entity_id ? d.entity_id.slice(0, 8) : '—'}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.size_mm != null ? `$${d.size_mm.toFixed(0)}mm` : '—'}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.maturity_date ?? '—'}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.coupon_rate != null ? `${d.coupon_rate.toFixed(3)}%` : '—'}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{formatBps(d.spread_at_issue_bps)}</td>
+                    <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{d.rating ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p style={labelStyle}>No new bond issuances recorded today.</p>
+          )}
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ snapshot per filing.
 
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -140,6 +140,55 @@ def strip_html(raw: str) -> str:
     return _HTML_TAG_RE.sub(" ", raw)
 
 
+# Optional-redemption ("call") clause detection — used to populate
+# ``CallPutSchedule`` when a matching traded security exists. Only ever
+# returns a date that is literally present in the filing text near the
+# instrument's mention; if no such clause is found, returns None rather
+# than guessing.
+_CALL_KEYWORDS_RE = re.compile(r"\b(callable|redeemable|redemption)\b", re.IGNORECASE)
+_ON_OR_AFTER_DATE_RE = re.compile(
+    r"on or after\s+"
+    r"((?:January|February|March|April|May|June|July|August|September"
+    r"|October|November|December)\s+\d{1,2},?\s+\d{4})",
+    re.IGNORECASE,
+)
+_CALL_SEARCH_WINDOW = 500
+
+
+def _try_parse_month_date(text: str) -> date | None:
+    for fmt in ("%B %d, %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(text.replace(",", ""), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def extract_call_date(text: str, instrument_name: str) -> date | None:
+    """Best-effort extraction of an optional-redemption ("callable on or
+    after <date>") clause near an instrument's mention in 10-K footnote
+    prose. Returns ``None`` (never a fabricated date) if the instrument's
+    maturity year can't be located in ``instrument_name``, or no call clause
+    with an explicit date is found within a short window after one of its
+    mentions in the text.
+    """
+    year_match = re.search(r"(\d{4})\s*$", instrument_name)
+    if not year_match:
+        return None
+    year = year_match.group(1)
+
+    for m in re.finditer(re.escape(year), text):
+        window = text[m.start(): m.start() + _CALL_SEARCH_WINDOW]
+        if not _CALL_KEYWORDS_RE.search(window):
+            continue
+        date_match = _ON_OR_AFTER_DATE_RE.search(window)
+        if date_match:
+            parsed = _try_parse_month_date(date_match.group(1))
+            if parsed:
+                return parsed
+    return None
+
+
 def parse_debt_instruments(text: str) -> list[dict[str, Any]]:
     """Parse individual debt-instrument descriptions from 10-K footnote text.
 
@@ -248,7 +297,12 @@ class EdgarCapitalStructureConnector(BaseConnector):
             tranches: list[dict[str, Any]] = []
             text = await self._fetch_latest_10k_text(cik)
             if text:
-                tranches = parse_debt_instruments(strip_html(text))
+                clean_text = strip_html(text)
+                tranches = parse_debt_instruments(clean_text)
+                for tranche in tranches:
+                    call_date = extract_call_date(clean_text, tranche["instrument_name"])
+                    if call_date is not None:
+                        tranche["first_call_date"] = call_date.isoformat()
 
             equity = aggregates.pop("_equity", None)
             total_debt = aggregates.get("total_debt")
@@ -345,8 +399,26 @@ class EdgarCapitalStructureConnector(BaseConnector):
     async def load(
         self, records: list[dict[str, Any]], session: AsyncSession
     ) -> dict[str, int]:
-        """Load capital structure records into the database."""
-        stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+        """Load capital structure records into the database.
+
+        Also attempts to resolve each ``DebtTranche`` to an existing
+        traded ``Security`` of the same issuer (matched on coupon rate +
+        maturity year — the only fields both sides genuinely share) and,
+        when a match is found, upserts ``FixedIncomeDetails`` (+
+        ``CallPutSchedule`` when a call date was extracted from the
+        footnote text). See module docstring / class docstring for why
+        this frequently finds no match in practice: no connector in this
+        codebase currently creates ``Security`` rows for corporate bonds
+        (OpenFIGI is ticker-driven and returns almost exclusively
+        equities), so the fixed-income side of the security master is
+        typically empty. The wiring is still correct and will start
+        populating rows automatically once a bond-CUSIP security-master
+        connector exists.
+        """
+        stats = {
+            "inserted": 0, "updated": 0, "skipped": 0, "errors": 0,
+            "fi_details_inserted": 0, "call_schedule_inserted": 0,
+        }
 
         for rec in records:
             try:
@@ -392,6 +464,15 @@ class EdgarCapitalStructureConnector(BaseConnector):
                     maturity_date_val = None
                     if maturity_year:
                         maturity_date_val = date(maturity_year, 12, 31)
+                    maturity_date = tranche_data.get("maturity_date", maturity_date_val)
+
+                    first_call_date = None
+                    raw_call_date = tranche_data.get("first_call_date")
+                    if raw_call_date:
+                        first_call_date = (
+                            date.fromisoformat(raw_call_date)
+                            if isinstance(raw_call_date, str) else raw_call_date
+                        )
 
                     tranche = DebtTranche(
                         entity_id=entity_id,
@@ -401,17 +482,126 @@ class EdgarCapitalStructureConnector(BaseConnector):
                         principal_amount=tranche_data.get("principal_amount"),
                         coupon_rate=tranche_data.get("coupon_rate"),
                         coupon_type=tranche_data.get("coupon_type", "FIXED"),
-                        maturity_date=tranche_data.get("maturity_date", maturity_date_val),
+                        maturity_date=maturity_date,
+                        first_call_date=first_call_date,
                         seniority_type=tranche_data.get("seniority_type"),
                     )
                     session.add(tranche)
+
+                    matched_security_id = await self._resolve_fi_security(
+                        session,
+                        entity_id=entity_id,
+                        coupon_rate=tranche_data.get("coupon_rate"),
+                        maturity_date=maturity_date,
+                    )
+                    if matched_security_id is not None:
+                        tranche.security_id = matched_security_id
+                        fi_inserted = await self._upsert_fixed_income_details(
+                            session, security_id=matched_security_id, tranche_data=tranche_data,
+                        )
+                        stats["fi_details_inserted"] += fi_inserted
+                        if first_call_date is not None:
+                            cp_inserted = await self._upsert_call_schedule(
+                                session,
+                                security_id=matched_security_id,
+                                effective_date=first_call_date,
+                            )
+                            stats["call_schedule_inserted"] += cp_inserted
 
                 stats["inserted"] += 1
             except Exception as e:
                 logger.error("Error loading capital structure: %s", e)
                 stats["errors"] += 1
 
+        await session.flush()
         return stats
+
+    @staticmethod
+    async def _resolve_fi_security(
+        session: AsyncSession,
+        *,
+        entity_id: Any,
+        coupon_rate: float | None,
+        maturity_date: date | None,
+    ):
+        """Match a debt tranche to an existing traded FI Security of the same
+        issuer, by comparing coupon rate + maturity year — the only two
+        fields genuinely present on both a 10-K-derived tranche and a
+        security-master row. Returns ``None`` (no fabricated link) unless
+        both fields are present on the tranche and exactly one candidate
+        matches within tolerance.
+        """
+        if coupon_rate is None or maturity_date is None:
+            return None
+        from src.models.security import Security
+
+        candidates = (
+            await session.execute(
+                select(Security.security_id, Security.maturity_date).where(
+                    Security.issuer_entity_id == entity_id,
+                    Security.asset_class == "FIXED_INCOME",
+                    Security.maturity_date.is_not(None),
+                )
+            )
+        ).all()
+        matches = [
+            sec_id for sec_id, sec_maturity in candidates
+            if sec_maturity.year == maturity_date.year
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    @staticmethod
+    async def _upsert_fixed_income_details(
+        session: AsyncSession, *, security_id: Any, tranche_data: dict[str, Any]
+    ) -> int:
+        """Upsert FixedIncomeDetails from a matched debt tranche's real terms."""
+        from src.models.security import FixedIncomeDetails
+
+        existing = await session.get(FixedIncomeDetails, security_id)
+        fields = {
+            "face_value": tranche_data.get("principal_amount"),
+            "coupon_rate": tranche_data.get("coupon_rate"),
+            "coupon_type": tranche_data.get("coupon_type"),
+            "reference_rate": tranche_data.get("floating_reference"),
+            "spread": tranche_data.get("floating_spread"),
+            "seniority": tranche_data.get("seniority_type"),
+            "collateral_type": tranche_data.get("collateral_description"),
+            "has_financial_covenants": tranche_data.get("has_financial_covenants", False),
+            "has_cross_default": tranche_data.get("has_cross_default", False),
+        }
+        if existing is None:
+            session.add(FixedIncomeDetails(security_id=security_id, **fields))
+            return 1
+        for key, value in fields.items():
+            if value is not None:
+                setattr(existing, key, value)
+        return 0
+
+    @staticmethod
+    async def _upsert_call_schedule(
+        session: AsyncSession, *, security_id: Any, effective_date: date
+    ) -> int:
+        """Insert a CallPutSchedule CALL row if one doesn't already exist."""
+        from src.models.security import CallPutSchedule
+
+        existing = await session.execute(
+            select(CallPutSchedule).where(
+                CallPutSchedule.security_id == security_id,
+                CallPutSchedule.schedule_type == "CALL",
+                CallPutSchedule.effective_date == effective_date,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return 0
+        session.add(CallPutSchedule(
+            security_id=security_id,
+            schedule_type="CALL",
+            effective_date=effective_date,
+            notes="Extracted from 10-K debt footnote optional-redemption clause",
+        ))
+        return 1
 
     async def close(self) -> None:
         """Close HTTP client."""

@@ -450,3 +450,86 @@ async def test_competitive_computed_from_fundamentals(client: AsyncClient, sessi
     assert conc.status_code == 200
     # The seeded 35% customer relationship is reflected.
     assert conc.json()["customer_top1_pct"] == 35.0
+
+
+# ── Previously-missing endpoints: SWOT / Porter's Five Forces / supply chain
+
+
+@pytest.mark.asyncio
+async def test_get_swot_404_no_data(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/competitive/{uuid.uuid4()}/swot")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_swot_real_signals(client: AsyncClient, session: AsyncSession):
+    """GET /v3/competitive/{entity_id}/swot derives real bullets from
+    already-computed moat/concentration signals, each grounded in a real
+    metric+value, not a fabricated judgment."""
+    entities = await _seed_competitive_universe(session, n=3)
+    eid = entities[0].entity_id
+    # Trigger moat/concentration computation first (same as the sibling test).
+    moat_resp = await client.get(f"/v3/competitive/{eid}/moat")
+    assert moat_resp.status_code == 200
+
+    resp = await client.get(f"/v3/competitive/{eid}/swot")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["signals_available"] > 0
+    all_items = data["strengths"] + data["weaknesses"] + data["opportunities"] + data["threats"]
+    for item in all_items:
+        assert item["metric"]
+        assert item["value"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_porter_forces_404_no_data(client: AsyncClient, session: AsyncSession):
+    resp = await client.get(f"/v3/competitive/{uuid.uuid4()}/porter-forces")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_porter_forces_real_signals(client: AsyncClient, session: AsyncSession):
+    """GET /v3/competitive/{entity_id}/porter-forces returns real,
+    quantitatively-derived force scores from concentration/moat signals."""
+    entities = await _seed_competitive_universe(session, n=3)
+    eid = entities[0].entity_id
+    moat_resp = await client.get(f"/v3/competitive/{eid}/moat")
+    assert moat_resp.status_code == 200
+
+    resp = await client.get(f"/v3/competitive/{eid}/porter-forces")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["forces"]) == 5
+    assert data["data_completeness"] > 0.0
+    names = {f["name"] for f in data["forces"]}
+    assert names == {
+        "supplier_power", "buyer_power", "competitive_rivalry",
+        "substitute_threat", "new_entrant_threat",
+    }
+    # The seeded 35% customer concentration should drive a non-trivial buyer-power score.
+    buyer_power = next(f for f in data["forces"] if f["name"] == "buyer_power")
+    assert buyer_power["score"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_supply_chain_404_no_relationships(client: AsyncClient, session: AsyncSession):
+    entity = await _seed_entity(session)
+    resp = await client.get(f"/v3/competitive/{entity.entity_id}/supply-chain")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_supply_chain_real_relationships(client: AsyncClient, session: AsyncSession):
+    """GET /v3/competitive/{entity_id}/supply-chain returns real
+    BusinessRelationship rows, not a placeholder."""
+    entities = await _seed_competitive_universe(session, n=3)
+    eid = entities[0].entity_id
+
+    resp = await client.get(f"/v3/competitive/{eid}/supply-chain")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["customers"]) == 1
+    assert data["customers"][0]["entity_id"] == str(entities[1].entity_id)
+    assert data["customers"][0]["revenue_percentage"] == 35.0
+    assert data["suppliers"] == []

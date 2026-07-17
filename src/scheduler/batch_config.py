@@ -53,14 +53,33 @@ BATCH_JOBS: list[BatchJob] = [
         domain="D3",
         description="Poll SEC EDGAR for new XBRL filings.",
     ),
+    BatchJob(
+        name="segments_ingest",
+        cron="0 */4 * * *",  # every 4 hours
+        script="scripts/ingest_segments.py",
+        sla_minutes=120,
+        domain="D3",
+        description=(
+            "SEC EDGAR XBRL company-facts dimensional segment members -> "
+            "segment_data (business/geographic revenue+income+assets). Was a "
+            "real, tested connector class with no script entry point at all "
+            "(Makefile's ingest-segments target pointed at a nonexistent "
+            "module) — now wired end-to-end."
+        ),
+    ),
     # ── Corporate Actions (D5) ────────────────────────────────────────
     BatchJob(
-        name="edgar_8k_ingest",
-        cron="*/15 * * * *",
+        name="corporate_actions_ingest",
+        cron="0 6 * * *",  # 6 AM daily
         script="scripts/ingest_corporate_actions.py",
         sla_minutes=120,
         domain="D5",
-        description="Poll SEC EDGAR for 8-K corporate event filings.",
+        description=(
+            "Dividends + splits from Polygon.io -> corporate_actions/"
+            "dividend_actions/split_actions, with real ex/record/pay dates "
+            "(replaces the prior Edgar8KConnector wiring, which actually "
+            "wrote to the unrelated eight_k_events table)."
+        ),
     ),
     # ── Ownership (D6) ────────────────────────────────────────────────
     BatchJob(
@@ -159,6 +178,426 @@ BATCH_JOBS: list[BatchJob] = [
         sla_minutes=60,
         domain="ALL",
         description="Run data quality checks across all domains.",
+    ),
+    # ── Fixed Income (D2 supplement — real connectors existed but were
+    #    never scheduled; DATA_WIRING_AUDIT.md §4.3/§5.3 flagged both as
+    #    "stub extract()" from a stale read — load() was fixed, just never
+    #    wired here) ────────────────────────────────────────────────────
+    BatchJob(
+        name="treasury_yield_curve_ingest",
+        cron="30 18 * * 1-5",  # 6:30 PM ET weekdays (after EOD prices)
+        script="scripts/ingest_treasury_curve.py",
+        sla_minutes=30,
+        domain="FI",
+        description="Daily US Treasury nominal yield curve from FRED (keyless-ish, FRED_API_KEY).",
+    ),
+    BatchJob(
+        name="credit_spreads_ingest",
+        cron="30 18 * * 1-5",  # 6:30 PM ET weekdays
+        script="scripts/ingest_credit_spreads.py",
+        sla_minutes=30,
+        domain="FI",
+        description="BofA/ICE OAS credit spread indices from FRED.",
+    ),
+    BatchJob(
+        name="fi_market_briefings",
+        cron="0 19 * * 1-5",  # 7 PM ET weekdays (after curve + spreads)
+        script="scripts/generate_fi_briefings.py",
+        sla_minutes=15,
+        domain="FI",
+        description="Compute + persist FIMarketBriefing (yield-curve + credit) from real FRED data.",
+        depends_on=("treasury_yield_curve_ingest", "credit_spreads_ingest"),
+    ),
+    BatchJob(
+        name="money_market_ingest",
+        cron="45 18 * * 1-5",  # 6:45 PM ET weekdays
+        script="scripts/ingest_money_market.py",
+        sla_minutes=30,
+        domain="FI",
+        description=(
+            "SOFR / effective + target fed funds / T-bill / commercial paper "
+            "/ prime rates from FRED (reuses FRED_API_KEY) -> "
+            "money_market_rates. extract() was previously a stub returning "
+            "[]; now mirrors the fred_credit_spreads.py pattern."
+        ),
+    ),
+    BatchJob(
+        name="treasury_securities_ingest",
+        cron="0 7 * * *",  # 7 AM daily
+        script="scripts/ingest_treasury_securities.py",
+        sla_minutes=60,
+        domain="FI",
+        description="US Treasury marketable securities (Fiscal Data API, keyless) -> treasury_securities.",
+    ),
+    BatchJob(
+        name="capital_structure_ingest",
+        cron="0 5 * * *",  # 5 AM daily
+        script="scripts/ingest_capital_structure.py",
+        sla_minutes=240,
+        domain="FI",
+        description=(
+            "SEC EDGAR 10-K XBRL debt aggregates + footnote-parsed debt "
+            "tranches -> capital_structures/debt_tranches, plus (when a "
+            "matching traded FI security exists) fixed_income_details / "
+            "call_put_schedule."
+        ),
+    ),
+    BatchJob(
+        name="credit_ratings_ingest",
+        cron="15 5 * * *",  # 5:15 AM daily
+        script="scripts/ingest_credit_ratings.py",
+        sla_minutes=240,
+        domain="FI",
+        description=(
+            "SEC EDGAR 8-K rating-agency mentions -> credit_rating_events, "
+            "plus (when a rating was actually extracted) security-level "
+            "credit_ratings for the issuer's fixed-income securities."
+        ),
+    ),
+    # ── Pillar 1 Supplement: Executives + Macro Policy (real, tested
+    #    connectors that were only reachable via manual `make` targets —
+    #    the same "orphaned engine" pattern already fixed for Pillar 3) ──
+    BatchJob(
+        name="executives_ingest",
+        cron="0 7 * * 3",  # Wednesday 7 AM
+        script="scripts/ingest_executives.py",
+        sla_minutes=1440,
+        domain="P1S",
+        description="SEC EDGAR ownership filings -> executives/directors.",
+    ),
+    BatchJob(
+        name="fomc_meetings_ingest",
+        cron="20 5 * * *",  # 5:20 AM daily
+        script="scripts/ingest_fomc.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="FOMC rate decisions derived from FRED target-range series (reuses FRED_API_KEY).",
+    ),
+    BatchJob(
+        name="central_bank_policy_ingest",
+        cron="25 5 * * *",  # 5:25 AM daily
+        script="scripts/ingest_central_bank.py",
+        sla_minutes=30,
+        domain="P1S",
+        description=(
+            "Central-bank policy decisions (Fed/ECB/BOE) derived from FRED "
+            "policy-rate series. ECB/BOE series are present but, per the "
+            "connector's own docs, not yet validated against live payloads."
+        ),
+    ),
+    # ── Pillar 1 Supplement: Rollups (pure computation over already-
+    #    ingested data, no external calls — same orphaned pattern) ──────
+    BatchJob(
+        name="ownership_summary_compute",
+        cron="0 8 * * *",  # 8 AM daily (after 13F/Form4/short-interest ingest)
+        script="scripts/compute_ownership_summary.py",
+        sla_minutes=60,
+        domain="P1S",
+        description="Rolls up InstitutionalHolding/InsiderHolding/ShortInterest -> ownership_summaries.",
+        depends_on=("edgar_13f_ingest",),
+    ),
+    BatchJob(
+        name="technical_studies_compute",
+        cron="30 19 * * 1-5",  # 7:30 PM ET weekdays (after EOD prices)
+        script="scripts/compute_technicals.py",
+        sla_minutes=60,
+        domain="P1S",
+        description="Computes technical indicators from EODPrice history -> technical_study_values.",
+        depends_on=("polygon_eod_ingest",),
+    ),
+    BatchJob(
+        name="esg_temperature_compute",
+        cron="15 7 * * 1",  # Monday 7:15 AM (after weekly ESG ingest)
+        script="scripts/compute_esg_temperature.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="Paris-alignment ESG implied-temperature scoring -> esg_temperature_scores.",
+        depends_on=("esg_ingest",),
+    ),
+    BatchJob(
+        name="debt_maturity_compute",
+        cron="30 5 * * *",  # 5:30 AM daily (after capital structure ingest)
+        script="scripts/compute_debt_maturity.py",
+        sla_minutes=30,
+        domain="P1S",
+        description="Buckets debt_tranches by maturity year -> debt_maturity_profiles/maturity_buckets.",
+        depends_on=("capital_structure_ingest",),
+    ),
+    # ── Pillar 3: Intelligence (added in 924e640, never scheduled —
+    #    all keyless/free sources except earnings, which reuses
+    #    FINNHUB_API_KEY) ────────────────────────────────────────────────
+    BatchJob(
+        name="proxy_governance_ingest",
+        cron="0 6 * * 2",  # Tuesday 6 AM
+        script="scripts/ingest_proxy.py",
+        sla_minutes=1440,
+        domain="P3",
+        description="SEC DEF 14A proxy filings -> proxy_filings/board_members/executive_compensation/shareholder_proposals.",
+    ),
+    BatchJob(
+        name="form4_insiders_ingest",
+        cron="0 7 * * *",  # 7 AM daily
+        script="scripts/ingest_form4.py",
+        sla_minutes=240,
+        domain="P3",
+        description="SEC Form 4 -> insider_holdings + insider_transactions_p3 + insider_signals.",
+    ),
+    BatchJob(
+        name="econ_calendar_ingest",
+        cron="0 5 * * *",  # 5 AM daily
+        script="scripts/ingest_econ_calendar.py",
+        sla_minutes=30,
+        domain="P3",
+        description="FRED economic-release calendar -> economic_releases.",
+    ),
+    BatchJob(
+        name="commodities_ingest",
+        cron="0 6 * * 1-5",  # 6 AM weekdays
+        script="scripts/ingest_commodities.py",
+        sla_minutes=30,
+        domain="P3",
+        description="FRED commodity prices -> commodity_profiles/commodity_prices.",
+    ),
+    BatchJob(
+        name="eia_commodity_inventory_ingest",
+        cron="30 10 * * 3",  # Wednesday 10:30 AM ET, after EIA's Wed AM petroleum
+                              # status + natural gas storage report releases
+        script="scripts/ingest_eia_commodity_inventory.py",
+        sla_minutes=30,
+        domain="P3",
+        description=(
+            "EIA weekly US petroleum/natural-gas stock levels (WTI, GASOLINE, "
+            "NATGAS) -> commodity_inventories. Real supply/demand data source "
+            "for GET /global/commodities/{code}/supply-demand (R-023 fix) -- "
+            "requires EIA_API_KEY (free)."
+        ),
+    ),
+    BatchJob(
+        name="legislative_bills_ingest",
+        cron="0 8 * * *",  # 8 AM daily
+        script="scripts/ingest_legislative_bills.py",
+        sla_minutes=30,
+        domain="P3",
+        description="GovInfo bills RSS (keyless) -> legislative_bills.",
+    ),
+    BatchJob(
+        name="regulatory_actions_ingest",
+        cron="15 8 * * *",  # 8:15 AM daily
+        script="scripts/ingest_regulatory_actions.py",
+        sla_minutes=30,
+        domain="P3",
+        description="Federal Register API (keyless) -> regulatory_actions.",
+    ),
+    BatchJob(
+        name="sanctions_ingest",
+        cron="0 9 * * 1",  # Monday 9 AM — SDN list changes infrequently
+        script="scripts/ingest_sanctions.py",
+        sla_minutes=60,
+        domain="P3",
+        description="OFAC SDN sanctions list (keyless CSV) -> sanctions_entries.",
+    ),
+    BatchJob(
+        name="country_risk_ingest",
+        cron="0 10 * * 1",  # Monday 10 AM — World Bank annual series
+        script="scripts/ingest_country_risk.py",
+        sla_minutes=60,
+        domain="P3",
+        description="World Bank indicators (keyless) -> non-US global_macro_indicators, country_profiles, country_risk_scores.",
+    ),
+    BatchJob(
+        name="geopolitical_events_ingest",
+        cron="0 */6 * * *",  # every 6 hours
+        script="scripts/ingest_geopolitical.py",
+        sla_minutes=30,
+        domain="P3",
+        description="GDELT 2.0 (keyless, IP-throttled) -> geopolitical_events.",
+    ),
+    BatchJob(
+        name="filing_diff_ingest",
+        cron="0 6 * * 3",  # Wednesday 6 AM
+        script="scripts/ingest_filing_diff.py",
+        sla_minutes=1440,
+        domain="P3",
+        description="Section-level 10-K/10-Q diffs from EDGAR -> filing_sections/filing_diffs.",
+    ),
+    BatchJob(
+        name="earnings_surprises_ingest",
+        cron="30 7 * * *",  # 7:30 AM daily
+        script="scripts/ingest_earnings.py",
+        sla_minutes=240,
+        domain="P3",
+        description=(
+            "Finnhub actual-vs-consensus EPS -> earnings_surprises/estimate_surprises. "
+            "Forward consensus estimates/guidance are NOT covered — Finnhub free tier "
+            "403s on /stock/price-target and /stock/eps-estimate (needs a premium plan "
+            "or another provider)."
+        ),
+    ),
+    # ── Pillar 3: News + Sentiment (resumable, bounded per-run — safe to
+    #    fire frequently; each pass picks up where the last left off via
+    #    ingestion_progress) ───────────────────────────────────────────
+    BatchJob(
+        name="news_backfill",
+        cron="*/15 * * * *",  # every 15 min
+        script="scripts/backfill_news.py --batch-size 20 --max-minutes 8 --days 30",
+        sla_minutes=15,
+        domain="P3",
+        description="Resumable Finnhub company-news backfill -> news_articles/article_entity_links.",
+    ),
+    BatchJob(
+        name="sentiment_compute",
+        cron="0 * * * *",  # hourly
+        script="scripts/compute_sentiment.py --max-minutes 10",
+        sla_minutes=15,
+        domain="P3",
+        description="Score ingested news into sentiment_scores + roll up sentiment_aggregates (no LLM required).",
+        depends_on=("news_backfill",),
+    ),
+    BatchJob(
+        name="theme_scores_compute",
+        cron="0 7 * * *",  # 7 AM daily (after fundamentals/EOD prices settle)
+        script="scripts/compute_theme_scores.py",
+        sla_minutes=30,
+        domain="P3",
+        description=(
+            "Compute macro_theme_scores (GDP/inflation/rates/oil exposure per entity) "
+            "from real GICS-sector sensitivity -- pure local computation, no external calls."
+        ),
+    ),
+    # ── Pillar 3 Data-Source Build-Out (previously "no data source chosen"
+    #    gaps -- see CONNECTING_TO_REAL_DATA.md for setup/API-key details.
+    #    All flagged FLAG — UNTESTED AGAINST LIVE DATA in their module
+    #    docstrings: written to-pattern against each source's documented
+    #    shape, unit-tested against synthetic fixtures, never exercised
+    #    against a live response in this sandbox (outbound network access
+    #    is blocked here). Validate against real payloads before relying on
+    #    these in production. NOTE: FINRA TRACE is deliberately NOT
+    #    scheduled here -- it ingests a local bulk-dissemination file a
+    #    human must obtain via registration; see
+    #    scripts/ingest_finra_trace.py and CONNECTING_TO_REAL_DATA.md. ────
+    BatchJob(
+        name="esg_controversies_ingest",
+        cron="30 6 * * 1",  # Monday 6:30 AM (after esg_ingest)
+        script="scripts/ingest_esg_controversies.py",
+        sla_minutes=240,
+        domain="P3",
+        description=(
+            "ESG controversies via GDELT DOC 2.0 API (keyless) -- keyword+tone "
+            "heuristic classification into controversy_type/severity, an "
+            "explicitly-documented proxy, not an authoritative RepRisk/MSCI-style "
+            "rating. Optional ESG_CONTROVERSY_FEED_URL overrides with a paid feed."
+        ),
+    ),
+    BatchJob(
+        name="esg_environmental_ingest",
+        cron="40 6 * * 1",  # Monday 6:40 AM (after esg_controversies_ingest)
+        script="scripts/ingest_esg_environmental.py",
+        sla_minutes=240,
+        domain="P3",
+        description=(
+            "Environmental/social ESG scores from 10-K disclosure text (GHG, "
+            "renewable %, diversity, safety), a documented deterministic proxy "
+            "-- not an authoritative score. Optional EPA Envirofacts GHGRP "
+            "enrichment (keyless, EPA_ENVIROFACTS_BASE_URL)."
+        ),
+    ),
+    BatchJob(
+        name="bond_issuances_ingest",
+        cron="0 5 * * *",  # 5 AM daily (alongside capital_structure_ingest)
+        script="scripts/ingest_bond_issuances.py",
+        sla_minutes=240,
+        domain="FI",
+        description=(
+            "Primary-market bond issuances via SEC EDGAR full-text search over "
+            "424B2/424B3/424B5/FWP filings, regex pricing-term extraction "
+            "(coupon/maturity/size/bookrunners). Optional BOND_ISSUANCES_FEED_URL "
+            "overrides with a paid new-issue-monitor feed."
+        ),
+    ),
+    BatchJob(
+        name="agency_bonds_ingest",
+        cron="10 5 * * *",  # 5:10 AM daily
+        script="scripts/ingest_agency_bonds.py",
+        sla_minutes=60,
+        domain="FI",
+        description=(
+            "Agency/GSE bonds from FHLB Office of Finance consolidated-"
+            "obligation data (FHLB_OF_DATA_URL, CSV/JSON auto-detected). "
+            "Optional AGENCY_BONDS_FEED_URL overrides with a paid feed."
+        ),
+    ),
+    BatchJob(
+        name="consensus_estimates_ingest",
+        cron="0 6 * * *",  # 6 AM daily
+        script="scripts/ingest_consensus_estimates.py",
+        sla_minutes=60,
+        domain="P3",
+        description=(
+            "Forward consensus EPS/revenue estimates from Alpha Vantage "
+            "(ALPHA_VANTAGE_API_KEY; free tier is 25 requests/day -- default "
+            "--limit keeps each run within that cap). Fills the gap left by "
+            "Finnhub's free tier 403ing on /stock/eps-estimate."
+        ),
+    ),
+    BatchJob(
+        name="guidance_tracking_ingest",
+        cron="45 7 * * *",  # 7:45 AM daily (after earnings_surprises_ingest)
+        script="scripts/ingest_guidance.py",
+        sla_minutes=240,
+        domain="P3",
+        description=(
+            "Management guidance figures extracted from SEC EDGAR 8-K Item "
+            "2.02 filing bodies (regex range/point extraction), with an "
+            "optional best-effort Claude augmentation pass when "
+            "ANTHROPIC_API_KEY is configured."
+        ),
+        depends_on=("earnings_surprises_ingest",),
+    ),
+    BatchJob(
+        name="subsidiaries_ingest",
+        cron="0 6 * * 3",  # Wednesday 6 AM (alongside filing_diff_ingest cadence)
+        script="scripts/ingest_subsidiaries.py",
+        sla_minutes=1440,
+        domain="P3",
+        description=(
+            "SEC Exhibit 21 (subsidiary list) filings -> subsidiaries, feeding "
+            "the complex_structure engine's org-tree analysis. EX-21 is filed "
+            "annually alongside the 10-K, hence the weekly rather than daily "
+            "cadence."
+        ),
+    ),
+    # ── Pillar 4: Portfolio Backtesting ───────────────────────────────
+    BatchJob(
+        name="backtest_worker",
+        cron="*/15 * * * *",  # every 15 min
+        script="scripts/run_backtest_worker.py",
+        sla_minutes=30,
+        domain="P4",
+        description=(
+            "Advances PENDING BacktestRun rows (from POST /v1/analytics/backtest) "
+            "to COMPLETED/FAILED: runs the strategy through the real screening "
+            "engine, weights the basket, simulates it day-by-day against stored "
+            "EOD prices, and persists a BacktestResult. Run bare (no CLI args) "
+            "so it drains the pending queue and exits each invocation, per "
+            "run_scheduler.py's no-args subprocess convention."
+        ),
+    ),
+    BatchJob(
+        name="performance_snapshot_backfill",
+        cron="0 22 * * 1-5",  # 10 PM ET weekdays (after NAV/EOD prices settle)
+        script="scripts/backfill_performance_snapshots.py",
+        sla_minutes=60,
+        domain="P4",
+        description=(
+            "Derives historical DAILY (since-inception-to-date) + MONTHLY "
+            "(single-month) PerformanceSnapshot rows from each portfolio's "
+            "existing NAVSnapshot history -- pure local re-derivation via "
+            "performance_engine.build_performance_summary(), no external "
+            "calls. Fixes GET .../returns/calendar and .../returns/rolling "
+            "returning empty grids for portfolios whose NAV history predates "
+            "the live per-request DAILY snapshot write path, or that are "
+            "rarely queried."
+        ),
     ),
 ]
 

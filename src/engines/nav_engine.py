@@ -157,6 +157,12 @@ def compute_daily_return(
     Formula: (NAV_today - NAV_yesterday - cash_flows) /
              (NAV_yesterday + 0.5 * cash_flows)
     """
+    if nav_yesterday <= 0.0:
+        # Unlike cash_balance (which can legitimately go negative from
+        # margin debit), a prior-day NAV of <= 0 is not a valid baseline —
+        # dividing by it would flip the sign of the result. Treat this as
+        # "can't compute", same as the zero-denominator case below.
+        return 0.0
     denominator = nav_yesterday + 0.5 * cash_flows_today
     if denominator == 0.0:
         return 0.0

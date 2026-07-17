@@ -12,6 +12,13 @@ import math
 from dataclasses import dataclass
 from functools import reduce
 
+# Newton-Raphson search bounds for MWR/IRR. -99% floors out at "lost almost
+# everything"; +1000% ceilings guard against the solver diverging/oscillating
+# into an absurd rate when cash-flow data is malformed (a data-entry error,
+# not a real return, would otherwise blow up the compounding math downstream).
+MWR_MIN_RATE = -0.99
+MWR_MAX_RATE = 10.0
+
 
 # ── Dataclasses ─────────────────────────────────────────────────────────
 
@@ -92,14 +99,14 @@ def compute_mwr(
     if not cash_flows:
         return 0.0
 
-    max_t = max(cf["date_offset"] for cf in cash_flows)
+    max_t = max(cf.get("date_offset", 0) for cf in cash_flows)
     # The terminal date is at least horizon_days or the max cash flow offset
     terminal_t = max(max_t, horizon_days)
     if terminal_t <= 0:
         return 0.0
 
     # Build full list: cash flows + final value as positive terminal flow
-    all_flows = [(cf["date_offset"], cf["amount"]) for cf in cash_flows]
+    all_flows = [(cf.get("date_offset", 0), cf["amount"]) for cf in cash_flows]
     all_flows.append((terminal_t, final_value))
 
     r = 0.05  # initial guess
@@ -122,7 +129,7 @@ def compute_mwr(
         r_new = r - npv / dnpv
 
         # Clamp to reasonable range
-        r_new = max(-0.99, min(r_new, 10.0))
+        r_new = max(MWR_MIN_RATE, min(r_new, MWR_MAX_RATE))
 
         if abs(r_new - r) < tolerance:
             return r_new

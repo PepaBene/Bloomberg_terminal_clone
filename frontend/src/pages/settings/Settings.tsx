@@ -1,18 +1,27 @@
 // ---------------------------------------------------------------------------
-// Settings — User Preferences, API Keys, Notifications, Theme
+// Settings — User Preferences, Data Connections, Notifications, Theme
+//
+// Honesty pass (DATA_WIRING_AUDIT §8.1): there is no user-profile / api-key
+// backend (auth is JWT-only: register/token/me). The previous version POSTed to
+// nonexistent /v1/auth/profile + /v1/auth/api-keys and rendered fabricated
+// masked API keys with a fake "Connected" status. Those are removed:
+//   - Display prefs, theme and notification toggles are now honestly LOCAL
+//     (session-scoped UI state), not pretend-persisted to a missing endpoint.
+//   - The Data Connections panel documents how each source is configured
+//     (server-side env vars) instead of showing invented keys/status.
+//   - Custom Classifications is wired to the REAL GET /v1/classifications
+//     (custom_classifications.py) with an honest empty state.
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { AUTH, CUSTOM_CLASSIFICATIONS } from '@/api/endpoints';
 import { useCustomClassifications } from '@/hooks';
 
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
 const dataStyle: React.CSSProperties = { fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' };
-
 const rowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' };
+const noteStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', margin: '10px 0 0 0' };
+
 const preferences = [
   { label: 'Default Date Range', value: '1Y' },
   { label: 'Compact Mode', value: 'Off' },
@@ -30,11 +39,16 @@ const notifications = [
   { label: 'Email Digest', enabled: false },
 ];
 
-const apiKeys = [
-  { name: 'SEC EDGAR', status: 'Connected', key: 'edgar_****_9b1c' },
-  { name: 'Federal Reserve (FRED)', status: 'Connected', key: 'fred_****_4d8e' },
-  { name: 'Polygon.io', status: 'Connected', key: 'poly_****_3a7f' },
-  { name: 'OpenFIGI', status: 'Connected', key: 'figi_****_8c2d' },
+// Data sources are configured server-side via environment variables (see
+// CONNECTING_TO_REAL_DATA.md / .env.example). There is no API-key management
+// endpoint, so we describe the configuration mechanism rather than invent keys.
+const dataSources = [
+  { name: 'SEC EDGAR', envVar: 'EDGAR_USER_AGENT', note: 'Filings, fundamentals, ownership' },
+  { name: 'Federal Reserve (FRED)', envVar: 'FRED_API_KEY', note: 'Macro indicators, yield curve, spreads' },
+  { name: 'Polygon.io', envVar: 'POLYGON_API_KEY', note: 'End-of-day equity prices' },
+  { name: 'OpenFIGI', envVar: 'OPENFIGI_API_KEY', note: 'Security master / identifiers' },
+  { name: 'Finnhub', envVar: 'FINNHUB_API_KEY', note: 'News, earnings actuals' },
+  { name: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY', note: 'AI narratives / research' },
 ];
 
 const THEME_OPTIONS = ['Dark (Default)', 'Light', 'System'] as const;
@@ -45,38 +59,21 @@ const THEME_CSS_MAP: Record<string, Record<string, string>> = {
   'System':         {},
 };
 
-const MOCK_CLASSIFICATIONS = [
-  { id: 'cls-1', name: 'Core Holdings', description: 'Long-term strategic positions', entityCount: 12 },
-  { id: 'cls-2', name: 'Watchlist - Potential', description: 'Securities under evaluation', entityCount: 8 },
-  { id: 'cls-3', name: 'Income Focus', description: 'Dividend and yield-oriented', entityCount: 15 },
-  { id: 'cls-4', name: 'High Risk', description: 'Speculative or volatile positions', entityCount: 5 },
-];
+interface ClassificationDTO {
+  classification_id: string;
+  name: string;
+  description?: string | null;
+  members?: unknown[];
+}
 
 export default function Settings() {
-  const { data: apiClassifications } = useCustomClassifications() as { data: any };
-  const classifications = (apiClassifications as any[]) ?? MOCK_CLASSIFICATIONS;
+  const { data: apiClassifications, isLoading: loadingClassifications } =
+    useCustomClassifications() as { data: { data?: ClassificationDTO[] } | undefined; isLoading: boolean };
+  const classifications: ClassificationDTO[] = apiClassifications?.data ?? [];
 
-  const { data: apiProfile } = useQuery({ queryKey: ['auth', 'profile'], queryFn: () => api.get(AUTH.profile), retry: 0 }) as { data: any };
-  const { data: apiKeysData, refetch: refetchKeys } = useQuery({ queryKey: ['auth', 'apiKeys'], queryFn: () => api.get(AUTH.apiKeys), retry: 0 }) as { data: any; refetch: any };
-
-  // Merge API profile preferences with mock fallback
-  const mergedPreferences = preferences.map((p) => ({
-    ...p,
-    value: apiProfile?.preferences?.[p.label] ?? p.value,
-  }));
-
-  // Merge API notification settings with mock fallback
-  const mergedNotifications = notifications.map((n) => ({
-    ...n,
-    enabled: apiProfile?.notifications?.[n.label] ?? n.enabled,
-  }));
-
-  // Merge API keys with mock fallback
-  const mergedApiKeys: typeof apiKeys = (apiKeysData?.keys ?? apiKeysData) ?? apiKeys;
-
-  const [activeTheme, setActiveTheme] = useState<string>(() => apiProfile?.theme ?? 'Dark (Default)');
-  const [notifState, setNotifState] = useState(() =>
-    Object.fromEntries(mergedNotifications.map((n) => [n.label, n.enabled])),
+  const [activeTheme, setActiveTheme] = useState<string>('Dark (Default)');
+  const [notifState, setNotifState] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(notifications.map((n) => [n.label, n.enabled])),
   );
 
   const handleThemeChange = useCallback((theme: string) => {
@@ -88,28 +85,15 @@ export default function Settings() {
       });
     } else {
       // System: remove overrides so OS preference applies
-      Object.keys(THEME_CSS_MAP['Dark (Default)']).forEach((prop) => {
+      Object.keys(THEME_CSS_MAP['Dark (Default)'] ?? {}).forEach((prop) => {
         document.documentElement.style.removeProperty(prop);
       });
     }
-    // Persist theme to API
-    api.post(AUTH.updateProfile, { theme }).catch(() => {});
   }, []);
 
   const toggleNotification = useCallback((label: string) => {
-    setNotifState((prev) => {
-      const updated = { ...prev, [label]: !prev[label] };
-      // Persist notification preferences to API
-      api.post(AUTH.updateProfile, { notifications: updated }).catch(() => {});
-      return updated;
-    });
+    setNotifState((prev) => ({ ...prev, [label]: !prev[label] }));
   }, []);
-
-  const handleRevokeKey = useCallback((keyId: string) => {
-    api.delete(AUTH.revokeApiKey(keyId)).then(() => {
-      refetchKeys();
-    }).catch(() => {});
-  }, [refetchKeys]);
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -120,7 +104,7 @@ export default function Settings() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Display Preferences</h2>
-          {mergedPreferences.map((p) => (
+          {preferences.map((p) => (
             <div key={p.label} style={rowStyle}>
               <span style={labelStyle}>{p.label}</span>
               <span style={{ ...dataStyle, fontSize: 'var(--text-sm)' }}>{p.value}</span>
@@ -143,11 +127,12 @@ export default function Settings() {
               ))}
             </div>
           </div>
+          <p style={noteStyle}>Display preferences and theme apply to the current session (no server-side profile store).</p>
         </div>
 
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Notifications</h2>
-          {mergedNotifications.map((n) => (
+          {notifications.map((n) => (
             <div key={n.label} style={rowStyle}>
               <span style={labelStyle}>{n.label}</span>
               <span
@@ -163,34 +148,26 @@ export default function Settings() {
               </span>
             </div>
           ))}
+          <p style={noteStyle}>Toggles are session-local; alert delivery is driven by backend alert rules.</p>
         </div>
 
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
-          <h2 style={sectionTitle}>API Connections</h2>
+          <h2 style={sectionTitle}>Data Connections</h2>
+          <p style={{ ...labelStyle, marginBottom: '12px' }}>
+            External data sources are configured server-side via environment variables.
+          </p>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              {['Data Source', 'Status', 'API Key', ''].map((h) => (
+              {['Data Source', 'Environment Variable', 'Used For'].map((h) => (
                 <th key={h} style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
-              {mergedApiKeys.map((a) => (
-                <tr key={a.name} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{a.name}</td>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: a.status === 'Connected' ? 'var(--color-signal-positive)' : 'var(--color-signal-warning)' }}>{a.status}</td>
-                  <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{a.key}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    {a.status === 'Connected' && (a as any).id && (
-                      <span
-                        onClick={() => handleRevokeKey((a as any).id)}
-                        style={{
-                          fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: '3px',
-                          background: 'var(--color-signal-negative)', color: 'var(--color-text-inverse)',
-                          cursor: 'pointer', userSelect: 'none',
-                        }}
-                      >Revoke</span>
-                    )}
-                  </td>
+              {dataSources.map((s) => (
+                <tr key={s.name} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.name}</td>
+                  <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.envVar}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.note}</td>
                 </tr>
               ))}
             </tbody>
@@ -199,33 +176,29 @@ export default function Settings() {
 
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Custom Classifications</h2>
-          <p style={{ ...labelStyle, marginBottom: '12px' }}>Manage custom entity groupings and categories</p>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              {['Name', 'Description', 'Entities', ''].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {classifications.map((c: any) => (
-                <tr key={c.id} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{c.name}</td>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.description}</td>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.entityCount}</td>
-                  <td style={{ padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
-                    <span
-                      onClick={() => { api.delete(CUSTOM_CLASSIFICATIONS.delete(c.id)).catch(() => {}); }}
-                      style={{
-                        fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: '3px',
-                        background: 'var(--color-surface-overlay)', color: 'var(--color-text-secondary)',
-                        cursor: 'pointer', userSelect: 'none',
-                      }}
-                    >Remove</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p style={{ ...labelStyle, marginBottom: '12px' }}>Custom entity groupings and categories</p>
+          {loadingClassifications ? (
+            <p style={labelStyle}>Loading…</p>
+          ) : classifications.length === 0 ? (
+            <p style={labelStyle}>No custom classifications yet.</p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                {['Name', 'Description', 'Entities'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {classifications.map((c) => (
+                  <tr key={c.classification_id} style={{ height: 'var(--table-row-height)' }}>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{c.name}</td>
+                    <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.description ?? '—'}</td>
+                    <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.members?.length ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

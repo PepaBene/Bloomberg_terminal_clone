@@ -132,7 +132,10 @@ export const ANALYTICS = {
   ratioPercentile: (secId: string) => `/v2/analytics/ratios/${secId}/percentile`,
   ratioHistory: (secId: string) => `/v2/analytics/ratios/${secId}/history`,
 
-  // --- These have no backend yet — hooks disabled until endpoints exist ---
+  // --- sectorRelative / fairValue / seasonality still have no backend yet —
+  // hooks stay disabled until those endpoints exist. technicalSignals and
+  // factorExposure (Bug 87) and correlation (Bug 86) ARE wired to real
+  // backend endpoints — see src/api/routers/analytics.py. ---
   sectorRelative: (secId: string) => `/v2/analytics/sector-relative/${secId}`,
   fairValue: (secId: string) => `/v2/analytics/fair-value/${secId}`,
   technicalSignals: (secId: string) => `/v2/analytics/technical-signals/${secId}`,
@@ -277,20 +280,33 @@ export const FILING_INTELLIGENCE = {
   insiders: (entityId: string) => `/v3/filings/${entityId}/insiders`,
   detail: (entityId: string, filingId: string) => `/v3/filings/${entityId}/${filingId}`,
   summary: (entityId: string, filingId: string) => `/v3/filings/${entityId}/${filingId}/summary`,
-  riskFactors: (entityId: string) => `/v3/filings/${entityId}/risk-factors`,
+  // [P1-FP-010 fix] Path mismatch — backend route is `/filings/{id}/diff/risk-factors`
+  // (src/api/routers/filing_intelligence.py:236), not `/filings/{id}/risk-factors`.
+  riskFactors: (entityId: string) => `/v3/filings/${entityId}/diff/risk-factors`,
   mdna: (entityId: string) => `/v3/filings/${entityId}/mdna`,
   search: '/v3/filings/search',
 } as const;
 
 export const GOVERNANCE = {
   proxy: (entityId: string) => `/v3/filings/${entityId}/proxy`,
-  compensation: (entityId: string) => `/v3/filings/${entityId}/compensation`,
-  governance: (entityId: string) => `/v3/filings/${entityId}/governance`,
-  board: (entityId: string) => `/v3/filings/${entityId}/board`,
-  esg: (entityId: string) => `/v3/filings/${entityId}/esg`,
-  esgScores: (entityId: string) => `/v3/filings/${entityId}/esg/scores`,
-  esgHistory: (entityId: string) => `/v3/filings/${entityId}/esg/history`,
-  shareholderProposals: (entityId: string) => `/v3/filings/${entityId}/shareholder-proposals`,
+  // [P1-FP-014/016 fix] Path mismatches vs `src/api/routers/governance_intelligence.py`
+  // — these were all missing the `/proxy` segment (or, for `shareholderProposals`,
+  // used the wrong final segment entirely).
+  compensation: (entityId: string) => `/v3/filings/${entityId}/proxy/compensation`,
+  governance: (entityId: string) => `/v3/filings/${entityId}/proxy/governance`,
+  board: (entityId: string) => `/v3/filings/${entityId}/proxy/board`,
+  // [P1-FP-014/016 fix] Path mismatches vs `src/api/routers/esg.py` — the real
+  // ESG router is mounted at `/v1/entities/{id}/esg...`, not `/v3/filings/...`.
+  // There is no separate "history" endpoint; `ESGOverviewResponse` already
+  // bundles `scores`/`metrics`/`controversies` in the single `/esg` call, so
+  // `esgHistory` now points at the real `/esg/metrics` time-series endpoint
+  // (the closest real analog) instead of a path that never existed.
+  esg: (entityId: string) => `/v1/entities/${entityId}/esg`,
+  esgScores: (entityId: string) => `/v1/entities/${entityId}/esg/scores`,
+  esgHistory: (entityId: string) => `/v1/entities/${entityId}/esg/metrics`,
+  // [P1-FP-014/016 fix] Real route is `/filings/{id}/proxy/proposals`
+  // (governance_intelligence.py:358), not `/shareholder-proposals`.
+  shareholderProposals: (entityId: string) => `/v3/filings/${entityId}/proxy/proposals`,
 } as const;
 
 export const SENTIMENT = {
@@ -313,11 +329,19 @@ export const COMPETITIVE = {
   landscape: (entityId: string) => `/v3/competitive/${entityId}/landscape`,
   peers: (entityId: string) => `/v3/competitive/${entityId}/peers`,
   marketShare: (entityId: string) => `/v3/competitive/${entityId}/market-share`,
+  // Real, but nested under /concentration -- not a bare /customers /suppliers
+  // route (src/api/routers/competitive.py). Both were unused dead paths
+  // pointing at a route that never existed; corrected to the real ones.
+  customers: (entityId: string) => `/v3/competitive/${entityId}/concentration/customers`,
+  suppliers: (entityId: string) => `/v3/competitive/${entityId}/concentration/suppliers`,
+  // swot/porterForces/supplyChain: no corresponding backend route at all
+  // (verified by grep across src/api/routers/) -- a missing feature, not a
+  // path typo. useSWOT/usePorterForces are explicitly disabled
+  // (`enabled: false`) in useIntelligence.ts rather than firing a request
+  // against a path that will never resolve; useSupplyChain is unused.
   swot: (entityId: string) => `/v3/competitive/${entityId}/swot`,
   porterForces: (entityId: string) => `/v3/competitive/${entityId}/porter-forces`,
   supplyChain: (entityId: string) => `/v3/competitive/${entityId}/supply-chain`,
-  customers: (entityId: string) => `/v3/competitive/${entityId}/customers`,
-  suppliers: (entityId: string) => `/v3/competitive/${entityId}/suppliers`,
 } as const;
 
 export const INDUSTRY = {
@@ -358,20 +382,30 @@ export const GLOBAL = {
   globalIndices: '/v3/global/indices',
 } as const;
 
+// Real routes live on src/api/routers/company_intel_p2.py, mounted at /v3
+// under /company/{entity_id}/... (NOT /v3/intelligence/{id}/... -- that was
+// a routing bug: these 5 paths previously 404'd against a path that has
+// never existed on the backend).
 export const COMPANY_INTEL = {
-  overview: (entityId: string) => `/v3/intelligence/${entityId}`,
-  businessModel: (entityId: string) => `/v3/intelligence/${entityId}/business-model`,
-  capitalAllocation: (entityId: string) => `/v3/intelligence/${entityId}/capital-allocation`,
-  management: (entityId: string) => `/v3/intelligence/${entityId}/management`,
-  balanceSheetRisk: (entityId: string) => `/v3/intelligence/${entityId}/balance-sheet-risk`,
-  revenueDrivers: (entityId: string) => `/v3/intelligence/${entityId}/revenue-drivers`,
-  costStructure: (entityId: string) => `/v3/intelligence/${entityId}/cost-structure`,
-  growthProfile: (entityId: string) => `/v3/intelligence/${entityId}/growth-profile`,
-  qualityMetrics: (entityId: string) => `/v3/intelligence/${entityId}/quality-metrics`,
-  riskProfile: (entityId: string) => `/v3/intelligence/${entityId}/risk-profile`,
-  operatingLeverage: (entityId: string) => `/v3/intelligence/${entityId}/operating-leverage`,
-  marginAnalysis: (entityId: string) => `/v3/intelligence/${entityId}/margin-analysis`,
-  workingCapital: (entityId: string) => `/v3/intelligence/${entityId}/working-capital`,
+  overview: (entityId: string) => `/v3/company/${entityId}/intelligence`,
+  businessModel: (entityId: string) => `/v3/company/${entityId}/business-model`,
+  capitalAllocation: (entityId: string) => `/v3/company/${entityId}/capital-allocation`,
+  management: (entityId: string) => `/v3/company/${entityId}/management`,
+  balanceSheetRisk: (entityId: string) => `/v3/company/${entityId}/balance-sheet-risk`,
+  // The 8 paths below have NO corresponding backend route anywhere in
+  // src/api/routers/ (verified by grep) -- not a path bug, a missing
+  // feature. Left defined (so a future backend implementation has an
+  // agreed contract to land on) but every hook that calls one of these is
+  // explicitly disabled (`enabled: false`) in useIntelligence.ts rather
+  // than firing a request against a path that will never resolve.
+  revenueDrivers: (entityId: string) => `/v3/company/${entityId}/revenue-drivers`,
+  costStructure: (entityId: string) => `/v3/company/${entityId}/cost-structure`,
+  growthProfile: (entityId: string) => `/v3/company/${entityId}/growth-profile`,
+  qualityMetrics: (entityId: string) => `/v3/company/${entityId}/quality-metrics`,
+  riskProfile: (entityId: string) => `/v3/company/${entityId}/risk-profile`,
+  operatingLeverage: (entityId: string) => `/v3/company/${entityId}/operating-leverage`,
+  marginAnalysis: (entityId: string) => `/v3/company/${entityId}/margin-analysis`,
+  workingCapital: (entityId: string) => `/v3/company/${entityId}/working-capital`,
 } as const;
 
 export const EARNINGS = {
@@ -438,8 +472,15 @@ export const PORTFOLIO_PERFORMANCE = {
   returns: (id: string) => `/v4/portfolios/${id}/performance/returns`,
   calendarReturns: (id: string) => `/v4/portfolios/${id}/performance/returns/calendar`,
   attribution: (id: string) => `/v4/portfolios/${id}/attribution`,
-  attributionBySector: (id: string) => `/v4/portfolios/${id}/attribution/sector`,
-  attributionByFactor: (id: string) => `/v4/portfolios/${id}/attribution/factor`,
+  // [P4-F-014 fix] Real routes are plural (src/api/routers/
+  // portfolio_performance.py: /attribution/sectors, /attribution/factors) —
+  // these were singular and matched nothing.
+  attributionBySector: (id: string) => `/v4/portfolios/${id}/attribution/sectors`,
+  attributionByFactor: (id: string) => `/v4/portfolios/${id}/attribution/factors`,
+  // No country-level attribution route exists anywhere in
+  // portfolio_performance.py (verified by grep) -- a missing feature, not a
+  // path typo. Left defined for a future backend contract; nothing calls
+  // usePortfolioAttributionByCountry today.
   attributionByCountry: (id: string) => `/v4/portfolios/${id}/attribution/country`,
   benchmark: (id: string) => `/v4/portfolios/${id}/performance/benchmark`,
   riskMetrics: (id: string) => `/v4/portfolios/${id}/performance/risk-metrics`,
@@ -462,8 +503,17 @@ export const PORTFOLIO_RISK = {
   cvar: (id: string) => `/v4/portfolios/${id}/risk/cvar`,
   concentration: (id: string) => `/v4/portfolios/${id}/risk/concentration`,
   factors: (id: string) => `/v4/portfolios/${id}/risk/factors`,
-  factorExposure: (id: string) => `/v4/portfolios/${id}/risk/factor-exposure`,
-  stressHistorical: (id: string) => `/v4/portfolios/${id}/risk/stress/historical`,
+  // [P4-F-010 fix] `/risk/factor-exposure` matches no real backend route
+  // (src/api/routers/portfolio_risk.py only has GET /risk/factors,
+  // /risk/factors/history, /risk/factors/unintended) -- repointed at the
+  // real "latest factor exposure" route, same one `.factors` above uses.
+  factorExposure: (id: string) => `/v4/portfolios/${id}/risk/factors`,
+  // [P4-F-022 fix] `/risk/stress/historical` is POST-only on the backend
+  // (runs a NEW historical stress test and returns its single result) --
+  // usePortfolioStressHistorical fires a GET, which never matches. The real
+  // GET/list route for past stress-test rows (historical or hypothetical)
+  // is /risk/stress/results.
+  stressHistorical: (id: string) => `/v4/portfolios/${id}/risk/stress/results`,
   stressHypothetical: (id: string) => `/v4/portfolios/${id}/risk/stress/hypothetical`,
   stressCustom: (id: string) => `/v4/portfolios/${id}/risk/stress/custom`,
   scenarios: '/v4/portfolios/risk/scenarios',
@@ -471,7 +521,9 @@ export const PORTFOLIO_RISK = {
   compliance: (id: string) => `/v4/portfolios/${id}/compliance`,
   complianceRules: (id: string) => `/v4/portfolios/${id}/compliance/rules`,
   complianceAddRule: (id: string) => `/v4/portfolios/${id}/compliance/rules`,
-  complianceHistory: (id: string) => `/v4/portfolios/${id}/compliance/history`,
+  // [P4-F-022 fix] Real route is /compliance/results, not /compliance/history
+  // (src/api/routers/portfolio_risk.py:get_compliance_results).
+  complianceHistory: (id: string) => `/v4/portfolios/${id}/compliance/results`,
   preTradeCheck: (id: string) => `/v4/portfolios/${id}/compliance/pre-trade-check`,
   drift: (id: string) => `/v4/portfolios/${id}/drift`,
   driftRebalance: (id: string) => `/v4/portfolios/${id}/drift/rebalance`,
@@ -535,9 +587,21 @@ export const RESEARCH = {
   },
   thesis: {
     recent: '/v4/research/thesis/recent',
-    byEntity: (entityId: string) => `/v4/research/thesis/${entityId}`,
-    generate: '/v4/research/thesis/generate',
-    update: (thesisId: string) => `/v4/research/thesis/${thesisId}`,
+    // Real GET route is .../{entity_id}/latest -- the bare
+    // /research/thesis/{entity_id} path is POST-only (creates a new
+    // thesis), so a GET against it 404s/405s. Fixed.
+    byEntity: (entityId: string) => `/v4/research/thesis/${entityId}/latest`,
+    // Real "create" endpoint: POST /research/thesis/{entity_id}
+    // (entity_id in the URL, not a separate /generate route), requires
+    // auth, and expects a full ThesisCreateRequest body (thesis_title/
+    // investment_horizon/conviction_level/executive_summary/key_drivers/
+    // primary_risks/valuation_scenarios/catalysts). ThesisBuilder.tsx's
+    // "Generate" form is built around this real shape.
+    generate: (entityId: string) => `/v4/research/thesis/${entityId}`,
+    // Real route is .../{thesis_id}/update (PUT). Fixed.
+    update: (thesisId: string) => `/v4/research/thesis/${thesisId}/update`,
+    // Real endpoint -- POST .../{thesis_id}/validate, a structural
+    // completeness/freshness check (see the endpoint's docstring).
     validate: (thesisId: string) => `/v4/research/thesis/${thesisId}/validate`,
   },
   qa: {
@@ -547,16 +611,15 @@ export const RESEARCH = {
     sources: '/v4/research/qa/sources',
   },
   themes: {
-    // Backend only exposes an aggregate dashboard (all theme scores) plus
-    // per-entity exposure routes — there is no per-theme "catalog" resource
-    // with its own id, so `detail`/`create`/`update`/`securities` below have
-    // no live backend counterpart yet (also unused by any page today).
+    // Themes are labels the scoring engine assigns per entity
+    // (macro_theme_scores is keyed by entity_id + theme, not by a
+    // standalone theme id), so there's no create/update — themes aren't
+    // user-authored resources. `detail`/`securities` below are real
+    // aggregate/list-by-theme-label endpoints, not a theme catalog CRUD.
     list: '/v4/research/themes/dashboard',
-    detail: (themeId: string) => `/v4/research/themes/${themeId}`,
+    detail: (themeId: string) => `/v4/research/themes/summary/${themeId}`,
     scenarios: '/v4/research/scenarios',
     screen: '/v4/research/themes/screen',
-    create: '/v4/research/themes',
-    update: (themeId: string) => `/v4/research/themes/${themeId}`,
     securities: (themeId: string) => `/v4/research/themes/${themeId}/securities`,
   },
   notes: {
@@ -767,25 +830,85 @@ export const FI_AGENCY = {
 // Custom Classifications
 // ---------------------------------------------------------------------------
 
+// Backend router: custom_classifications.py (mounted at /v1). Real paths are
+// /v1/classifications*, NOT /v1/classifications/custom* (that gets captured by
+// the /classifications/{id} param route and 404s). There is no DELETE route.
 export const CUSTOM_CLASSIFICATIONS = {
-  list: '/v1/classifications/custom',
-  create: '/v1/classifications/custom',
-  detail: (id: string) => `/v1/classifications/custom/${id}`,
-  update: (id: string) => `/v1/classifications/custom/${id}`,
-  delete: (id: string) => `/v1/classifications/custom/${id}`,
-  assign: (id: string) => `/v1/classifications/custom/${id}/assign`,
+  list: '/v1/classifications',
+  create: '/v1/classifications',
+  detail: (id: string) => `/v1/classifications/${id}`,
+  members: (id: string) => `/v1/classifications/${id}/members`,
 } as const;
 
 // ---------------------------------------------------------------------------
 // Backtesting
 // ---------------------------------------------------------------------------
 
+// [P4-F-017 fix] `run`/`result`/`compare` matched no real backend route --
+// backtesting.py only exposes /v1/analytics/backtest (submit),
+// /v1/analytics/backtest/{id}/results, /{id}/holdings, and /compare.
+// `strategies` was already correct (reuses the E4 prebuilt-screen library at
+// /v2/analytics/backtest/strategies -- see backtesting.py's strategies_router).
 export const BACKTESTING = {
   strategies: '/v2/analytics/backtest/strategies',
-  run: '/v2/analytics/backtest/run',
-  result: (backtestId: string) => `/v2/analytics/backtest/${backtestId}`,
-  history: '/v2/analytics/backtest/history',
-  compare: '/v2/analytics/backtest/compare',
+  run: '/v1/analytics/backtest',
+  result: (backtestId: string) => `/v1/analytics/backtest/${backtestId}/results`,
+  holdings: (backtestId: string) => `/v1/analytics/backtest/${backtestId}/holdings`,
+  compare: '/v1/analytics/backtest/compare',
+  // No "list all backtest runs" endpoint exists anywhere in
+  // backtesting.py (verified by grep) -- a missing feature, not a path
+  // typo. Left defined for a future backend contract; useBacktestHistory
+  // is disabled (`enabled: false`) rather than firing a request against a
+  // path that will never resolve.
+  history: '/v1/analytics/backtest/history',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Quantitative Analytics (Pillar 2 Supplement — Part 2): regression,
+// correlation, stationarity, cointegration, autocorrelation, quant summary.
+// Real routes: src/api/routers/quant.py, mounted with no extra prefix at
+// /v2/analytics/quant (see src/api/app.py).
+// ---------------------------------------------------------------------------
+
+export const QUANT = {
+  regression: '/v2/analytics/quant/regression',
+  rollingRegression: '/v2/analytics/quant/regression/rolling',
+  correlation: '/v2/analytics/quant/correlation',
+  correlationMatrix: '/v2/analytics/quant/correlation/matrix',
+  stationarity: '/v2/analytics/quant/stationarity',
+  cointegration: '/v2/analytics/quant/cointegration',
+  autocorrelation: '/v2/analytics/quant/autocorrelation',
+  summary: (secId: string) => `/v2/analytics/quant/summary/${secId}`,
+  beta: (secId: string) => `/v2/analytics/quant/beta/${secId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Technical Backtester (Pillar 2 Supplement — Part 6): run a technical
+// indicator strategy (MA crossover / RSI / Bollinger / combined) against a
+// provided price series. Real route: src/api/routers/technical_backtest.py,
+// mounted with prefix /v1 (src/api/app.py) -- previously had zero frontend
+// references despite being a real, working backend feature (P4-F-011).
+// ---------------------------------------------------------------------------
+
+export const TECHNICAL_BACKTEST = {
+  run: '/v1/analytics/technical-backtest',
+} as const;
+
+// ---------------------------------------------------------------------------
+// FI Risk (Pillar 2 FI Supplement — Part 5): portfolio-level fixed-income
+// risk -- DV01, credit distribution/expected loss, rate/spread scenario P&L,
+// and single-bond risk metrics. Real routes: src/api/routers/fi_risk.py,
+// mounted with no extra prefix at /v2/analytics (see src/api/app.py).
+// Distinct from `FI.analytics.*` (single-instrument duration/convexity/
+// scenario calculators in fi_bond_analytics.py) -- previously had zero
+// frontend references despite being real (P4-F-012).
+// ---------------------------------------------------------------------------
+
+export const FI_RISK = {
+  portfolioRisk: '/v2/analytics/bonds/portfolio/risk',
+  rateScenario: '/v2/analytics/bonds/portfolio/rate-scenario',
+  spreadScenario: '/v2/analytics/bonds/portfolio/spread-scenario',
+  bondRiskMetrics: (cusip: string) => `/v2/analytics/bonds/${cusip}/risk-metrics`,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -793,7 +916,21 @@ export const BACKTESTING = {
 // ---------------------------------------------------------------------------
 
 export const AUTH = {
-  login: '/v1/auth/login',
+  // Real routes (src/api/routers/auth.py, prefix /auth -- NOT /v1). `login`
+  // must be posted as application/x-www-form-urlencoded via
+  // api.postForm() -- it's FastAPI's OAuth2PasswordRequestForm, not a JSON
+  // body.
+  register: '/auth/register',
+  login: '/auth/token',
+  me: '/auth/me',
+  // NOTE: logout/refresh/profile/changePassword/apiKeys below have NO
+  // backing route anywhere in src/api/routers/ (verified by grep) -- auth
+  // is JWT-only today (register/token/me), there's no session, refresh-
+  // token, profile-editing, or API-key-management backend at all. Left
+  // defined only because Settings.tsx already references them with
+  // graceful failure handling (retry: 0 / .catch(() => {})); do not build
+  // new features against these paths without adding the real endpoints
+  // first.
   logout: '/v1/auth/logout',
   refresh: '/v1/auth/refresh',
   profile: '/v1/auth/profile',
@@ -818,14 +955,19 @@ export const SYSTEM = {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
+// [P4-F-009 fix] A real backend now exists (src/api/routers/benchmarks.py,
+// mounted with prefix /v1) -- list/detail/returns/create match its actual
+// routes. `constituents`/`compare`/`factSheets` matched no real route (the
+// router only exposes GET "" / POST "" / GET "/{id}" / GET "/{id}/returns")
+// and had zero real consumers (useBenchmarkConstituents/Compare/FactSheet
+// were unused everywhere) -- removed as dead code rather than left as
+// guaranteed-404 paths. A benchmark's constituents are already available via
+// `detail(id)` (BenchmarkDetail.constituents).
 export const BENCHMARKS = {
   list: '/v1/benchmarks',
   detail: (id: string) => `/v1/benchmarks/${id}`,
   returns: (id: string) => `/v1/benchmarks/${id}/returns`,
-  constituents: (id: string) => `/v1/benchmarks/${id}/constituents`,
-  compare: '/v1/benchmarks/compare',
-  create: '/v1/benchmarks/create',
-  factSheets: (id: string) => `/v1/benchmarks/${id}/fact-sheet`,
+  create: '/v1/benchmarks',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -895,4 +1037,53 @@ export const EXPORTS = {
   exportCsv: '/v4/exports/csv',
   exportExcel: '/v4/exports/excel',
   exportPdf: '/v4/exports/pdf',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Smart Money / Notable-Filer Tracking
+// Real routes: src/api/routers/smart_money.py, mounted with prefix /v1 (see
+// src/api/app.py). Tracks notable 13F managers, corporate insiders, and
+// politicians (STOCK Act) using only free public filings already ingested.
+// DATA_WIRING_AUDIT.md flagged this as ✅ REAL with zero web frontend
+// consumers -- API/desktop-GUI only until now.
+// ---------------------------------------------------------------------------
+
+export const SMART_MONEY = {
+  investors: (category?: string) =>
+    category ? `/v1/smart-money/investors?category=${encodeURIComponent(category)}` : '/v1/smart-money/investors',
+  investor: (key: string) => `/v1/smart-money/investors/${key}`,
+  filerProfile: (key: string) => `/v1/smart-money/filers/${key}/profile`,
+  congress: '/v1/smart-money/congress',
+  consensus: '/v1/smart-money/consensus',
+  flow: (ticker: string) => `/v1/smart-money/flow/${ticker}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Automatic Model Builder
+// Real routes: src/api/routers/auto_model.py, mounted with prefix /v1. Scored
+// analytical models (ECONOMIC/MARKET/INDUSTRY/CORPORATE/COMPANY scopes).
+// `/company/{id}` assembles inputs from real fundamentals/DCF/comps/scores;
+// `/build` accepts caller-supplied metrics for any scope. Previously zero
+// web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const AUTO_MODEL = {
+  scopes: '/v1/models/scopes',
+  build: '/v1/models/build',
+  company: (entityId: string) => `/v1/models/company/${entityId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Pillar 4: Complex Financial Structure Analysis
+// Real routes: src/api/routers/complex_structure.py, mounted with prefix
+// /v1. Subsidiary org tree, multi-class equity control-wedge, off-balance-
+// sheet/VIE exposure, and debt subordination waterfall. `/entity/{id}`
+// enriches with real stored data (capital structure, EX-21 subsidiaries,
+// disclosed share classes); `/analyze` accepts a caller-supplied payload.
+// Previously zero web frontend consumers per DATA_WIRING_AUDIT.md.
+// ---------------------------------------------------------------------------
+
+export const COMPLEX_STRUCTURE = {
+  analyze: '/v1/complex-structure/analyze',
+  entity: (entityId: string) => `/v1/complex-structure/entity/${entityId}`,
 } as const;

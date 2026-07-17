@@ -84,6 +84,14 @@ const RESEARCH_CARDS: ResearchCard[] = [
     accentColor: 'var(--color-chart-4)',
     status: 'Available',
   },
+  {
+    id: 'modelBuilder',
+    title: 'Model Builder',
+    description: 'Auto-assemble scored analytical models across economic, market, industry, corporate, and company scopes — company models pull real fundamentals, DCF/comps valuation, and Piotroski/Altman scores on file.',
+    icon: '\u{1F9EE}',
+    accentColor: 'var(--color-chart-5)',
+    status: 'Available',
+  },
 ];
 
 function statusBadgeClass(status: ResearchCard['status']): string {
@@ -103,6 +111,7 @@ const CARD_ROUTES: Record<string, string> = {
   search: '/research/search',
   thesis: '/research/thesis',
   qa: '/research/qa',
+  modelBuilder: '/research/model-builder',
 };
 
 export default function ResearchHub() {

@@ -7,6 +7,24 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+def round_or_none(value: float | None, ndigits: int) -> float | None:
+    """Round a float for JSON serialization, passing ``None`` through.
+
+    P4-M-001-007: financial response schemas deliberately keep monetary /
+    share / ratio fields typed as plain ``float`` rather than ``Decimal`` --
+    Pydantic v2 serializes ``Decimal`` as a quoted JSON *string* by default,
+    which breaks every existing frontend ``Number(...)`` parse. Using
+    ``float`` keeps the wire format a JSON number, but ``float`` also
+    reintroduces binary floating-point noise (e.g. ``0.1 + 0.2`` artifacts)
+    that isn't present in the underlying ``Numeric`` DB column. This helper
+    is used from ``field_serializer`` hooks to round each field back down to
+    the number of decimal places the field is actually meaningful at
+    (mirroring the source column's declared ``Numeric(precision, scale)``),
+    so the wire value doesn't imply false precision beyond what's stored.
+    """
+    return None if value is None else round(value, ndigits)
+
+
 class FinancialBaseModel(BaseModel):
     """Base model for schemas with Decimal financial fields.
 

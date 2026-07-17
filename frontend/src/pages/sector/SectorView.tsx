@@ -1,8 +1,19 @@
 // ---------------------------------------------------------------------------
-// Sector View — 11 GICS Sectors with Performance Metrics
+// Sector / Industry View — real industry rankings by metric
+//
+// Honesty pass (DATA_WIRING_AUDIT §8.1/§8.2): the previous version rendered a
+// fully fabricated GICS "sector performance" table (weight/1D/WTD/MTD/YTD/PE/
+// relPE) plus fabricated "market breadth" KPIs — neither has any backend
+// producer. `useSectors()` hit a nonexistent /v1/securities/sectors, and
+// `useIndustryRankings()` read a `.breadth` field the schema never had.
+//
+// This page now renders the REAL, backed data: GET /v3/industry/rankings
+// (industry.py) ranks industries by a selectable metric. Everything unbacked
+// was removed rather than faked.
 // ---------------------------------------------------------------------------
-
-import { useSectors, useIndustryRankings, useSectorSentiment } from '@/hooks';
+import { useState } from 'react';
+import { useIndustryRankings } from '@/hooks';
+import { EmptyState } from '@/components/feedback';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -33,90 +44,110 @@ const dataStyle: React.CSSProperties = {
   color: 'var(--color-text-primary)',
 };
 
-function signalColor(v: number): string {
-  return v >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
+interface RankingEntry {
+  gics_code: string;
+  gics_name: string;
+  metric_value: number | null;
+  rank: number;
+}
+interface RankingResponse {
+  metric: string;
+  rankings: RankingEntry[];
 }
 
-// --- Mock Data ---------------------------------------------------------------
-
-const sectors = [
-  { name: 'Information Technology', etf: 'XLK', weight: 31.2, d1: 0.82, wtd: 1.45, mtd: 3.21, ytd: 12.8, pe: 30.2, relPE: 1.15 },
-  { name: 'Health Care', etf: 'XLV', weight: 12.8, d1: -0.34, wtd: -0.12, mtd: 1.05, ytd: 4.2, pe: 18.5, relPE: 0.71 },
-  { name: 'Financials', etf: 'XLF', weight: 13.1, d1: 0.15, wtd: 0.68, mtd: 2.10, ytd: 8.5, pe: 14.8, relPE: 0.56 },
-  { name: 'Consumer Discretionary', etf: 'XLY', weight: 10.5, d1: 0.45, wtd: 1.02, mtd: 2.85, ytd: 9.1, pe: 25.4, relPE: 0.97 },
-  { name: 'Communication Services', etf: 'XLC', weight: 8.9, d1: 0.62, wtd: 1.28, mtd: 3.45, ytd: 11.2, pe: 22.1, relPE: 0.84 },
-  { name: 'Industrials', etf: 'XLI', weight: 8.4, d1: -0.21, wtd: 0.35, mtd: 1.82, ytd: 6.8, pe: 21.5, relPE: 0.82 },
-  { name: 'Consumer Staples', etf: 'XLP', weight: 5.8, d1: -0.52, wtd: -0.78, mtd: -0.45, ytd: -1.2, pe: 21.8, relPE: 0.83 },
-  { name: 'Energy', etf: 'XLE', weight: 3.7, d1: 1.15, wtd: 2.35, mtd: 4.12, ytd: -3.5, pe: 11.2, relPE: 0.43 },
-  { name: 'Utilities', etf: 'XLU', weight: 2.5, d1: -0.18, wtd: -0.42, mtd: 0.32, ytd: 2.1, pe: 17.2, relPE: 0.66 },
-  { name: 'Real Estate', etf: 'XLRE', weight: 2.3, d1: -0.68, wtd: -1.15, mtd: -1.85, ytd: -4.8, pe: 35.2, relPE: 1.34 },
-  { name: 'Materials', etf: 'XLB', weight: 2.2, d1: 0.28, wtd: 0.55, mtd: 1.42, ytd: 3.8, pe: 18.8, relPE: 0.72 },
+// Metrics accepted by GET /v3/industry/rankings (industry.py allowed_metrics).
+const METRICS: { key: string; label: string; pct?: boolean; money?: boolean }[] = [
+  { key: 'median_roic', label: 'Median ROIC', pct: true },
+  { key: 'roic_wacc_spread', label: 'ROIC − WACC Spread', pct: true },
+  { key: 'median_gross_margin', label: 'Median Gross Margin', pct: true },
+  { key: 'median_operating_margin', label: 'Median Op. Margin', pct: true },
+  { key: 'revenue_growth_3y_cagr', label: 'Revenue CAGR (3Y)', pct: true },
+  { key: 'revenue_growth_5y_cagr', label: 'Revenue CAGR (5Y)', pct: true },
+  { key: 'total_market_cap', label: 'Total Market Cap', money: true },
+  { key: 'company_count', label: 'Company Count' },
 ];
 
-const marketBreadth = [
-  { label: 'S&P 500', value: '5,248.72' },
-  { label: 'Advancing', value: '312' },
-  { label: 'Declining', value: '185' },
-  { label: 'New Highs', value: '42' },
-  { label: 'New Lows', value: '8' },
-  { label: 'A/D Ratio', value: '1.69' },
-];
-
-// --- Component ---------------------------------------------------------------
+function formatValue(v: number | null, meta: { pct?: boolean; money?: boolean }): string {
+  if (v == null) return '—';
+  if (meta.money) {
+    if (Math.abs(v) >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+    if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+    if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+    return `$${v.toLocaleString('en-US')}`;
+  }
+  if (meta.pct) return `${(v * 100).toFixed(1)}%`;
+  return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
 
 export default function SectorView() {
-  const { data: apiSectors } = useSectors() as { data: any };
-  const { data: apiRankings } = useIndustryRankings() as { data: any };
+  const [metric, setMetric] = useState('median_roic');
+  const { data, isLoading, isError } = useIndustryRankings(metric) as {
+    data: RankingResponse | undefined;
+    isLoading: boolean;
+    isError: boolean;
+  };
 
-  const activeSectors = (apiSectors as any)?.sectors ?? sectors;
-  const activeBreadth = (apiRankings as any)?.breadth ?? marketBreadth;
+  const rankings = data?.rankings ?? [];
+  const metricMeta = METRICS.find((m) => m.key === metric) ?? METRICS[0]!;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)', margin: 0 }}>
-          Sector Performance
+          Industry Rankings
         </h1>
-        <p style={{ ...labelStyle, marginTop: '4px' }}>GICS sector performance, valuation, and market breadth</p>
+        <p style={{ ...labelStyle, marginTop: '4px' }}>GICS industries ranked by fundamental metric</p>
       </div>
 
-      {/* Breadth KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {activeBreadth.map((m) => (
-          <div key={m.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
-            <div style={{ ...labelStyle, marginBottom: '4px' }}>{m.label}</div>
-            <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{m.value}</div>
-          </div>
+      {/* Metric selector */}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: 'var(--panel-gap)' }}>
+        {METRICS.map((m) => (
+          <span
+            key={m.key}
+            onClick={() => setMetric(m.key)}
+            style={{
+              fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', padding: '4px 10px', borderRadius: '3px',
+              background: m.key === metric ? 'var(--color-accent-primary)' : 'var(--color-surface-overlay)',
+              color: m.key === metric ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+              cursor: 'pointer',
+            }}
+          >{m.label}</span>
         ))}
       </div>
 
-      {/* Sector Table */}
       <div style={panelStyle}>
-        <h2 style={sectionTitle}>GICS Sector Overview</h2>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {['Sector', 'ETF', 'Wt %', '1D %', 'WTD %', 'MTD %', 'YTD %', 'P/E', 'Rel P/E'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: ['Sector', 'ETF'].includes(h) ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {activeSectors.map((s) => (
-              <tr key={s.name} style={{ height: 'var(--table-row-height)' }}>
-                <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{s.name}</td>
-                <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-accent-primary)', fontWeight: 600 }}>{s.etf}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.weight.toFixed(1)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.d1) }}>{s.d1 >= 0 ? '+' : ''}{s.d1.toFixed(2)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.wtd) }}>{s.wtd >= 0 ? '+' : ''}{s.wtd.toFixed(2)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.mtd) }}>{s.mtd >= 0 ? '+' : ''}{s.mtd.toFixed(2)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.ytd), fontWeight: 500 }}>{s.ytd >= 0 ? '+' : ''}{s.ytd.toFixed(1)}</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.pe.toFixed(1)}x</td>
-                <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: s.relPE > 1 ? 'var(--color-signal-negative)' : 'var(--color-signal-positive)' }}>{s.relPE.toFixed(2)}x</td>
+        <h2 style={sectionTitle}>Ranked by {metricMeta.label}</h2>
+        {isLoading ? (
+          <EmptyState icon="⏳" title="Loading rankings…" />
+        ) : isError ? (
+          <EmptyState icon="⚠️" title="Failed to load rankings" description="Please try again later." />
+        ) : rankings.length === 0 ? (
+          <EmptyState
+            icon="🏭"
+            title="No industry data available"
+            description="Industry profiles are computed from company fundamentals; none are available yet."
+          />
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Rank', 'GICS Code', 'Industry', metricMeta.label].map((h, i) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: i >= 3 ? 'right' : 'left', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rankings.map((r) => (
+                <tr key={r.gics_code} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-tertiary)' }}>{r.rank}</td>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-accent-primary)', fontWeight: 600 }}>{r.gics_code}</td>
+                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{r.gics_name}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{formatValue(r.metric_value, metricMeta)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

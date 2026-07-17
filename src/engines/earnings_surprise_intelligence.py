@@ -21,7 +21,10 @@ class EPSAnalysis:
 
     consensus: float
     actual: float
-    surprise_pct: float
+    # E-013: genuinely None on a zero-consensus report (see
+    # analyze_eps_surprise) — was previously typed as non-Optional float,
+    # which hid the crash risk this carries in every downstream consumer.
+    surprise_pct: float | None
     beat: bool
     magnitude: str  # "inline", "small", "large", "blowout"
 
@@ -32,7 +35,7 @@ class RevenueAnalysis:
 
     consensus: float
     actual: float
-    surprise_pct: float
+    surprise_pct: float | None
     beat: bool
     magnitude: str
 
@@ -322,26 +325,44 @@ def analyze_stock_reaction(
     )
 
 
+# E-036: EPS dominates analyst estimate revisions more than revenue does
+# (same rationale as earnings_surprise_engine.compute_all_surprises's
+# {eps:0.5, revenue:0.3, ebitda:0.2} materiality weights — this function
+# has no ebitda input, so the eps:revenue ratio is preserved and rescaled
+# to sum to 2.0 so an equal eps==revenue surprise still yields the same
+# `combined` magnitude as the old unweighted `abs(a) + abs(b)`).
+_EPS_REVISION_WEIGHT = 1.25
+_REVENUE_REVISION_WEIGHT = 0.75
+
+
 def compute_revision_implications(
-    eps_surprise_pct: float,
-    revenue_surprise_pct: float,
+    eps_surprise_pct: float | None,
+    revenue_surprise_pct: float | None,
     guidance_direction: str = "maintained",
 ) -> RevisionImplication:
     """Compute estimate revision implications.
 
     Parameters
     ----------
-    eps_surprise_pct : float
-    revenue_surprise_pct : float
+    eps_surprise_pct : float | None
+        ``None`` when consensus EPS was 0 (surprise not calculable).
+    revenue_surprise_pct : float | None
+        ``None`` when consensus revenue was 0.
     guidance_direction : str
 
     Returns
     -------
     RevisionImplication
     """
-    # Combined signal strength
-    combined = abs(eps_surprise_pct) + abs(revenue_surprise_pct)
-    positive_signal = eps_surprise_pct > 0 and revenue_surprise_pct >= 0
+    # E-013: EPSAnalysis.surprise_pct/RevenueAnalysis.surprise_pct are both
+    # genuinely Optional (zero-consensus case) — guard before abs() so a
+    # zero-consensus report doesn't crash with TypeError.
+    eps_component = abs(eps_surprise_pct) * _EPS_REVISION_WEIGHT if eps_surprise_pct is not None else 0.0
+    revenue_component = (
+        abs(revenue_surprise_pct) * _REVENUE_REVISION_WEIGHT if revenue_surprise_pct is not None else 0.0
+    )
+    combined = eps_component + revenue_component
+    positive_signal = (eps_surprise_pct or 0.0) > 0 and (revenue_surprise_pct or 0.0) >= 0
 
     # Guidance amplifies/dampens
     if guidance_direction == "raised":

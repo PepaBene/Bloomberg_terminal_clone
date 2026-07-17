@@ -8,12 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
+from src.enums import IPOStatus
 from src.models.ipo import IPOEvent
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.ipo import IPOEventResponse
 
-# IPO pipeline statuses considered "upcoming/filed"
-IPO_PIPELINE_STATUSES = {"FILED", "AMENDED"}
+# IPO pipeline statuses considered "upcoming/filed" — sourced from the
+# canonical IPOStatus enum (src.enums) rather than duplicated magic strings,
+# so the normalization applied below is a real type-safety guarantee and not
+# just a no-op safety net.
+IPO_PIPELINE_STATUSES = frozenset({IPOStatus.FILED, IPOStatus.AMENDED})
 
 router = APIRouter(tags=["IPO"])
 
@@ -68,9 +72,9 @@ async def list_ipo_pipeline(
     pagination: PaginationParams = Depends(get_pagination),
 ):
     """List upcoming/filed IPOs (pipeline view)."""
-    normalized_statuses = {s.upper() for s in IPO_PIPELINE_STATUSES}
-    query = select(IPOEvent).where(IPOEvent.status.in_(normalized_statuses))
-    count_query = select(IPOEvent).where(IPOEvent.status.in_(normalized_statuses))
+    pipeline_status_values = [s.value for s in IPO_PIPELINE_STATUSES]
+    query = select(IPOEvent).where(IPOEvent.status.in_(pipeline_status_values))
+    count_query = select(IPOEvent).where(IPOEvent.status.in_(pipeline_status_values))
 
     total_result = await session.execute(
         select(sa_func.count()).select_from(count_query.subquery())

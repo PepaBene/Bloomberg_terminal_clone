@@ -41,7 +41,7 @@ from src.schemas.risk import BetaResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v2/analytics/quant", tags=["Quantitative Analytics"])
+router = APIRouter(tags=["Quantitative Analytics"])
 
 _engine = QuantEngine()
 
@@ -194,16 +194,23 @@ async def run_correlation(
     session: AsyncSession = Depends(get_session),
 ):
     """Pairwise correlation between two series."""
-    x_returns = await _load_security_returns(
-        session, uuid.UUID(body.series_x_id), body.period_days,
-    )
-    y_returns = await _load_security_returns(
-        session, uuid.UUID(body.series_y_id), body.period_days,
-    )
+    try:
+        x_id = uuid.UUID(body.series_x_id)
+        y_id = uuid.UUID(body.series_y_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=422, detail="series_x_id/series_y_id must be valid UUIDs")
+
+    x_returns = await _load_security_returns(session, x_id, body.period_days)
+    y_returns = await _load_security_returns(session, y_id, body.period_days)
 
     min_len = min(len(x_returns), len(y_returns))
     if min_len < 10:
         raise HTTPException(status_code=400, detail="Insufficient data")
+    if len(x_returns) != len(y_returns):
+        logger.warning(
+            "run_correlation: series length mismatch (x=%d, y=%d), truncating both to %d",
+            len(x_returns), len(y_returns), min_len,
+        )
 
     result = await _engine.run_correlation(
         session,
@@ -319,15 +326,22 @@ async def run_cointegration(
     session: AsyncSession = Depends(get_session),
 ):
     """Run Engle-Granger cointegration test."""
-    _, x_prices = await _load_price_series(
-        session, uuid.UUID(body.series_x_id), body.period_days
-    )
-    _, y_prices = await _load_price_series(
-        session, uuid.UUID(body.series_y_id), body.period_days
-    )
+    try:
+        x_id = uuid.UUID(body.series_x_id)
+        y_id = uuid.UUID(body.series_y_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=422, detail="series_x_id/series_y_id must be valid UUIDs")
+
+    _, x_prices = await _load_price_series(session, x_id, body.period_days)
+    _, y_prices = await _load_price_series(session, y_id, body.period_days)
 
     if len(x_prices) < 30 or len(y_prices) < 30:
         raise HTTPException(status_code=400, detail="Insufficient data")
+    if len(x_prices) != len(y_prices):
+        logger.warning(
+            "run_cointegration: series length mismatch (x=%d, y=%d)",
+            len(x_prices), len(y_prices),
+        )
 
     result = await _engine.run_cointegration(
         session, x_prices, y_prices,

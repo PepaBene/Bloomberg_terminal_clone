@@ -22,8 +22,10 @@ class InvestmentThesis(TimestampMixin, Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False, index=True
     )
-    # TODO: Add ForeignKey("users.id") once the users table is created.
-    analyst_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    # M-005: real FK to the authenticated users table (see migration 088).
+    analyst_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, index=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     thesis_title: Mapped[str | None] = mapped_column(String(200))
     investment_horizon: Mapped[str | None] = mapped_column(String(10))
@@ -35,7 +37,7 @@ class InvestmentThesis(TimestampMixin, Base):
     catalysts: Mapped[dict | None] = mapped_column(JSONB)  # [{catalyst: str, expected_date: str, impact: str}]
     quality_metrics: Mapped[dict | None] = mapped_column(JSONB)  # {data_coverage: float, staleness_days: int, ...}
     elevator_pitch: Mapped[str | None] = mapped_column(String(500))
-    slide_outline: Mapped[dict | None] = mapped_column(JSONB)  # [{slide_number: int, title: str, bullets: [str]}]
+    slide_outline: Mapped[list | None] = mapped_column(JSONB)  # [{slide_number: int, title: str, bullet_points: [str]}]
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 

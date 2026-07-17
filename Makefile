@@ -6,7 +6,7 @@
 	ingest-treasury-securities ingest-trace-bonds ingest-agency-bonds \
 	ingest-bond-issuances ingest-executives ingest-fomc ingest-central-bank \
 	ingest-earnings-surprises ingest-ma-deals ingest-ipo ingest-nport \
-	ingest-esg-controversies \
+	ingest-esg-controversies ingest-money-market \
 	compute-debt-maturity compute-ownership-summary compute-esg-temperature \
 	compute-technicals \
 	backfill backfill-status backfill-reconcile backfill-loop backfill-refresh \
@@ -99,6 +99,9 @@ ingest-fomc:
 
 ingest-central-bank:
 	python -m scripts.ingest_central_bank
+
+ingest-money-market:
+	python -m scripts.ingest_money_market
 
 ingest-earnings-surprises:
 	python -m scripts.ingest_earnings_surprises

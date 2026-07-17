@@ -95,16 +95,24 @@ async def get_yield_curve_briefing(
     session: AsyncSession = Depends(get_session),
 ):
     """Get the latest daily yield curve briefing."""
-    # ``in_([..., None])`` produces ``IN (..., NULL)`` which is invalid SQL —
-    # NULL must be compared with IS NULL. Use an OR clause to include both
-    # explicit YIELD_CURVE briefings and legacy rows where the type is null.
-    result = await session.execute(
-        select(FIMarketBriefing)
-        .where(or_(FIMarketBriefing.briefing_type.in_(["YIELD_CURVE"]), FIMarketBriefing.briefing_type.is_(None)))
-        .order_by(FIMarketBriefing.briefing_date.desc())
-        .limit(5)
-    )
-    rows = result.scalars().all()
+
+    async def _q():
+        # ``in_([..., None])`` produces ``IN (..., NULL)`` which is invalid SQL —
+        # NULL must be compared with IS NULL. Use an OR clause to include both
+        # explicit YIELD_CURVE briefings and legacy rows where the type is null.
+        return (await session.execute(
+            select(FIMarketBriefing)
+            .where(or_(FIMarketBriefing.briefing_type.in_(["YIELD_CURVE"]), FIMarketBriefing.briefing_type.is_(None)))
+            .order_by(FIMarketBriefing.briefing_date.desc())
+            .limit(5)
+        )).scalars().all()
+
+    rows = await _q()
+    if not rows:
+        from scripts.generate_fi_briefings import generate_yield_curve_briefing as _gen
+        if await _gen(session):
+            await session.commit()
+            rows = await _q()
     return [
         YieldCurveBriefingResponse(
             id=row.id,
@@ -228,13 +236,21 @@ async def get_credit_briefing(
     session: AsyncSession = Depends(get_session),
 ):
     """Get the latest daily credit market briefing."""
-    result = await session.execute(
-        select(FIMarketBriefing)
-        .where(or_(FIMarketBriefing.briefing_type.in_(["CREDIT"]), FIMarketBriefing.briefing_type.is_(None)))
-        .order_by(FIMarketBriefing.briefing_date.desc())
-        .limit(5)
-    )
-    rows = result.scalars().all()
+
+    async def _q():
+        return (await session.execute(
+            select(FIMarketBriefing)
+            .where(or_(FIMarketBriefing.briefing_type.in_(["CREDIT"]), FIMarketBriefing.briefing_type.is_(None)))
+            .order_by(FIMarketBriefing.briefing_date.desc())
+            .limit(5)
+        )).scalars().all()
+
+    rows = await _q()
+    if not rows:
+        from scripts.generate_fi_briefings import generate_credit_briefing as _gen
+        if await _gen(session):
+            await session.commit()
+            rows = await _q()
     return [
         CreditMarketBriefingResponse(
             id=row.id,

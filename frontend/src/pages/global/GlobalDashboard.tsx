@@ -1,10 +1,26 @@
 // ---------------------------------------------------------------------------
 // Global Intelligence Dashboard
+//
+// Honesty pass: every panel was previously silent mock (countryRisks / GDP /
+// geoEvents / commodities via `apiX ?? MOCK`, plus a hardcoded central-banks
+// block and reads of composite/political/economic fields off /v3/global/countries
+// that don't exist on that endpoint). The old useGlobalIndices/useFXRates hooks
+// hit /v3/global/indices and /v3/global/fx/rates, which the backend does NOT
+// expose.
+//
+// Now wired to real backend endpoints:
+//   - Country list        -> GET /v3/global/countries              (metadata only)
+//   - Per-country risk     -> GET /v3/global/countries/{code}/risk  (bounded sample)
+//   - Geopolitical events  -> GET /v3/global/events/geopolitical
+// Panels with no backend (global indices / FX / commodity quotes) and the
+// central-bank block render honest empty states instead of fabricated rows.
 // ---------------------------------------------------------------------------
-import { BarChartComponent } from '@/components/charts';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
 import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
-import { useCountries, useGlobalIndices, useGeopoliticalEvents, useFXRates } from '@/hooks';
+import { EmptyState } from '@/components/feedback';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -28,167 +44,143 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--color-text-secondary)',
 };
 
-const dataStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-data)',
-  fontVariantNumeric: 'tabular-nums',
-  fontSize: 'var(--text-base)',
-  color: 'var(--color-text-primary)',
-};
+// --- DTOs (mirror backend response schemas) ----------------------------------
 
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
+interface CountryProfileDTO {
+  country_code: string;
+  country_name: string;
+  region?: string | null;
+  income_group?: string | null;
+  is_g20: boolean;
+  is_eu: boolean;
+  population?: number | null;
+  gdp_usd?: number | null;
 }
 
-// --- Mock Data ---------------------------------------------------------------
+interface CountryRiskScoreDTO {
+  country_code: string;
+  as_of_date: string;
+  political_risk_score?: number | null;
+  economic_risk_score?: number | null;
+  sanctions_risk_score?: number | null;
+  composite_risk_score?: number | null;
+  risk_classification?: string | null;
+  risk_trend?: string | null;
+}
 
-interface CountryRisk {
-  rank: number;
-  country: string;
+interface GeopoliticalEventDTO {
+  event_type?: string | null;
+  title: string;
+  description?: string | null;
+  countries_involved?: string[] | null;
+  severity?: string | null;
+  status?: string | null;
+  start_date?: string | null;
+  commodity_impact?: string[] | Record<string, unknown> | null;
+  sector_impact?: string[] | Record<string, unknown> | null;
+}
+
+interface CountryRiskSample {
   code: string;
-  compositeScore: number;
-  classification: string;
-  trend: string;
-  political: number;
-  economic: number;
+  scores: CountryRiskScoreDTO[];
 }
 
-const countryRisks: CountryRisk[] = [
-  { rank: 1,  country: 'Switzerland',    code: 'CH', compositeScore: 92, classification: 'Low',      trend: 'Stable',      political: 95, economic: 90 },
-  { rank: 2,  country: 'Norway',         code: 'NO', compositeScore: 90, classification: 'Low',      trend: 'Stable',      political: 92, economic: 88 },
-  { rank: 3,  country: 'Singapore',      code: 'SG', compositeScore: 89, classification: 'Low',      trend: 'Improving',   political: 88, economic: 91 },
-  { rank: 4,  country: 'United States',  code: 'US', compositeScore: 82, classification: 'Low',      trend: 'Stable',      political: 78, economic: 86 },
-  { rank: 5,  country: 'Germany',        code: 'DE', compositeScore: 80, classification: 'Low',      trend: 'Deteriorating', political: 82, economic: 78 },
-  { rank: 6,  country: 'Japan',          code: 'JP', compositeScore: 78, classification: 'Moderate', trend: 'Stable',      political: 80, economic: 75 },
-  { rank: 7,  country: 'China',          code: 'CN', compositeScore: 58, classification: 'Moderate', trend: 'Deteriorating', political: 52, economic: 64 },
-  { rank: 8,  country: 'Brazil',         code: 'BR', compositeScore: 48, classification: 'Elevated', trend: 'Improving',   political: 42, economic: 54 },
-  { rank: 9,  country: 'India',          code: 'IN', compositeScore: 55, classification: 'Moderate', trend: 'Improving',   political: 50, economic: 60 },
-  { rank: 10, country: 'Turkey',         code: 'TR', compositeScore: 38, classification: 'High',     trend: 'Deteriorating', political: 35, economic: 42 },
-];
+// Risk scores require one /risk call per country; bound the fan-out so the
+// dashboard shows a real ranking sample rather than firing hundreds of requests.
+const RISK_SAMPLE_SIZE = 12;
 
-interface Commodity {
-  name: string;
-  code: string;
-  price: number;
-  unit: string;
-  change1d: number;
-  changeYtd: number;
+function asStringList(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.map(String) : undefined;
 }
-
-const commodities: Commodity[] = [
-  { name: 'Gold',        code: 'XAU', price: 2182.40, unit: '$/oz',  change1d: 0.42,  changeYtd: 7.28 },
-  { name: 'Crude Oil',   code: 'CL',  price: 81.24,   unit: '$/bbl', change1d: -0.68, changeYtd: 12.34 },
-  { name: 'Copper',      code: 'HG',  price: 4.12,    unit: '$/lb',  change1d: 1.24,  changeYtd: 5.82 },
-  { name: 'Natural Gas', code: 'NG',  price: 1.78,    unit: '$/MMBtu', change1d: -2.18, changeYtd: -28.42 },
-];
-
-interface CentralBankRate {
-  bank: string;
-  code: string;
-  rate: number;
-  stance: string;
-  nextMeeting: string;
-}
-
-const centralBanks: CentralBankRate[] = [
-  { bank: 'Federal Reserve',      code: 'FED', rate: 5.375, stance: 'Restrictive', nextMeeting: '2026-05-07' },
-  { bank: 'European Central Bank', code: 'ECB', rate: 4.000, stance: 'Restrictive', nextMeeting: '2026-04-17' },
-  { bank: 'Bank of Japan',        code: 'BOJ', rate: 0.250, stance: 'Accommodative', nextMeeting: '2026-04-25' },
-  { bank: 'Bank of England',      code: 'BOE', rate: 5.250, stance: 'Restrictive', nextMeeting: '2026-05-09' },
-];
-
-function stanceColor(stance: string): string {
-  switch (stance) {
-    case 'Restrictive':    return 'var(--color-signal-negative)';
-    case 'Neutral':        return 'var(--color-signal-neutral)';
-    case 'Accommodative':  return 'var(--color-signal-positive)';
-    default:               return 'var(--color-text-secondary)';
-  }
-}
-
-// --- GDP Growth Mock Data ----------------------------------------------------
-
-const GDP_DATA = [
-  { country: 'India',   gdp2024: 6.8, gdp2025: 6.5 },
-  { country: 'China',   gdp2024: 5.2, gdp2025: 4.6 },
-  { country: 'US',      gdp2024: 2.5, gdp2025: 2.1 },
-  { country: 'Japan',   gdp2024: 1.9, gdp2025: 1.0 },
-  { country: 'EU',      gdp2024: 0.8, gdp2025: 1.2 },
-  { country: 'Brazil',  gdp2024: 2.9, gdp2025: 1.8 },
-  { country: 'UK',      gdp2024: 0.5, gdp2025: 1.1 },
-  { country: 'Germany', gdp2024: -0.1, gdp2025: 0.8 },
-];
-
-// --- CountryRiskRanking data -------------------------------------------------
-
-const countryRiskRankingData: CountryRiskType[] = countryRisks.map((c) => ({
-  code: c.code,
-  name: c.country,
-  composite: c.compositeScore,
-  political: c.political,
-  economic: c.economic,
-  sanctions: 0,
-  classification: c.classification,
-  trend: c.trend,
-  history: [c.compositeScore - 5, c.compositeScore - 3, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
-}));
-
-// --- GeopoliticalEvent data --------------------------------------------------
-
-const geoEvents: GeopoliticalEvent[] = [
-  {
-    title: 'EU imposes new sanctions package on Russian energy sector',
-    description: 'Sixth round of sanctions targeting Russian oil exports and banking infrastructure.',
-    severity: 'Critical',
-    countries: ['Russia', 'EU'],
-    startDate: '2026-03-25',
-    status: 'Active',
-    commodityImpact: ['Crude Oil', 'Natural Gas'],
-    sectorImpact: ['Energy', 'Financials'],
-  },
-  {
-    title: 'South China Sea military exercises escalate tensions',
-    description: 'Multiple nations conducting overlapping military drills in disputed waters.',
-    severity: 'High',
-    countries: ['China', 'Philippines', 'US'],
-    startDate: '2026-03-22',
-    status: 'Monitoring',
-    sectorImpact: ['Industrials', 'Technology'],
-  },
-  {
-    title: 'Turkey central bank emergency rate hike amid lira volatility',
-    description: 'Emergency 500bp rate increase to stabilize the Turkish lira.',
-    severity: 'High',
-    countries: ['Turkey'],
-    startDate: '2026-03-24',
-    status: 'Active',
-    sectorImpact: ['Financials'],
-  },
-];
 
 // --- Component ---------------------------------------------------------------
 
 export default function GlobalDashboard() {
-  const { data: countriesData } = useCountries();
-  const { data: indicesData } = useGlobalIndices();
-  const { data: eventsData } = useGeopoliticalEvents();
-  const { data: fxData } = useFXRates();
+  const { data: countriesRaw, isLoading: loadingCountries } = useQuery({
+    queryKey: ['global', 'countries'],
+    queryFn: () => api.get<CountryProfileDTO[]>('/v3/global/countries'),
+    retry: 0,
+  });
+  const countries = useMemo(
+    () => (Array.isArray(countriesRaw) ? countriesRaw : []),
+    [countriesRaw],
+  );
 
-  const activeCountryRisks = countriesData ?? countryRisks;
-  const activeGlobalIndices = indicesData ?? GDP_DATA;
-  const activeGeoEvents = eventsData ?? geoEvents;
-  const activeFXRates = fxData ?? commodities;
+  const sampleCodes = useMemo(
+    () => countries.slice(0, RISK_SAMPLE_SIZE).map((c) => c.country_code),
+    [countries],
+  );
 
-  const activeCountryRiskRankingData: CountryRiskType[] = (countriesData ?? countryRisks).map((c: CountryRisk) => ({
-    code: c.code,
-    name: c.country,
-    composite: c.compositeScore,
-    political: c.political,
-    economic: c.economic,
-    sanctions: 0,
-    classification: c.classification,
-    trend: c.trend,
-    history: [c.compositeScore - 5, c.compositeScore - 3, c.compositeScore - 1, c.compositeScore, c.compositeScore + 1],
-  }));
+  const { data: riskSamplesRaw, isLoading: loadingRisk } = useQuery({
+    queryKey: ['global', 'risk-sample', sampleCodes],
+    enabled: sampleCodes.length > 0,
+    retry: 0,
+    queryFn: async (): Promise<CountryRiskSample[]> => {
+      return Promise.all(
+        sampleCodes.map(async (code) => {
+          try {
+            const scores = await api.get<CountryRiskScoreDTO[]>(
+              `/v3/global/countries/${code}/risk`,
+              { limit: 12 },
+            );
+            return { code, scores: Array.isArray(scores) ? scores : [] };
+          } catch {
+            return { code, scores: [] };
+          }
+        }),
+      );
+    },
+  });
+
+  const nameByCode = useMemo(
+    () => new Map(countries.map((c) => [c.country_code, c.country_name])),
+    [countries],
+  );
+
+  // Only countries that actually returned a composite score become rows — no
+  // fabricated ranks.
+  const riskRows: CountryRiskType[] = useMemo(() => {
+    return (riskSamplesRaw ?? [])
+      .filter((s) => s.scores.length > 0 && s.scores[0]!.composite_risk_score != null)
+      .map((s) => {
+        const latest = s.scores[0]!;
+        const history = [...s.scores]
+          .reverse()
+          .map((row) => row.composite_risk_score ?? 0);
+        return {
+          code: s.code,
+          name: nameByCode.get(s.code) ?? s.code,
+          composite: latest.composite_risk_score ?? 0,
+          political: latest.political_risk_score ?? 0,
+          economic: latest.economic_risk_score ?? 0,
+          sanctions: latest.sanctions_risk_score ?? 0,
+          classification: latest.risk_classification ?? 'N/A',
+          trend: latest.risk_trend ?? 'stable',
+          history,
+        };
+      });
+  }, [riskSamplesRaw, nameByCode]);
+
+  const { data: eventsRaw, isLoading: loadingEvents } = useQuery({
+    queryKey: ['global', 'geopolitical-events'],
+    queryFn: () => api.get<GeopoliticalEventDTO[]>('/v3/global/events/geopolitical'),
+    retry: 0,
+  });
+  const eventCards: GeopoliticalEvent[] = useMemo(() => {
+    const rows = Array.isArray(eventsRaw) ? eventsRaw : [];
+    return rows.slice(0, 6).map((e) => ({
+      title: e.title,
+      description: e.description ?? '',
+      severity: e.severity ?? 'MEDIUM',
+      countries: Array.isArray(e.countries_involved) ? e.countries_involved.map(String) : [],
+      startDate: e.start_date ?? '',
+      status: e.status ?? '',
+      commodityImpact: asStringList(e.commodity_impact),
+      sectorImpact: asStringList(e.sector_impact),
+    }));
+  }, [eventsRaw]);
+
+  const riskLoading = loadingCountries || loadingRisk;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -199,23 +191,17 @@ export default function GlobalDashboard() {
           Global Intelligence
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>
-          Country risk, commodities, and central bank policy monitoring
+          Country risk, geopolitical events, commodities, and central bank policy monitoring
         </p>
       </div>
 
-      {/* GDP Growth Comparison */}
+      {/* Global indices / GDP growth — no backend source exists */}
       <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
-        <h2 style={sectionTitle}>GDP Growth Comparison (%)</h2>
-        <BarChartComponent
-          data={activeGlobalIndices}
-          xKey="country"
-          bars={[
-            { key: 'gdp2024', color: '#3B82F6', name: '2024 (Actual)' },
-            { key: 'gdp2025', color: '#2DB87D', name: '2025 (Forecast)' },
-          ]}
-          height={260}
-          showLegend
-          yAxisFormat={(v: number) => `${v.toFixed(1)}%`}
+        <h2 style={sectionTitle}>Global Growth &amp; Indices</h2>
+        <EmptyState
+          icon="🌐"
+          title="No global indices data"
+          description="This deployment does not expose a global indices / GDP-growth comparison endpoint."
         />
       </div>
 
@@ -225,86 +211,65 @@ export default function GlobalDashboard() {
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
-          {/* CountryRiskRanking Component */}
+          {/* Country Risk Rankings (bounded real sample) */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Country Risk Rankings</h2>
-            <CountryRiskRanking countries={activeCountryRiskRankingData} />
+            {riskLoading ? (
+              <EmptyState icon="⏳" title="Loading risk scores…" />
+            ) : riskRows.length === 0 ? (
+              <EmptyState
+                icon="🗺️"
+                title="No risk scores available"
+                description="No country risk scores have been ingested for this deployment yet."
+              />
+            ) : (
+              <CountryRiskRanking countries={riskRows} />
+            )}
           </div>
 
-          {/* GeopoliticalEventCards for top 3 events */}
+          {/* Top Geopolitical Events */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Top Geopolitical Events</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {activeGeoEvents.map((ev, idx) => (
-                <GeopoliticalEventCard key={idx} event={ev} />
-              ))}
-            </div>
+            {loadingEvents ? (
+              <EmptyState icon="⏳" title="Loading events…" />
+            ) : eventCards.length === 0 ? (
+              <EmptyState
+                icon="📰"
+                title="No geopolitical events"
+                description="No active geopolitical events are recorded."
+              />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {eventCards.map((ev, idx) => (
+                  <GeopoliticalEventCard key={idx} event={ev} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--panel-gap)' }}>
 
-          {/* Commodity Prices */}
+          {/* Commodity quotes — /v3/global/commodities is metadata only (no live
+              price/change), so an honest empty state instead of fabricated ticks */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Commodities</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {activeFXRates.map((c) => (
-                <div key={c.code} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <div>
-                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{c.name}</span>
-                      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginLeft: '6px' }}>{c.code}</span>
-                    </div>
-                    <span style={{ ...dataStyle, fontWeight: 600 }}>{c.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>{c.unit}</span>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: signalColor(c.change1d) }}>
-                        1D: {c.change1d >= 0 ? '+' : ''}{c.change1d.toFixed(2)}%
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: signalColor(c.changeYtd) }}>
-                        YTD: {c.changeYtd >= 0 ? '+' : ''}{c.changeYtd.toFixed(2)}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <EmptyState
+              icon="🛢️"
+              title="No commodity quotes"
+              description="Live commodity prices are not exposed here. See the Commodity Dashboard for metadata and price history."
+            />
           </div>
 
-          {/* Central Bank Rates */}
+          {/* Central bank rates — no wired source on this dashboard */}
           <div style={panelStyle}>
             <h2 style={sectionTitle}>Central Bank Rates</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {centralBanks.map((cb) => (
-                <div key={cb.code} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <div>
-                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{cb.bank}</span>
-                      <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginLeft: '6px' }}>{cb.code}</span>
-                    </div>
-                    <span style={{ ...dataStyle, fontWeight: 600 }}>{cb.rate.toFixed(3)}%</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{
-                      fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: stanceColor(cb.stance),
-                      background: `color-mix(in srgb, ${stanceColor(cb.stance)} 15%, transparent)`,
-                    }}>
-                      {cb.stance}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                      Next: {cb.nextMeeting}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <EmptyState
+              icon="🏦"
+              title="No central bank data"
+              description="Central bank policy rates are not wired into this dashboard."
+            />
           </div>
         </div>
       </div>

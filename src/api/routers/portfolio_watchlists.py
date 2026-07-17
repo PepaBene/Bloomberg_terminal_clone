@@ -74,7 +74,7 @@ async def _get_watchlist_entities(
     return [
         WatchlistEntityResponse(
             entity_id=entry.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
             added_date=entry.added_date,
         )
         for entry, entity in rows
@@ -163,8 +163,10 @@ async def add_entity_to_watchlist(
     wl_id: uuid.UUID,
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Add an entity to a watchlist."""
+    user_id = _resolve_user(user)
     wl = await _get_watchlist(session, wl_id)
     await _get_entity(session, entity_id)
 
@@ -183,6 +185,7 @@ async def add_entity_to_watchlist(
         watchlist_id=wl_id,
         entity_id=entity_id,
         added_date=date.today(),
+        created_by=user_id,
     )
     session.add(entry)
     await session.commit()
@@ -428,7 +431,7 @@ async def get_watchlist_earnings_calendar(
     entries = [
         EarningsCalendarEntry(
             entity_id=ev.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
             report_date=ev.event_date,
             fiscal_quarter=None,
         )
@@ -460,7 +463,7 @@ async def get_watchlist_dashboard(
     entities = [
         WatchlistDashboardEntity(
             entity_id=entry.entity_id,
-            legal_name=entity.legal_name if entity else None,
+            legal_name=entity.legal_name if entity else "Unknown",
         )
         for entry, entity in rows
     ]

@@ -3,12 +3,26 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
+
+if TYPE_CHECKING:  # avoid circular imports at runtime
+    from src.models.portfolio import Portfolio
 
 
 class PerformanceSnapshot(Base):
@@ -17,14 +31,24 @@ class PerformanceSnapshot(Base):
     __tablename__ = "performance_snapshots"
     __table_args__ = (
         UniqueConstraint("portfolio_id", "period_type", "period_end", name="uq_perf_portfolio_type_end"),
+        # P4-M-022: date-order sanity check.
+        CheckConstraint("period_start <= period_end", name="ck_perf_period_order"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    # P4-M-009: cascade-delete with parent portfolio so ``session.delete
+    # (portfolio)`` doesn't fail with a bare FK violation against history
+    # tables.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolios.id"),
+        UUID(as_uuid=True), ForeignKey("portfolios.id", ondelete="CASCADE"),
         nullable=False, index=True,
+    )
+    # P4-M-010: ORM-level back-reference so Portfolio.performance_snapshots
+    # can eager-load without a separate query.
+    portfolio: Mapped["Portfolio"] = relationship(
+        "Portfolio", back_populates="performance_snapshots"
     )
     period_type: Mapped[str] = mapped_column(String(10), nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)

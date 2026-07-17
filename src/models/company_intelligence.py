@@ -192,6 +192,12 @@ class BalanceSheetRiskAssessment(TimestampMixin, Base):
     # Credit
     z_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     covenant_analysis: Mapped[dict | None] = mapped_column(JSONB)
+    # M-014: JSONB shape documentation -- mirrors balance_sheet_risk_engine.
+    # FIProfile: {total_outstanding, weighted_avg_ytm, weighted_avg_spread,
+    #   fixed_pct, floating_pct, is_investment_grade, credit_rating,
+    #   credit_outlook, credit_momentum, market_cost_of_debt,
+    #   accounting_cost_of_debt, cost_gap_bps,
+    #   maturity_wall: [{year, amount, pct}]}.
     fi_profile: Mapped[dict | None] = mapped_column(JSONB)
 
     # AI

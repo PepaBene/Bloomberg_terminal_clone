@@ -52,3 +52,69 @@ class ManagementQualityResponse(BaseModel):
     compensation_alignment: dict | None = None
     overall_score: float | None = None
     red_flags: list[dict] | None = None
+
+
+# ── Previously-missing endpoints (real engines, computed on-the-fly from
+# the same _assemble_fundamentals()/real signals the four responses above
+# use -- no new persistence tables, these are cheap deterministic
+# transforms recomputed per request) ───────────────────────────────────
+
+
+class RevenueDriversResponse(BaseModel):
+    entity_id: UUID
+    drivers: list[dict] = []
+    revenue_concentration_hhi: float | None = None
+    total_revenue_yoy_growth_pct: float | None = None
+    periods_analyzed: int = 0
+
+
+class CostStructureResponse(BaseModel):
+    entity_id: UUID
+    items: list[dict] = []
+    periods_analyzed: int = 0
+
+
+class MarginAnalysisResponse(BaseModel):
+    entity_id: UUID
+    margins: list[dict] = []
+    periods_analyzed: int = 0
+
+
+class GrowthProfileResponse(BaseModel):
+    entity_id: UUID
+    growth_series: list[dict] = []
+    periods_analyzed: int = 0
+
+
+class OperatingLeverageResponse(BaseModel):
+    entity_id: UUID
+    avg_operating_leverage: float | None = None
+    operating_leverage_stability: float | None = None
+    operating_leverage_trend: list[dict] = []
+    incremental_margin_trend: list[dict] = []
+
+
+class QualityMetricsResponse(BaseModel):
+    entity_id: UUID
+    piotroski_f_score: float | None = None
+    altman_z_score: float | None = None
+    beneish_m_score: float | None = None
+    accruals_quality: float | None = None
+    as_of_date: str | None = None
+
+
+class RiskProfileResponse(BaseModel):
+    entity_id: UUID
+    credit_risk_score: float | None = None
+    earnings_quality_risk_score: float | None = None
+    market_risk_score: float | None = None
+    overall_risk_score: float | None = None
+    overall_risk_tier: str = "UNKNOWN"
+    data_completeness: float = 0.0
+    risk_factors: list[dict] = []
+
+
+class WorkingCapitalResponse(BaseModel):
+    entity_id: UUID
+    working_capital: dict | None = None
+    as_of_date: str | None = None

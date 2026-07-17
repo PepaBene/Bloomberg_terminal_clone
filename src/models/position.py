@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,7 @@ from src.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from src.models.portfolio import Portfolio
+    from src.models.nav_snapshot import CorporateActionQueue
 
 
 class Position(TimestampMixin, Base):
@@ -24,6 +25,9 @@ class Position(TimestampMixin, Base):
             "portfolio_id", "ticker", "status",
             name="uq_position_portfolio_ticker_status",
         ),
+        # P4-M-026: confirmed status values (OPEN/CLOSED) -- see
+        # src/api/routers/portfolios.py's open/close-position logic.
+        CheckConstraint("status IN ('OPEN', 'CLOSED')", name="ck_position_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -40,6 +44,10 @@ class Position(TimestampMixin, Base):
     portfolio: Mapped["Portfolio"] = relationship(
         "Portfolio", back_populates="positions"
     )
+    # P4-M-013: reverse side of CorporateActionQueue.position.
+    corporate_actions: Mapped[list["CorporateActionQueue"]] = relationship(
+        "CorporateActionQueue", back_populates="position",
+    )
     security_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ticker: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(10), default="OPEN")
@@ -54,3 +62,8 @@ class Position(TimestampMixin, Base):
     closing_price: Mapped[Decimal | None] = mapped_column(Numeric(15, 4))
     day_change_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     notes: Mapped[str | None] = mapped_column(Text)
+    # P4-M-027: audit trail field, matching Transaction.created_by's
+    # free-form (no FK -- auth identity here can be an anonymous fallback
+    # string, not necessarily a real ``users`` row; see
+    # src/api/routers/portfolios.py's ANONYMOUS_USER/_resolve_user).
+    created_by: Mapped[str | None] = mapped_column(String(100))

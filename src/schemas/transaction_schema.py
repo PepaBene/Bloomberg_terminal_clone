@@ -1,9 +1,11 @@
 """Pydantic schemas for Pillar 4 Phase 1: Transaction endpoints."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
+
+from src.schemas.common import round_or_none
 
 
 class TransactionCreateRequest(BaseModel):
@@ -17,8 +19,14 @@ class TransactionCreateRequest(BaseModel):
 
 
 class TransactionResponse(BaseModel):
-    """Transaction response. Monetary / share fields stay as ``float``
-    on the wire (Pydantic v2 serializes Decimal as quoted string)."""
+    """Transaction response.
+
+    P4-M-003: monetary / share fields deliberately stay as ``float`` on
+    the wire (Pydantic v2 serializes ``Decimal`` as a quoted string,
+    which would break existing JSON number consumers). Each field is
+    rounded via ``field_serializer`` to the decimal scale of its source
+    ``Numeric`` DB column to avoid false floating-point precision.
+    """
 
     id: UUID
     portfolio_id: UUID
@@ -39,6 +47,16 @@ class TransactionResponse(BaseModel):
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    # shares: Numeric(20, 6); price_per_share: Numeric(15, 6)
+    @field_serializer("shares", "price_per_share")
+    def _round_6dp(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
+    # gross_amount / commission / net_amount / cash_impact: Numeric(*, 2)
+    @field_serializer("gross_amount", "commission", "net_amount", "cash_impact")
+    def _round_money(self, v: float | None) -> float | None:
+        return round_or_none(v, 2)
 
 
 class TransactionListResponse(BaseModel):

@@ -9,7 +9,7 @@ import type { HeatmapDataPoint } from '@/components/charts';
 export interface SensitivityMatrixProps {
   waccValues: number[];
   growthValues: number[];
-  priceMatrix: number[][];
+  priceMatrix: (number | null)[][];
   currentPrice?: number;
 }
 

@@ -3,7 +3,9 @@
 import uuid
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+
+from src.schemas.common import round_or_none
 
 
 class BacktestRequest(BaseModel):
@@ -21,7 +23,13 @@ class BacktestRequest(BaseModel):
 
 
 class BacktestRunResponse(BaseModel):
-    """Response for a backtest run."""
+    """Response for a backtest run.
+
+    P4-M-006: ``transaction_cost_bps`` is deliberately kept as ``float`` on
+    the wire (Pydantic v2 serializes ``Decimal`` as a quoted string, which
+    would break existing JSON number consumers); rounded to 2dp, matching
+    the source ``Numeric(6, 2)`` column.
+    """
 
     model_config = {"from_attributes": True}
 
@@ -37,9 +45,21 @@ class BacktestRunResponse(BaseModel):
     max_positions: int | None = None
     transaction_cost_bps: float | None = None
 
+    @field_serializer("transaction_cost_bps")
+    def _round_bps(self, v: float | None) -> float | None:
+        return round_or_none(v, 2)
+
 
 class BacktestPerformanceResponse(BaseModel):
-    """Performance metrics for a backtest."""
+    """Performance metrics for a backtest.
+
+    P4-M-006: return/ratio fields are deliberately kept as ``float`` on the
+    wire (Pydantic v2 serializes ``Decimal`` as a quoted string by default,
+    which would break existing JSON number consumers). Fields are rounded
+    via ``field_serializer`` to the decimal scale of their source
+    ``Numeric`` DB column (``BacktestResult``) to avoid false
+    floating-point precision.
+    """
 
     model_config = {"from_attributes": True}
 
@@ -63,12 +83,35 @@ class BacktestPerformanceResponse(BaseModel):
     total_trades: int | None = None
     monthly_returns: dict | None = None
 
+    # total_return / annualized_return / benchmark_return / excess_return:
+    # Numeric(10, 6); max_drawdown / annualized_volatility / avg_win /
+    # avg_loss / tracking_error: Numeric(8, 6)
+    @field_serializer(
+        "total_return", "annualized_return", "benchmark_return", "excess_return",
+        "max_drawdown", "annualized_volatility", "avg_win", "avg_loss", "tracking_error",
+    )
+    def _round_6dp(self, v: float | None) -> float | None:
+        return round_or_none(v, 6)
+
+    # sharpe_ratio / sortino_ratio / information_ratio: Numeric(8, 4);
+    # beta: Numeric(6, 4); win_rate / turnover_annual: Numeric(6, 4)
+    @field_serializer(
+        "sharpe_ratio", "sortino_ratio", "information_ratio",
+        "beta", "win_rate", "turnover_annual",
+    )
+    def _round_4dp(self, v: float | None) -> float | None:
+        return round_or_none(v, 4)
+
 
 class BacktestHoldingEntry(BaseModel):
     """Single holding in a period."""
     security_id: str | None = None
     weight: float
     name: str | None = None
+
+    @field_serializer("weight")
+    def _round_ratio(self, v: float) -> float:
+        return round(v, 6)
 
 
 class BacktestHoldingsResponse(BaseModel):

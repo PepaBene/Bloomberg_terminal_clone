@@ -103,20 +103,26 @@ def compute_performance_metrics(
     peak = 1.0
     cum_val = 1.0
     max_dd = 0.0
-    max_dd_days = 0
-    current_dd_days = 0
+    max_dd_periods = 0
+    current_dd_periods = 0
     for r in returns:
         cum_val *= (1 + r)
         if cum_val > peak:
             peak = cum_val
-            current_dd_days = 0
+            current_dd_periods = 0
         dd = (peak - cum_val) / peak
         if dd > max_dd:
             max_dd = dd
         if cum_val < peak:
-            current_dd_days += 1
-            if current_dd_days > max_dd_days:
-                max_dd_days = current_dd_days
+            current_dd_periods += 1
+            if current_dd_periods > max_dd_periods:
+                max_dd_periods = current_dd_periods
+
+    # `returns` may be daily, weekly, monthly, etc. (periods_per_year is
+    # caller-configurable) — scale the period count to actual calendar days
+    # so `max_drawdown_duration_days` means what its name says regardless
+    # of the return frequency fed in.
+    max_dd_days = round(max_dd_periods * 365.0 / periods_per_year)
 
     # Win rate, avg win/loss
     wins = [r for r in returns if r > 0]

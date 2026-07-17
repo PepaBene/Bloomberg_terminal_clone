@@ -12,6 +12,7 @@ const CompanyIntelligence = lazy(() => import('@/pages/company/CompanyIntelligen
 const ESGDashboard = lazy(() => import('@/pages/company/ESGDashboard'));
 const GovernanceDashboard = lazy(() => import('@/pages/company/GovernanceDashboard'));
 const FilingsView = lazy(() => import('@/pages/company/FilingsView'));
+const ComplexStructure = lazy(() => import('@/pages/structure/ComplexStructure'));
 const ScreenerDashboard = lazy(() => import('@/pages/screener/ScreenerDashboard'));
 const FIScreenerDashboard = lazy(() => import('@/pages/screener/FIScreenerDashboard'));
 const SectorView = lazy(() => import('@/pages/sector/SectorView'));
@@ -45,10 +46,13 @@ const SemanticSearch = lazy(() => import('@/pages/research/SemanticSearch'));
 const ThesisBuilder = lazy(() => import('@/pages/research/ThesisBuilder'));
 const AnalystQA = lazy(() => import('@/pages/research/AnalystQA'));
 const ThemesDashboard = lazy(() => import('@/pages/research/ThemesDashboard'));
+const ModelBuilder = lazy(() => import('@/pages/research/ModelBuilder'));
 const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
 const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
 const DealsView = lazy(() => import('@/pages/deals/DealsView'));
+const SmartMoneyPage = lazy(() => import('@/pages/smartmoney/SmartMoneyPage'));
+const SmartMoneyFilerDetail = lazy(() => import('@/pages/smartmoney/SmartMoneyFilerDetail'));
 const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
 const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
 const CustomIndexBuilder = lazy(() => import('@/pages/quant/CustomIndexBuilder'));
@@ -81,6 +85,8 @@ export function AppRouter() {
         <Route path="/company/governance" element={<GovernanceDashboard />} />
         <Route path="/company/:entityId/esg" element={<ESGDashboard />} />
         <Route path="/company/:entityId/governance" element={<GovernanceDashboard />} />
+        <Route path="/company/complex-structure" element={<ComplexStructure />} />
+        <Route path="/company/:entityId/complex-structure" element={<ComplexStructure />} />
 
         {/* Screener */}
         <Route path="/screener" element={<ScreenerDashboard />} />
@@ -132,6 +138,7 @@ export function AppRouter() {
         <Route path="/research/thesis" element={<ThesisBuilder />} />
         <Route path="/research/qa" element={<AnalystQA />} />
         <Route path="/research/themes" element={<ThemesDashboard />} />
+        <Route path="/research/model-builder" element={<ModelBuilder />} />
 
         {/* Flows & Custom */}
         <Route path="/flows" element={<FlowsDashboard />} />
@@ -140,6 +147,10 @@ export function AppRouter() {
         {/* Deals & IPO */}
         <Route path="/deals" element={<DealsView />} />
         <Route path="/market/ipo" element={<IPOMonitor />} />
+
+        {/* Smart Money */}
+        <Route path="/smart-money" element={<SmartMoneyPage />} />
+        <Route path="/smart-money/:key" element={<SmartMoneyFilerDetail />} />
 
         {/* Quant */}
         <Route path="/quant" element={<QuantDashboard />} />

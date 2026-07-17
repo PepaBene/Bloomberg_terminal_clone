@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // Treasury Dashboard — Yield Curve, Auction Results, Rate Sensitivity
 // ---------------------------------------------------------------------------
-import { TreasuryAuctionCalendar, SpreadHistoryChart } from '@/components/fi';
-import type { AuctionRecord, SpreadDataPoint } from '@/components/fi';
+import { TreasuryAuctionCalendar } from '@/components/fi';
+import type { AuctionRecord } from '@/components/fi';
+import { EmptyState } from '@/components/feedback';
 import {
   useYieldCurve,
   useYieldCurveSpreads,
@@ -91,26 +92,6 @@ const auctionRecords: AuctionRecord[] = [
   { date: '2026-03-18', security: '10Y Note', size: '$39B', bidToCover: 2.56, tailBps: 0.3, status: 'completed' },
 ];
 
-// --- SpreadHistoryChart data (12 months of 10Y OAS history) -----------------
-
-function generate10YSpreadHistory(): SpreadDataPoint[] {
-  const data: SpreadDataPoint[] = [];
-  let oas = 45;
-  const start = new Date('2025-03-28');
-  for (let i = 0; i < 252; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue;
-    oas += (Math.random() - 0.48) * 3;
-    oas = Math.max(20, Math.min(80, oas));
-    data.push({ date: d.toISOString().slice(0, 10), oas: Math.round(oas * 10) / 10 });
-  }
-  return data;
-}
-
-const spreadHistory = generate10YSpreadHistory();
-
 const forwardCurveData = [
   { horizon: '1Y Forward', rate2Y: 4.15, rate5Y: 3.95, rate10Y: 4.10 },
   { horizon: '2Y Forward', rate2Y: 3.85, rate5Y: 3.78, rate10Y: 4.02 },
@@ -144,7 +125,7 @@ export default function TreasuryDashboard() {
   const { data: apiCurve } = useYieldCurve();
   const { data: apiSpreads } = useYieldCurveSpreads();
   const { data: apiAuctions } = useTreasuryAuction();
-  const { data: apiOnTheRun } = useTreasuriesOnTheRun();
+  useTreasuriesOnTheRun();
   const { data: apiForward } = useYieldCurveForward();
   const { data: apiReal } = useRealYieldCurve();
   const { data: apiBreakeven } = useBreakevenCurve();
@@ -235,10 +216,15 @@ export default function TreasuryDashboard() {
           <TreasuryAuctionCalendar auctions={activeAuctions} />
         </div>
 
-        {/* SpreadHistoryChart: 10Y OAS history */}
+        {/* 10Y OAS history — no index-level Treasury OAS series endpoint exists;
+            honest empty state rather than a fabricated random walk (§8.3). */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
-          <h2 style={sectionTitle}>10Y Spread History (12M)</h2>
-          <SpreadHistoryChart data={spreadHistory} benchmarkSpread={42} height={250} />
+          <h2 style={sectionTitle}>10Y Spread History</h2>
+          <EmptyState
+            icon="📊"
+            title="Spread series unavailable"
+            description="No index-level 10Y Treasury OAS time series is wired to this deployment."
+          />
         </div>
 
         {/* Forward Curve */}

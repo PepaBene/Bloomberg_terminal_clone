@@ -4,9 +4,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
+import { DemoModeBanner } from '@/components/feedback';
 import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
-import { api } from '@/api/client';
-import { ANALYTICS } from '@/api/endpoints';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -95,8 +94,21 @@ export default function ScreenerDashboard() {
   const [isUsingMock, setIsUsingMock] = useState(false);
 
   // --- API hooks ---
+  // [Bug 84 fix] — `GET /v2/analytics/screens/library` and `/screens/saved`
+  // both return bare JSON arrays (`response_model=list[...]`), not a
+  // `{screens: [...]}` wrapper. Normalize to an array regardless of whether
+  // the hook data itself is the array or (defensively) a `.screens`-wrapped
+  // shape, so this keeps working if the backend ever adds a wrapper.
   const { data: apiPrebuilt } = useScreenPrebuilt() as { data: any };
   const { data: apiHistory, refetch: refetchHistory } = useScreenHistory() as { data: any; refetch: () => void };
+  const prebuiltScreens: any[] = useMemo(
+    () => (Array.isArray(apiPrebuilt) ? apiPrebuilt : Array.isArray(apiPrebuilt?.screens) ? apiPrebuilt.screens : []),
+    [apiPrebuilt],
+  );
+  const savedScreens: any[] = useMemo(
+    () => (Array.isArray(apiHistory) ? apiHistory : Array.isArray(apiHistory?.screens) ? apiHistory.screens : []),
+    [apiHistory],
+  );
 
   // [Bug 49 fix] — Load fields dynamically from useScreenFields()
   const { data: apiFields } = useScreenFields() as { data: any };
@@ -121,16 +133,21 @@ export default function ScreenerDashboard() {
     setIsUsingMock(false);
     try {
       // [Bug 46 fix] — Map filter fields to match backend ScreenFilter schema:
-      // metric → field, operator → op (uppercase), valueTo → value2, add source
+      // metric → field, operator → op (uppercase), valueTo → value2, add source.
+      // The backend's `ScreenRequest` (src/schemas/screening.py:44) requires the
+      // filter group to be wrapped under a `filters` key — i.e. the POST body is
+      // `{filters: {logic, filters: [...]}}`, not a top-level `{logic, filters}`.
       const payload = {
-        logic: 'AND',
-        filters: filters.map(f => ({
-          field: f.metric,
-          source: 'ANALYTICS_RESULT',
-          op: mapOperatorToBackend(f.operator),
-          value: f.value,
-          value2: f.valueTo ?? null,
-        })),
+        filters: {
+          logic: 'AND',
+          filters: filters.map(f => ({
+            field: f.metric,
+            source: 'ANALYTICS_RESULT',
+            op: mapOperatorToBackend(f.operator),
+            value: f.value,
+            value2: f.valueTo ?? null,
+          })),
+        },
       };
       const res = await runScreen(payload);
       setBackendResults((res as any)?.results ?? (res as any)?.data ?? []);
@@ -243,9 +260,7 @@ export default function ScreenerDashboard() {
 
       {/* LivePreviewCount — [Bug 85 fix] shows demo mode when backend unreachable */}
       {isUsingMock ? (
-        <div style={{ padding: '8px 12px', marginBottom: '8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--color-signal-warning, #f0ad4e) 10%, transparent)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-signal-warning, #f0ad4e)' }}>
-          Demo mode — backend unavailable. Showing local mock results.
-        </div>
+        <DemoModeBanner message="Demo mode — backend unavailable. Showing local mock results." />
       ) : (
         <LivePreviewCount count={resultRows.length} total={totalCount ?? resultRows.length} />
       )}
@@ -256,11 +271,11 @@ export default function ScreenerDashboard() {
       </div>
 
       {/* Prebuilt Screens */}
-      {(apiPrebuilt as any)?.screens?.length > 0 && (
+      {prebuiltScreens.length > 0 && (
         <div className="terminal-card" style={{ marginTop: 'var(--panel-gap)', padding: '12px' }}>
           <h3 className="terminal-section-title" style={{ fontSize: 'var(--text-sm)', marginBottom: '8px' }}>Prebuilt Screens</h3>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {((apiPrebuilt as any).screens as any[]).map((s: any, i: number) => (
+            {prebuiltScreens.map((s: any, i: number) => (
               <button key={i} className="btn-ghost" onClick={() => handleLoadPrebuilt(s)} style={{ fontSize: 'var(--text-xs)' }}>
                 {s.name ?? `Screen ${i + 1}`}
               </button>
@@ -296,10 +311,10 @@ export default function ScreenerDashboard() {
           <div className="terminal-card" style={{ padding: '24px', minWidth: '420px', maxHeight: '60vh', overflow: 'auto' }}>
             <h3 className="terminal-section-title" style={{ marginBottom: '12px' }}>Load Screen</h3>
 
-            {(apiPrebuilt as any)?.screens?.length > 0 && (
+            {prebuiltScreens.length > 0 && (
               <>
                 <h4 className="terminal-label" style={{ marginBottom: '8px' }}>Prebuilt</h4>
-                {((apiPrebuilt as any).screens as any[]).map((s: any, i: number) => (
+                {prebuiltScreens.map((s: any, i: number) => (
                   <div key={`pre-${i}`} className="terminal-row" style={{ padding: '6px 8px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }} onClick={() => handleLoadPrebuilt(s)}>
                     {s.name ?? `Prebuilt ${i + 1}`}
                   </div>
@@ -307,10 +322,10 @@ export default function ScreenerDashboard() {
               </>
             )}
 
-            {(apiHistory as any)?.screens?.length > 0 && (
+            {savedScreens.length > 0 && (
               <>
                 <h4 className="terminal-label" style={{ marginTop: '12px', marginBottom: '8px' }}>Saved</h4>
-                {((apiHistory as any).screens as any[]).map((s: any, i: number) => (
+                {savedScreens.map((s: any, i: number) => (
                   <div key={`saved-${i}`} className="terminal-row" style={{ padding: '6px 8px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }} onClick={() => handleLoadSaved(s)}>
                     {s.name ?? `Saved ${i + 1}`}
                   </div>

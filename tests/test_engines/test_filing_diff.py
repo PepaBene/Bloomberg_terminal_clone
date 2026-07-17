@@ -5,11 +5,14 @@ import pytest
 from src.engines.filing_diff import (
     BOILERPLATE_PHRASES,
     SECTION_KEYS,
+    AlignmentType,
+    ChangeClassification,
     FilingDiffResult,
     ParagraphAlignment,
     SectionDiffResult,
     _is_boilerplate_change,
     _is_numerical_only_change,
+    _strip_numbers,
     align_paragraphs,
     classify_change,
     compute_filing_diff,
@@ -411,6 +414,32 @@ class TestNumericalOnlyChange:
         new = "Revenue decreased $3.1 billion for fiscal year 2024."
         assert _is_numerical_only_change(old, new) is False
 
+    def test_hyphenated_number_does_not_leave_dangling_hyphen(self):
+        """P1-E-008 regression: stripping "3-month" must not leave "-month".
+
+        Live-reproduced bug: the digit-stripping regex used to remove only
+        the digit from a hyphenated compound like "3-month", leaving a
+        dangling hyphen ("-month") that corrupted downstream comparisons.
+        """
+        stripped = _strip_numbers("The 3-month period ended")
+        assert "-month" not in stripped
+        assert "month" in stripped.split()
+
+    def test_hyphenated_compound_number_only_change(self):
+        """Changing "3-month" -> "6-month" is a numbers-only change."""
+        old = "The 3-month period ended with strong results across all divisions."
+        new = "The 6-month period ended with strong results across all divisions."
+        assert _is_numerical_only_change(old, new) is True
+
+    def test_hyphen_vs_space_formatting_is_still_numbers_only(self):
+        """A hyphen-to-space formatting change around the same number/value
+        should not be misclassified as a substantive change just because the
+        digit-stripping regex leaves a stray hyphen behind on one side.
+        """
+        old = "The 3-month transition period resulted in higher costs across the division."
+        new = "The 3 month transition period resulted in higher costs across the division."
+        assert _is_numerical_only_change(old, new) is True
+
 
 # ── Section Keys Constant Tests ───────────────────────────────────────────
 
@@ -427,3 +456,40 @@ class TestConstants:
 
     def test_boilerplate_phrases_not_empty(self):
         assert len(BOILERPLATE_PHRASES) >= 20
+
+
+# ── Enum Typing Tests (P1-E-009) ──────────────────────────────────────────
+
+
+class TestEnumTyping:
+    """classify_change() and its sibling fields consistently use the
+    ChangeClassification / AlignmentType StrEnums instead of raw strings."""
+
+    def test_classify_change_returns_enum_member(self):
+        result = classify_change(
+            "The company faces significant competition.",
+            "The company faces intense competition from new entrants.",
+            "ITEM_1A",
+        )
+        assert isinstance(result, ChangeClassification)
+        assert result == ChangeClassification.SUBSTANTIVE
+
+    def test_paragraph_alignment_type_is_enum(self):
+        old = ["Original paragraph about business operations and growth strategy."]
+        new = [
+            "Original paragraph about business operations and growth strategy.",
+            "A completely new paragraph about emerging cybersecurity risks and data protection requirements.",
+        ]
+        alignments = align_paragraphs(old, new)
+        assert all(isinstance(a.type, AlignmentType) for a in alignments)
+
+    def test_section_diff_classification_is_enum(self):
+        old_text = "Competition in our industry is moderate and stable overall.\n\nWe have adequate supply chain relationships."
+        new_text = "Competition in our industry has intensified significantly due to new entrants.\n\nWe have experienced critical supply chain disruptions."
+        result = compute_section_diff(old_text, new_text, "ITEM_1A")
+        assert isinstance(result.classification, ChangeClassification)
+
+    def test_section_diff_default_classification_is_unchanged_enum(self):
+        result = compute_section_diff("", "", "ITEM_1")
+        assert result.classification == ChangeClassification.UNCHANGED
+        assert isinstance(result.classification, ChangeClassification)

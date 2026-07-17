@@ -1,14 +1,14 @@
 """ai_call_log — LLM telemetry (cost/latency/token accounting).
 
-Revision ID: 084
-Revises: 083
+Revision ID: 092
+Revises: 091
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "084"
-down_revision = "083"
+revision = "092"
+down_revision = "091"
 branch_labels = None
 depends_on = None
 

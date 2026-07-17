@@ -279,8 +279,23 @@ class EdgarCreditRatingConnector(BaseConnector):
     async def load(
         self, records: list[dict[str, Any]], session: AsyncSession
     ) -> dict[str, int]:
-        """Load credit rating events into the database."""
-        stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+        """Load credit rating events into the database.
+
+        Also upserts security-level ``CreditRating`` rows (``src/models/
+        security.py``) for any fixed-income securities issued by the rated
+        entity — this is the only real source this codebase has for that
+        table. SEC 8-Ks disclose ratings at the *issuer* level, not per
+        instrument, so the issuer-level rating is applied to each of the
+        issuer's outstanding fixed-income securities; this is a genuine,
+        non-fabricated rating (the agency/rating/date are all extracted from
+        the filing text), just attributed at issuer granularity rather than
+        a specific CUSIP. Only done when a rating was actually extracted
+        (``new_rating`` present) — never fabricated when extraction fails.
+        """
+        stats = {
+            "inserted": 0, "updated": 0, "skipped": 0, "errors": 0,
+            "security_ratings_inserted": 0,
+        }
 
         for rec in records:
             try:
@@ -322,11 +337,68 @@ class EdgarCreditRatingConnector(BaseConnector):
                 )
                 session.add(event)
                 stats["inserted"] += 1
+
+                if rec.get("new_rating"):
+                    inserted = await self._apply_security_ratings(
+                        session,
+                        entity_id=entity_id,
+                        agency=rec["agency"],
+                        rating=rec["new_rating"],
+                        outlook=rec.get("outlook"),
+                        rating_date=event_date,
+                    )
+                    stats["security_ratings_inserted"] += inserted
             except Exception as e:
                 logger.error("Error loading credit rating event: %s", e)
                 stats["errors"] += 1
 
+        await session.flush()
         return stats
+
+    @staticmethod
+    async def _apply_security_ratings(
+        session: AsyncSession,
+        *,
+        entity_id: Any,
+        agency: str,
+        rating: str,
+        outlook: str | None,
+        rating_date: date,
+    ) -> int:
+        """Upsert security-level CreditRating for the entity's FI securities."""
+        from src.models.security import CreditRating as SecurityCreditRating
+        from src.models.security import Security
+
+        fi_securities = (
+            await session.execute(
+                select(Security.security_id).where(
+                    Security.issuer_entity_id == entity_id,
+                    Security.asset_class == "FIXED_INCOME",
+                )
+            )
+        ).scalars().all()
+
+        inserted = 0
+        for security_id in fi_securities:
+            existing = await session.execute(
+                select(SecurityCreditRating).where(
+                    SecurityCreditRating.security_id == security_id,
+                    SecurityCreditRating.agency == agency,
+                    SecurityCreditRating.rating_date == rating_date,
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                continue
+            session.add(SecurityCreditRating(
+                security_id=security_id,
+                agency=agency,
+                rating=rating,
+                outlook=outlook,
+                rating_date=rating_date,
+                source="SEC_EDGAR_8K",
+            ))
+            inserted += 1
+        return inserted
 
     async def close(self) -> None:
         """Close HTTP client."""

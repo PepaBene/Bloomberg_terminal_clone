@@ -85,7 +85,10 @@ export function useSecurityBulkLookup(symbols: string[], options?: { enabled?: b
   });
 }
 
-export function useSecurityTranslate() {
+// [P1-F-007 fix] Renamed from `useSecurityTranslate` — this wraps a POST
+// (translates an identifier via a mutation), so it should be named like a
+// mutation, not a read-only query hook.
+export function useTranslateSecurity() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post(SECURITIES.translate, body),

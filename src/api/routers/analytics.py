@@ -10,7 +10,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.config import settings
 from src.models.analytics import (
     AnalyticsResult,
     CalculationLineage,
@@ -27,7 +28,7 @@ from src.models.analytics import (
     MultipleTimeSeries,
     WACCResult,
 )
-from src.models.security import Security
+from src.models.security import EODPrice, Security
 from src.schemas.analytics import (
     AllCompositeScoresResponse,
     AllScoresResponse,
@@ -1664,4 +1665,259 @@ async def get_correlation(
         },
         "securityCount": len(sec_metrics),
         "meta": _build_meta("CORRELATION", start),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Factor Exposure (Bug 87) — single-factor (CAPM) market beta, computed live
+# from the same QuantEngine (E7) used by /v2/analytics/quant/summary.
+#
+# NOTE ON SCOPE: this codebase has no factor-return time series (SMB, HML,
+# UMD, etc.) anywhere in src/models or src/ingestion, so a genuine Fama-French
+# style multi-factor regression (size/value/momentum betas) is NOT possible
+# here. What IS genuinely computable from real EODPrice data is the single
+# market factor (CAPM beta vs the configured benchmark) that QuantEngine
+# already produces. This endpoint exposes exactly that — honestly labeled as
+# single-factor — rather than fabricating size/value/momentum loadings.
+# ---------------------------------------------------------------------------
+
+@router.get("/factor-exposure/{security_id}")
+async def get_factor_exposure(
+    security_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Security's market-factor (CAPM beta) exposure, computed live from EODPrice.
+
+    Used by the Quant Dashboard's factor-exposure panel. Only the market
+    factor is returned — see module note above for why size/value/momentum
+    factors are not included.
+    """
+    from src.engines.e2_wacc import _find_benchmark_security_id
+    from src.engines.e7_quant import QuantEngine
+
+    start = time.perf_counter()
+    sec = await _resolve_security(session, security_id)
+
+    engine = QuantEngine()
+    benchmark_id = await _find_benchmark_security_id(session)
+    outputs = await engine.compute(session, security_id, benchmark_id=benchmark_id)
+    out_map = {o.metric_name: o.value for o in outputs}
+
+    if not out_map or out_map.get("beta_market") is None:
+        return {
+            "security_id": str(security_id),
+            "ticker": getattr(sec, "ticker", None),
+            "factors": [],
+            "data_quality": "INSUFFICIENT_DATA",
+            "note": (
+                "Insufficient price history (or no benchmark configured) to "
+                "compute even single-factor market beta. Multi-factor "
+                "(size/value/momentum) exposure is not available in this "
+                "system at all — there is no factor-return dataset to "
+                "regress against."
+            ),
+            "meta": _build_meta("FACTOR_EXPOSURE", start),
+        }
+
+    is_stat_val = out_map.get("is_stationary")
+
+    return {
+        "security_id": str(security_id),
+        "ticker": getattr(sec, "ticker", None),
+        "benchmark": settings.ANALYTICS_MARKET_BENCHMARK_TICKER if benchmark_id else None,
+        "factors": [
+            {
+                "factor": "Market (Beta)",
+                "exposure": out_map.get("beta_market"),
+                "blumeAdjusted": out_map.get("beta_blume_adjusted"),
+                "rSquared": out_map.get("beta_r_squared"),
+                "correlation": out_map.get("correlation_market_pearson"),
+            },
+        ],
+        "autocorrelationLag1": out_map.get("autocorrelation_lag1"),
+        "isStationary": bool(is_stat_val) if is_stat_val is not None else None,
+        "data_quality": "COMPLETE",
+        "note": (
+            "Single-factor (market/CAPM) exposure only. No size/value/"
+            "momentum factor-return series exists in this system, so "
+            "multi-factor loadings are not computed here rather than "
+            "fabricated."
+        ),
+        "meta": _build_meta("FACTOR_EXPOSURE", start),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Technical Signals (Bug 87) — real technical indicators computed live from
+# EODPrice via the technical_studies engine (the same math the scheduled
+# `technical_studies_compute` batch job persists into technical_study_values
+# via scripts/compute_technicals.py). Computed live here (rather than reading
+# the persisted table) so the endpoint works even before that batch job has
+# run for a given security — same "compute live" precedent as
+# /v2/analytics/quant/summary/{id}.
+# ---------------------------------------------------------------------------
+
+async def _load_ohlcv(
+    session: AsyncSession,
+    security_id: uuid.UUID,
+    lookback_days: int = 260,
+) -> tuple[list[date], list[float], list[float], list[float], list[float]]:
+    """Load (dates, highs, lows, closes, volumes) for a security, oldest first."""
+    cutoff = date.today() - timedelta(days=int(lookback_days * 1.6))
+    result = await session.execute(
+        select(
+            EODPrice.price_date, EODPrice.high, EODPrice.low,
+            EODPrice.close, EODPrice.volume,
+        )
+        .where(
+            EODPrice.security_id == security_id,
+            EODPrice.price_date >= cutoff,
+        )
+        .order_by(EODPrice.price_date)
+    )
+    dates: list[date] = []
+    highs: list[float] = []
+    lows: list[float] = []
+    closes: list[float] = []
+    volumes: list[float] = []
+    for price_date, high, low, close, volume in result.all():
+        if close is None:
+            continue
+        c = float(close)
+        dates.append(price_date)
+        closes.append(c)
+        highs.append(float(high) if high is not None else c)
+        lows.append(float(low) if low is not None else c)
+        volumes.append(float(volume) if volume is not None else 0.0)
+    return dates, highs, lows, closes, volumes
+
+
+_INDICATOR_LABELS: dict[str, str] = {
+    "SMA_20": "SMA (20)",
+    "SMA_50": "SMA (50)",
+    "EMA_12": "EMA (12)",
+    "EMA_26": "EMA (26)",
+    "RSI_14": "RSI (14)",
+    "MACD": "MACD",
+    "MACD_SIGNAL": "MACD Signal",
+    "MACD_HIST": "MACD Histogram",
+    "BB_UPPER": "Bollinger Upper",
+    "BB_MIDDLE": "Bollinger Middle",
+    "BB_LOWER": "Bollinger Lower",
+    "STOCH_K": "Stochastic %K",
+    "STOCH_D": "Stochastic %D",
+    "ATR_14": "ATR (14)",
+    "OBV": "On-Balance Volume",
+    "VWAP": "VWAP",
+}
+
+# Indicators compared against the latest close to derive an Above/Below signal
+# (deterministic — real close price vs. a real moving-average/band value).
+_PRICE_COMPARISON_INDICATORS = {
+    "SMA_20", "SMA_50", "EMA_12", "EMA_26", "BB_UPPER", "BB_MIDDLE", "BB_LOWER", "VWAP",
+}
+
+
+def _indicator_signal(indicator: str, value: float, price: float, macd_hist: float | None) -> str | None:
+    """Deterministic, standard technical-analysis label for one indicator value.
+
+    A fixed function of real numbers already computed by the engine — no
+    scores or values are invented here, only the textual classification.
+    """
+    if indicator == "RSI_14":
+        if value >= 70:
+            return "Overbought"
+        if value <= 30:
+            return "Oversold"
+        return "Neutral"
+    if indicator == "STOCH_K" or indicator == "STOCH_D":
+        if value >= 80:
+            return "Overbought"
+        if value <= 20:
+            return "Oversold"
+        return "Neutral"
+    if indicator == "MACD":
+        if macd_hist is None:
+            return None
+        if macd_hist > 0:
+            return "Bullish"
+        if macd_hist < 0:
+            return "Bearish"
+        return "Neutral"
+    if indicator in _PRICE_COMPARISON_INDICATORS:
+        if price > value:
+            return "Above"
+        if price < value:
+            return "Below"
+        return "Neutral"
+    return None
+
+
+@router.get("/technical-signals/{security_id}")
+async def get_technical_signals(
+    security_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Real technical-indicator snapshot for a security.
+
+    Consumed by both CompanyOverview.tsx's "Technical Signals" panel and
+    QuantDashboard.tsx's "Momentum Signals" panel. Every value is computed
+    live from real EODPrice history via ``src/engines/technical_studies.py``
+    (``latest_study_values`` — the same math the scheduled
+    ``technical_studies_compute`` batch job persists into
+    ``technical_study_values`` via scripts/compute_technicals.py). Computed
+    live here rather than reading the persisted table so the endpoint works
+    even before that batch job has run for a given security — same
+    "compute live" precedent as /v2/analytics/quant/summary/{id}.
+    ``signal`` labels are deterministic standard TA thresholds applied to
+    those real numbers, not fabricated scores.
+    """
+    from src.engines.technical_studies import latest_study_values
+
+    start = time.perf_counter()
+    sec = await _resolve_security(session, security_id)
+
+    dates, highs, lows, closes, volumes = await _load_ohlcv(session, security_id)
+    if len(closes) < 20:
+        return {
+            "security_id": str(security_id),
+            "ticker": getattr(sec, "ticker", None),
+            "signals": [],
+            "price": None,
+            "priceReturn1m": None,
+            "data_quality": "INSUFFICIENT_DATA",
+            "meta": _build_meta("TECHNICAL_SIGNALS", start),
+        }
+
+    values = latest_study_values(highs, lows, closes, volumes)
+    value_map = {v["indicator"]: v["value"] for v in values}
+    macd_hist = value_map.get("MACD_HIST")
+    price = closes[-1]
+
+    # 1-month (~21 trading day) price return — real, from EODPrice.
+    price_return_1m: float | None = None
+    lookback_idx = len(closes) - 1 - 21
+    if lookback_idx >= 0 and closes[lookback_idx] > 0:
+        price_return_1m = (price - closes[lookback_idx]) / closes[lookback_idx] * 100.0
+
+    signals = [
+        {
+            "indicator": v["indicator"],
+            "name": _INDICATOR_LABELS.get(v["indicator"], v["indicator"]),
+            "value": round(v["value"], 4),
+            "signal": _indicator_signal(v["indicator"], v["value"], price, macd_hist),
+            "category": v["category"],
+        }
+        for v in values
+    ]
+
+    return {
+        "security_id": str(security_id),
+        "ticker": getattr(sec, "ticker", None),
+        "asOfDate": dates[-1].isoformat() if dates else None,
+        "price": round(price, 4),
+        "priceReturn1m": round(price_return_1m, 2) if price_return_1m is not None else None,
+        "signals": signals,
+        "data_quality": "COMPLETE",
+        "meta": _build_meta("TECHNICAL_SIGNALS", start),
     }

@@ -67,6 +67,22 @@ def create_app() -> FastAPI:
     # the test suite and the open-by-default development workflow. Routes
     # that need user identity should depend on ``get_optional_user``
     # individually instead.
+    #
+    # [Bug 74] Flipping REQUIRE_AUTH's default to True was considered, since
+    # a real auth flow does exist (/auth/token issues JWTs, get_current_user
+    # validates them — see src/api/routers/auth.py). It was NOT flipped:
+    # ~88 tests under tests/test_api/ exercise the API via the `client`
+    # fixture (tests/test_api/conftest.py) with no Bearer token, and that
+    # fixture calls create_app() directly with no REQUIRE_AUTH override, so
+    # a flipped default would turn every one of those into a 401 regression.
+    # Fixing that properly means adding a test-only override in
+    # tests/conftest.py / tests/test_api/conftest.py, which is out of scope
+    # for this change. Until that's done, make the gap loud instead of silent.
+    if not settings.REQUIRE_AUTH:
+        logger.warning(
+            "REQUIRE_AUTH is False — API is running without authentication "
+            "enforcement. Do not use this configuration in production."
+        )
     global_deps = [Depends(get_current_user)] if settings.REQUIRE_AUTH else []
     app = FastAPI(
         title="Bloomberg Data Fabric API",
@@ -129,6 +145,19 @@ def create_app() -> FastAPI:
     #        being captured by /portfolios/{portfolio_id})
     #   8. Health check and exception handlers (last)
     # ------------------------------------------------------------------
+    # A-003: router-import failures were previously only visible in logs.
+    # Collected here and surfaced on /health so an operator doesn't need
+    # active log monitoring to notice a router silently failed to load.
+    router_import_failures: list[str] = []
+
+    # A-008: registration-order constraints (see the block comment above)
+    # were previously enforced only by code comments. Each critical
+    # include_router call below records its position here; _assert_
+    # registration_order (called just before create_app() returns) turns a
+    # future reordering mistake into a startup failure instead of a silent
+    # routing bug.
+    order_marks: dict[str, int] = {}
+
     from src.api.routers.auth import router as auth_router
     app.include_router(auth_router)
 
@@ -141,9 +170,11 @@ def create_app() -> FastAPI:
     # NOTE: Security Finder must be registered BEFORE Securities to avoid
     # /securities/find being captured by /securities/{security_id}
     from src.api.routers.security_finder import router as security_finder_router
+    order_marks["security_finder"] = len(app.routes)
     app.include_router(security_finder_router, prefix="/v1")
 
     from src.api.routers.securities import router as securities_router
+    order_marks["securities"] = len(app.routes)
     app.include_router(securities_router, prefix="/v1")
 
     from src.api.routers.resolution import router as resolution_router
@@ -183,7 +214,12 @@ def create_app() -> FastAPI:
     app.include_router(risk_router)
 
     from src.api.routers.quant import router as quant_router
-    app.include_router(quant_router)
+    app.include_router(quant_router, prefix="/v2/analytics/quant")
+    # P4-A-004: also serve the same endpoints under /v4/quant — no
+    # existing frontend QUANT entry to align to (endpoints.ts has none),
+    # so keep the legacy /v2 mount for existing callers and add the /v4
+    # mount other Pillar-4 routers use.
+    app.include_router(quant_router, prefix="/v4/quant")
 
     from src.api.routers.scenario import router as scenario_router
     app.include_router(scenario_router)
@@ -258,6 +294,13 @@ def create_app() -> FastAPI:
     # Pillar 2 Supplement – Part 3: Backtesting
     from src.api.routers.backtesting import router as backtesting_router
     app.include_router(backtesting_router, prefix="/v1")
+
+    from src.api.routers.backtesting import strategies_router as backtest_strategies_router
+    app.include_router(backtest_strategies_router)
+
+    # Pillar 2 Frontend Bugs 93-95: Benchmarks (standard indices + custom)
+    from src.api.routers.benchmarks import router as benchmarks_router
+    app.include_router(benchmarks_router, prefix="/v1")
 
     # Pillar 2 Supplement – Part 2: Default Risk Scoring
     from src.api.routers.default_risk import router as default_risk_router
@@ -350,32 +393,39 @@ def create_app() -> FastAPI:
         app.include_router(filing_intel_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router filing_intelligence: {e}")
+        router_import_failures.append("filing_intelligence")
 
     try:
         from src.api.routers.governance_intelligence import router as governance_intel_router
         app.include_router(governance_intel_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router governance_intelligence: {e}")
+        router_import_failures.append("governance_intelligence")
 
     try:
         from src.api.routers.news import router as news_router
         app.include_router(news_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router news: {e}")
+        router_import_failures.append("news")
 
     # NOTE: Alerts Expansion must be registered BEFORE Alerts to avoid
     # /alerts/quality-scores being captured by /alerts/{entity_id}
     try:
         from src.api.routers.alerts_expansion import router as alerts_exp_router
+        order_marks["alerts_expansion"] = len(app.routes)
         app.include_router(alerts_exp_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router alerts_expansion: {e}")
+        router_import_failures.append("alerts_expansion")
 
     try:
         from src.api.routers.alerts import router as alerts_router
+        order_marks["alerts"] = len(app.routes)
         app.include_router(alerts_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router alerts: {e}")
+        router_import_failures.append("alerts")
 
     # Pillar 3 Phase 2: Earnings, Sentiment, Economic Calendar, Company Intel
     try:
@@ -383,24 +433,28 @@ def create_app() -> FastAPI:
         app.include_router(earnings_p2_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router earnings_p2: {e}")
+        router_import_failures.append("earnings_p2")
 
     try:
         from src.api.routers.sentiment_p2 import router as sentiment_p2_router
         app.include_router(sentiment_p2_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router sentiment_p2: {e}")
+        router_import_failures.append("sentiment_p2")
 
     try:
         from src.api.routers.economic_calendar import router as economic_calendar_router
         app.include_router(economic_calendar_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router economic_calendar: {e}")
+        router_import_failures.append("economic_calendar")
 
     try:
         from src.api.routers.company_intel_p2 import router as company_intel_p2_router
         app.include_router(company_intel_p2_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router company_intel_p2: {e}")
+        router_import_failures.append("company_intel_p2")
 
     # Pillar 3 Phase 3A: Industry & Competitive Intelligence
     try:
@@ -408,12 +462,14 @@ def create_app() -> FastAPI:
         app.include_router(industry_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router industry: {e}")
+        router_import_failures.append("industry")
 
     try:
         from src.api.routers.competitive import router as competitive_router
         app.include_router(competitive_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router competitive: {e}")
+        router_import_failures.append("competitive")
 
     # Pillar 3 Phase 3B: Global Intelligence
     try:
@@ -421,6 +477,7 @@ def create_app() -> FastAPI:
         app.include_router(global_intel_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router global_intelligence: {e}")
+        router_import_failures.append("global_intelligence")
 
     # Pillar 3 Phase 3C: FI Intelligence
     try:
@@ -428,6 +485,7 @@ def create_app() -> FastAPI:
         app.include_router(fi_intel_router, prefix="/v3")
     except Exception as e:
         logger.warning(f"Failed to import router fi_intelligence: {e}")
+        router_import_failures.append("fi_intelligence")
 
     # Pillar 3 Phase 4A: AI Research Layer
     try:
@@ -435,18 +493,21 @@ def create_app() -> FastAPI:
         app.include_router(research_primers_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_primers: {e}")
+        router_import_failures.append("research_primers")
 
     try:
         from src.api.routers.research_briefings import router as research_briefings_router
         app.include_router(research_briefings_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_briefings: {e}")
+        router_import_failures.append("research_briefings")
 
     try:
         from src.api.routers.research_anomalies import router as research_anomalies_router
         app.include_router(research_anomalies_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_anomalies: {e}")
+        router_import_failures.append("research_anomalies")
 
     # Pillar 3 Phase 4B: Semantic Search, Investment Thesis, Analyst Q&A
     try:
@@ -454,18 +515,21 @@ def create_app() -> FastAPI:
         app.include_router(research_search_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_search: {e}")
+        router_import_failures.append("research_search")
 
     try:
         from src.api.routers.research_thesis import router as research_thesis_router
         app.include_router(research_thesis_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_thesis: {e}")
+        router_import_failures.append("research_thesis")
 
     try:
         from src.api.routers.research_qa import router as research_qa_router
         app.include_router(research_qa_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_qa: {e}")
+        router_import_failures.append("research_qa")
 
     # Pillar 3 Phase 4C: Macro Themes, Scenarios, Intelligent Alerts, Earnings Intelligence
     try:
@@ -473,12 +537,14 @@ def create_app() -> FastAPI:
         app.include_router(research_themes_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_themes: {e}")
+        router_import_failures.append("research_themes")
 
     try:
         from src.api.routers.research_alerts_p4 import router as research_alerts_p4_router
         app.include_router(research_alerts_p4_router, prefix="/v4")
     except Exception as e:
         logger.warning(f"Failed to import router research_alerts_p4: {e}")
+        router_import_failures.append("research_alerts_p4")
 
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
@@ -486,6 +552,7 @@ def create_app() -> FastAPI:
     # to avoid /portfolios/risk/scenarios being captured by /portfolios/{portfolio_id}
     # ------------------------------------------------------------------
     from src.api.routers.portfolio_risk import router as portfolio_risk_router
+    order_marks["portfolio_risk"] = len(app.routes)
     app.include_router(portfolio_risk_router, prefix="/v4")
 
     # ------------------------------------------------------------------
@@ -494,6 +561,7 @@ def create_app() -> FastAPI:
     # /portfolios/performance/compare being captured by /portfolios/{portfolio_id}
     # ------------------------------------------------------------------
     from src.api.routers.portfolio_performance import router as perf_router
+    order_marks["portfolio_performance"] = len(app.routes)
     app.include_router(perf_router, prefix="/v4")
 
     # ------------------------------------------------------------------
@@ -502,9 +570,11 @@ def create_app() -> FastAPI:
     # /portfolios/watchlists being captured by /portfolios/{portfolio_id}
     # ------------------------------------------------------------------
     from src.api.routers.portfolio_watchlists import router as portfolio_watchlists_router
+    order_marks["portfolio_watchlists"] = len(app.routes)
     app.include_router(portfolio_watchlists_router, prefix="/v4")
 
     from src.api.routers.portfolios import router as portfolios_router
+    order_marks["portfolios"] = len(app.routes)
     app.include_router(portfolios_router, prefix="/v4")
 
     # ------------------------------------------------------------------
@@ -526,6 +596,27 @@ def create_app() -> FastAPI:
     from src.api.routers.complex_structure import router as complex_structure_router
     app.include_router(complex_structure_router, prefix="/v1")
 
+    # A-008: fail startup loudly if a documented ordering constraint was
+    # violated, instead of relying solely on the block comment above to
+    # keep future router additions in the right order.
+    _ordering_constraints = [
+        ("security_finder", "securities"),
+        ("alerts_expansion", "alerts"),
+        ("portfolio_risk", "portfolio_performance"),
+        ("portfolio_performance", "portfolio_watchlists"),
+        ("portfolio_watchlists", "portfolios"),
+    ]
+    for before, after in _ordering_constraints:
+        if before not in order_marks or after not in order_marks:
+            continue  # router failed to import — already tracked as a failure above
+        if order_marks[before] >= order_marks[after]:
+            raise RuntimeError(
+                f"Router registration order violated: '{before}' must be "
+                f"registered before '{after}' (see block comment above "
+                f"router registration) to avoid its specific paths being "
+                f"captured by the other router's catch-all path."
+            )
+
     # ------------------------------------------------------------------
     # Health check
     # ------------------------------------------------------------------
@@ -538,7 +629,13 @@ def create_app() -> FastAPI:
         try:
             async with get_session_factory()() as session:
                 await session.execute(text("SELECT 1"))
-            return {"status": "ok", "database": "connected"}
+            status: dict = {"status": "ok", "database": "connected"}
+            # A-003: surface router-import failures here so they're
+            # discoverable without active log monitoring.
+            if router_import_failures:
+                status["status"] = "degraded"
+                status["router_import_failures"] = list(router_import_failures)
+            return status
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return JSONResponse(
@@ -571,6 +668,36 @@ def create_app() -> FastAPI:
         )
         return JSONResponse(
             status_code=422,
+            content=error_response.model_dump(mode="json"),
+        )
+
+    # A-006: RuntimeError is what the AI/embedding clients raise for
+    # "not configured" (missing ANTHROPIC_API_KEY/GOOGLE_API_KEY) — a
+    # distinct, expected condition, not an unexpected server bug. Without
+    # this it fell through to the generic 500 handler below and looked
+    # identical to a real crash.
+    @app.exception_handler(RuntimeError)
+    async def runtime_error_handler(request: Request, exc: RuntimeError) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        start_time = getattr(request.state, "start_time", time.perf_counter())
+        processing_time = int((time.perf_counter() - start_time) * 1000)
+
+        logger.warning("RuntimeError on %s %s: %s", request.method, request.url.path, exc)
+
+        error_response = ErrorResponse(
+            errors=[
+                ErrorDetail(
+                    code="SERVICE_UNAVAILABLE",
+                    message=str(exc),
+                ),
+            ],
+            meta=ResponseMeta(
+                request_id=request_id,
+                processing_time_ms=processing_time,
+            ),
+        )
+        return JSONResponse(
+            status_code=503,
             content=error_response.model_dump(mode="json"),
         )
 

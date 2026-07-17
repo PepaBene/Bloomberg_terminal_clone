@@ -16,13 +16,14 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
+from src.config import settings
 from src.engines.e2_wacc import _find_benchmark_security_id
 from src.engines.e5_risk import RiskEngine, _load_returns, _mean, _std, _max_drawdown
 from src.engines.e5_stress_scenarios import get_all_scenarios, get_scenario
 from src.engines.e7_quant import QuantEngine
 from src.models.analytics import AnalyticsResult
 from src.models.risk import FactorExposure, StressTestResult, VaRResult
-from src.models.security import Security
+from src.models.security import Security, SecurityIdentifier
 from src.schemas.risk import (
     BetaResponse,
     DrawdownResponse,
@@ -332,22 +333,44 @@ async def get_volatility(
     )
 
 
+async def _resolve_benchmark_security_id(session: AsyncSession, ticker: str) -> uuid.UUID | None:
+    """Resolve an arbitrary benchmark ticker (not just the configured default)
+    to a security_id via its TICKER identifier."""
+    stmt = (
+        select(SecurityIdentifier.security_id)
+        .where(
+            SecurityIdentifier.identifier_type == "TICKER",
+            SecurityIdentifier.identifier_value == ticker,
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 @router.get("/beta/{security_id}", response_model=BetaResponse)
 async def get_beta(
     security_id: uuid.UUID,
     benchmark: str = Query(default="SPY", description="Benchmark ticker"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Beta vs the market benchmark, computed live from EOD prices.
+    """Beta vs the requested benchmark, computed live from EOD prices.
 
-    Uses the QuantEngine's OLS of security returns against the configured
-    market benchmark's returns. Degrades to ``None`` when the benchmark is not
-    loaded or there is insufficient overlapping price history — no fabricated
-    fallback value.
+    Uses the QuantEngine's OLS of security returns against the requested
+    benchmark ticker's returns when that ticker resolves to a known security;
+    falls back to the configured default market benchmark (and reports that
+    ticker in the response instead of just echoing the input) when it
+    doesn't. Degrades to ``None`` when no benchmark's price history loads —
+    no fabricated fallback value.
     """
     await _resolve_security(session, security_id)
 
-    benchmark_id = await _find_benchmark_security_id(session)
+    benchmark_id = await _resolve_benchmark_security_id(session, benchmark)
+    if benchmark_id is not None:
+        benchmark_used = benchmark
+    else:
+        benchmark_id = await _find_benchmark_security_id(session)
+        benchmark_used = settings.ANALYTICS_MARKET_BENCHMARK_TICKER
     outputs = await _quant_engine.compute(session, security_id, benchmark_id=benchmark_id)
     out_map = {o.metric_name: o.value for o in outputs}
 
@@ -356,7 +379,7 @@ async def get_beta(
         beta=out_map.get("beta_market"),
         beta_blume_adjusted=out_map.get("beta_blume_adjusted"),
         r_squared=out_map.get("beta_r_squared"),
-        benchmark=benchmark,
+        benchmark=benchmark_used,
     )
 
 

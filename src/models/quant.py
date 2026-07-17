@@ -7,7 +7,7 @@ outcomes produced by the E7 Quantitative Engine.
 import uuid
 from datetime import date
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +44,20 @@ class RegressionResult(TimestampMixin, Base):
 
     __table_args__ = (
         Index("idx_reg_security_dep_date", "security_id", "dependent_var", "calculation_date"),
+        # P4-M-025: r_squared is bounded to [0, 1] by definition (it's a
+        # ratio of explained to total variance). adj_r_squared is allowed
+        # down to -1 rather than 0: unlike r_squared, the adjusted version
+        # can go negative for a very poor-fitting model with few
+        # observations relative to predictors, so a [0, 1] floor would
+        # reject legitimate (if bad) regression fits.
+        CheckConstraint(
+            "r_squared IS NULL OR (r_squared >= 0 AND r_squared <= 1)",
+            name="ck_regression_r_squared_range",
+        ),
+        CheckConstraint(
+            "adj_r_squared IS NULL OR (adj_r_squared >= -1 AND adj_r_squared <= 1)",
+            name="ck_regression_adj_r_squared_range",
+        ),
     )
 
 

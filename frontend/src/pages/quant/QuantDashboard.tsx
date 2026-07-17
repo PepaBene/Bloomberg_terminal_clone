@@ -6,6 +6,48 @@ import { useNavigate } from 'react-router-dom';
 import { useCorrelation, useFactorExposure, useTechnicalSignals } from '@/hooks';
 import { useSecurityStore } from '@/stores/securityContext';
 
+// --- Real API response shapes (src/api/routers/analytics.py's
+// get_factor_exposure/get_technical_signals -- plain dicts, not Pydantic
+// models) -- P4-F-022 fix, replaces this page's 6 `as any` casts.
+
+interface ApiQuantFactor {
+  factor: string;
+  exposure: number | null;
+  blumeAdjusted: number | null;
+  rSquared: number | null;
+  correlation: number | null;
+}
+
+interface ApiFactorExposureResponse {
+  factors: ApiQuantFactor[];
+  note?: string;
+}
+
+interface ApiTechnicalSignal {
+  indicator: string;
+  name: string;
+  value: number;
+  signal: string | null;
+  category: string | null;
+}
+
+interface ApiTechnicalSignalsResponse {
+  signals: ApiTechnicalSignal[];
+  price: number | null;
+  priceReturn1m: number | null;
+}
+
+// ANALYTICS.correlation (`/v2/analytics/correlation`, called here via GET
+// with no body) matches no real backend route -- the real quant router
+// mounts correlation at POST /v2/analytics/quant/correlation with a
+// series_x_id/series_y_id body (src/api/routers/quant.py). Out of scope for
+// this pass (a real fix needs this panel rebuilt around that POST contract
+// with two selected securities, not a parameterless GET); kept loosely
+// typed with an honest empty-array fallback rather than `any`.
+interface ApiCorrelationSummary {
+  factorPerformance?: { factor: string; mtd: number; qtd: number; ytd: number; oneYear: number; sharpe: number; ic: number }[];
+}
+
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
   border: '1px solid var(--color-surface-border)',
@@ -48,7 +90,7 @@ function signalColor(value: number): string {
 
 const factorPerformance: { factor: string; mtd: number; qtd: number; ytd: number; oneYear: number; sharpe: number; ic: number }[] = [];
 
-const momentumSignals: { ticker: string; name: string; score: number; signal: string; priceReturn: number; rsi: number; macd: string }[] = [];
+const momentumSignals: { indicator: string; name: string; value: number; signal: string | null; category: string | null }[] = [];
 
 interface VolSurfacePoint {
   tenor: string;
@@ -57,21 +99,11 @@ interface VolSurfacePoint {
 }
 
 const volSurface: VolSurfacePoint[] = [];
-
-function scoreColor(score: number): string {
-  if (score >= 80) return 'var(--color-signal-positive)';
-  if (score >= 50) return 'var(--color-signal-neutral)';
-  if (score >= 30) return 'var(--color-quality-2)';
-  return 'var(--color-signal-negative)';
-}
-
-function signalBg(signal: string): string {
-  if (signal.includes('Strong Buy')) return 'color-mix(in srgb, var(--color-signal-positive) 15%, transparent)';
-  if (signal.includes('Buy')) return 'color-mix(in srgb, var(--color-signal-positive) 10%, transparent)';
-  if (signal.includes('Strong Sell')) return 'color-mix(in srgb, var(--color-signal-negative) 15%, transparent)';
-  if (signal.includes('Sell')) return 'color-mix(in srgb, var(--color-signal-negative) 10%, transparent)';
-  return 'transparent';
-}
+// Tenor button labels only (no fake IV values are generated from this list —
+// see the "Illustrative — not from live data" disclosure below; this
+// codebase has no options-chain / implied-vol data source, so the table
+// stays empty until one exists).
+const tenors = ['1W', '1M', '2M', '3M', '6M', '1Y'];
 
 // --- Component ---------------------------------------------------------------
 
@@ -82,12 +114,29 @@ export default function QuantDashboard() {
   const primary = useSecurityStore((s) => s.primary);
   const secId = primary?.security_id;
 
-  const { data: apiCorrelation } = useCorrelation() as { data: any };
-  const { data: apiFactors } = useFactorExposure(secId) as { data: any };
-  const { data: apiSignals } = useTechnicalSignals(secId) as { data: any };
+  const { data: apiCorrelation } = useCorrelation() as { data: ApiCorrelationSummary | undefined };
+  const { data: apiFactorExposure } = useFactorExposure(secId) as { data: ApiFactorExposureResponse | undefined };
+  const { data: apiSignals } = useTechnicalSignals(secId) as { data: ApiTechnicalSignalsResponse | undefined };
 
-  const activeFactorPerf = (apiFactors as any)?.factors ?? (apiCorrelation as any)?.factorPerformance ?? factorPerformance;
-  const activeMomentum = (apiSignals as any)?.signals ?? momentumSignals;
+  // Factor Performance table: cross-sectional factor return/IC summary,
+  // backed by GET /v2/analytics/correlation (separate scope from this fix).
+  const activeFactorPerf = apiCorrelation?.factorPerformance ?? factorPerformance;
+
+  // Security Factor Exposure (Bug 87): single-factor (CAPM market beta)
+  // computed live from real EODPrice data via QuantEngine (E7). This
+  // codebase has no factor-return time series, so genuine multi-factor
+  // (size/value/momentum) exposure isn't computable here — the backend
+  // returns a `note` explaining that instead of fabricating extra factors.
+  const securityFactors = apiFactorExposure?.factors ?? [];
+  const factorExposureNote = apiFactorExposure?.note;
+
+  // Momentum Signals (Bug 87): real per-indicator technical signals
+  // (SMA/EMA/RSI/MACD/etc.) for the selected security, computed live from
+  // EODPrice via src/engines/technical_studies.py. Same shape/endpoint that
+  // CompanyOverview.tsx's "Technical Signals" panel consumes.
+  const activeMomentum = apiSignals?.signals ?? momentumSignals;
+  const momentumPrice = apiSignals?.price ?? undefined;
+  const momentumReturn1m = apiSignals?.priceReturn1m ?? undefined;
 
   return (
     <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
@@ -110,7 +159,7 @@ export default function QuantDashboard() {
             </tr>
           </thead>
           <tbody>
-            {activeFactorPerf.map((f: any) => (
+            {activeFactorPerf.map((f) => (
               <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
                 <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
                 <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(f.mtd) }}>{f.mtd >= 0 ? '+' : ''}{f.mtd.toFixed(2)}%</td>
@@ -125,40 +174,95 @@ export default function QuantDashboard() {
         </table>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
-        {/* Momentum Signals */}
-        <div style={panelStyle}>
-          <h2 style={sectionTitle}>Momentum Signals</h2>
+      {/* Security Factor Exposure (Bug 87) — real, single-factor market beta,
+          computed live from EODPrice. No size/value/momentum factor-return
+          series exists in this codebase, so only the market factor is shown;
+          `factorExposureNote` (from the backend) explains that honestly. */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Security Factor Exposure{primary && ` — ${primary.ticker}`}</h2>
+        {securityFactors.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Ticker', 'Score', 'Signal', '3M Return', 'RSI', 'MACD'].map((h) => (
-                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Ticker' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                {['Factor', 'Beta', 'Blume-Adjusted', 'R²', 'Correlation'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Factor' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {activeMomentum.map((s: any) => (
-                <tr key={s.ticker} style={{ height: 'var(--table-row-height)', background: signalBg(s.signal) }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{s.ticker}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: scoreColor(s.score), fontWeight: 600 }}>{s.score}</td>
+              {securityFactors.map((f) => (
+                <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{f.factor}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.exposure?.toFixed(2) ?? '—'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.blumeAdjusted?.toFixed(2) ?? '—'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.rSquared?.toFixed(3) ?? '—'}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.correlation?.toFixed(3) ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style={labelStyle}>{secId ? 'Insufficient price history to compute factor exposure.' : 'Select a security to view its factor exposure.'}</p>
+        )}
+        {factorExposureNote && (
+          <p style={{ ...labelStyle, fontSize: 'var(--text-xs)', marginTop: '8px', fontStyle: 'italic' }}>{factorExposureNote}</p>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
+        {/* Momentum Signals — real per-indicator technical signals for the
+            selected security, computed live from EODPrice (Bug 87). Same
+            endpoint/shape as CompanyOverview.tsx's Technical Signals panel. */}
+        <div style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+            <h2 style={{ ...sectionTitle, margin: 0 }}>Momentum Signals{primary && ` — ${primary.ticker}`}</h2>
+            {momentumPrice != null && (
+              <span style={labelStyle}>
+                {momentumPrice.toFixed(2)}
+                {momentumReturn1m != null && (
+                  <span style={{ marginLeft: '6px', color: signalColor(momentumReturn1m) }}>
+                    {momentumReturn1m >= 0 ? '+' : ''}{momentumReturn1m.toFixed(1)}% (1M)
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+            <thead>
+              <tr>
+                {['Indicator', 'Value', 'Signal'].map((h) => (
+                  <th key={h} style={{ ...labelStyle, textAlign: h === 'Indicator' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activeMomentum.map((s) => (
+                <tr key={s.indicator ?? s.name} style={{ height: 'var(--table-row-height)' }}>
+                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.name}</td>
+                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.value != null ? s.value.toFixed(2) : '—'}</td>
                   <td style={{ textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>
                     <span style={{
                       fontFamily: 'var(--font-ui)',
                       fontSize: 'var(--text-xs)',
-                      padding: '1px 6px',
-                      borderRadius: '2px',
-                      color: scoreColor(s.score),
                       fontWeight: 600,
+                      color: s.signal === 'Bullish' || s.signal === 'Above' ? 'var(--color-signal-positive)'
+                        : s.signal === 'Bearish' || s.signal === 'Below' ? 'var(--color-signal-negative)'
+                        : s.signal === 'Overbought' ? 'var(--color-signal-negative)'
+                        : s.signal === 'Oversold' ? 'var(--color-signal-positive)'
+                        : 'var(--color-text-secondary)',
                     }}>
-                      {s.signal}
+                      {s.signal ?? '—'}
                     </span>
                   </td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(s.priceReturn) }}>{s.priceReturn >= 0 ? '+' : ''}{s.priceReturn.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{s.rsi}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: s.macd === 'Bullish' ? 'var(--color-signal-positive)' : s.macd === 'Bearish' ? 'var(--color-signal-negative)' : 'var(--color-text-secondary)' }}>{s.macd}</td>
                 </tr>
               ))}
+              {activeMomentum.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', textAlign: 'center' }}>
+                    {secId ? 'Insufficient price history to compute technical signals.' : 'Select a security to view its momentum signals.'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

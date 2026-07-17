@@ -101,14 +101,21 @@ async def test_performance_snapshot_period_types(session):
     """Different period types can be stored."""
     p = await _seed_portfolio(session, portfolio_name="Perf Period Types")
     for pt in ["DAILY", "MONTHLY", "QUARTERLY", "ANNUAL"]:
-        snap = await _seed_performance_snapshot(
-            session, p.id,
-            period_type=pt,
-            period_end=date(2025, 3, 1) if pt == "DAILY" else (
+        period_end = (
+            date(2025, 3, 1) if pt == "DAILY" else (
                 date(2025, 3, 31) if pt == "MONTHLY" else (
                     date(2025, 6, 30) if pt == "QUARTERLY" else date(2025, 12, 31)
                 )
-            ),
+            )
+        )
+        # period_start must not be after period_end (ck_perf_period_order);
+        # the exact start date isn't what this test is checking, so pin it
+        # to period_end for every period type.
+        snap = await _seed_performance_snapshot(
+            session, p.id,
+            period_type=pt,
+            period_start=period_end,
+            period_end=period_end,
         )
         result = await session.execute(
             select(PerformanceSnapshot).where(PerformanceSnapshot.id == snap.id)

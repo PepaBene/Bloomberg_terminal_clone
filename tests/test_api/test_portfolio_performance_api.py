@@ -122,7 +122,10 @@ async def _seed_performance_snapshot(
         "id": uuid.uuid4(),
         "portfolio_id": portfolio_id,
         "period_type": period_type,
-        "period_start": date(2025, 6, 1),
+        # Default period_start to period_end (not a fixed date) so callers
+        # that only override period_end can't accidentally end up with
+        # period_start > period_end and trip ck_perf_period_order.
+        "period_start": period_end,
         "period_end": period_end,
         "twr_return": Decimal("0.02150000"),
         "mwr_return": Decimal("0.02100000"),

@@ -3,10 +3,11 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_session
+from src.api.deps import get_optional_user, get_session
 from src.models.backtesting import BacktestResult, BacktestRun
 from src.schemas.backtesting import (
     BacktestCompareRequest,
@@ -19,6 +20,85 @@ from src.schemas.backtesting import (
 
 router = APIRouter(tags=["Backtesting"])
 
+# P4-M-028: mirrors the anonymous-fallback identity pattern used by
+# src/api/routers/portfolios.py (ANONYMOUS_USER/_resolve_user) so a
+# backtest gets a real owner, and reads-by-ID can be authorized against it,
+# even when no Bearer token is present (REQUIRE_AUTH=False by default).
+ANONYMOUS_USER = "default_user"
+
+
+def _resolve_user(user: str | None) -> str:
+    return user or ANONYMOUS_USER
+
+
+async def _get_owned_backtest_run(
+    session: AsyncSession, backtest_id: uuid.UUID, user_id: str,
+) -> BacktestRun:
+    """Look up a BacktestRun and authorize it against the caller.
+
+    P4-M-028: previously any caller could read any backtest's results/
+    holdings by ID with no ownership check at all. Returns 404 both when
+    the run doesn't exist and when it exists but belongs to someone else,
+    so the response doesn't leak whether a given ID is simply unknown vs.
+    owned by another user.
+    """
+    result = await session.execute(
+        select(BacktestRun).where(BacktestRun.backtest_id == backtest_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run or run.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    return run
+
+# Mounted without the "/v1" prefix the rest of this module's router gets
+# (see src/api/app.py) -- the frontend (frontend/src/api/endpoints.ts
+# BACKTESTING.strategies) calls this at the /v2 path screening.py's
+# prebuilt-screen-library endpoints already live under, since a "backtest
+# strategy" is just that same library reshaped for submission as
+# BacktestRequest.strategy_definition (Pillar 2 Frontend Bug 93).
+strategies_router = APIRouter(tags=["Backtesting"])
+
+
+class BacktestStrategyOption(BaseModel):
+    """A selectable backtest strategy: a pre-built screen definition
+    (src/engines/e4_screens_library.py) reshaped so its `strategy_definition`
+    can be submitted directly to `POST /v1/analytics/backtest`.
+    """
+
+    strategy_id: str
+    name: str
+    description: str | None = None
+    tags: list[str] = []
+    strategy_definition: dict
+
+
+@strategies_router.get(
+    "/v2/analytics/backtest/strategies",
+    response_model=list[BacktestStrategyOption],
+)
+async def list_backtest_strategies():
+    """List available backtest strategies.
+
+    Reuses the same pre-built screen library `GET /v2/analytics/screens/
+    library` (src/api/routers/screening.py) already exposes, rather than
+    inventing a second, parallel strategy-template system -- a "backtest
+    strategy" here is naturally just a named, pre-built screen definition
+    that can also be run historically via the backtest worker.
+    """
+    from src.engines.e4_screens_library import get_all_prebuilt_screens
+
+    screens = get_all_prebuilt_screens()
+    return [
+        BacktestStrategyOption(
+            strategy_id=sid,
+            name=s["name"],
+            description=s.get("description"),
+            tags=s.get("tags", []),
+            strategy_definition=s.get("filters", {}),
+        )
+        for sid, s in screens.items()
+    ]
+
 
 @router.post(
     "/analytics/backtest",
@@ -28,14 +108,19 @@ router = APIRouter(tags=["Backtesting"])
 async def submit_backtest(
     body: BacktestRequest,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Submit a new backtest.
 
     The run is queued with status PENDING. Marking it COMPLETED on insert
     would lie to the client because the underlying backtest engine has not
-    yet executed. A batch worker reads PENDING rows, runs the backtester,
-    and writes a BacktestResult before flipping status to COMPLETED.
+    yet executed. ``scripts/run_backtest_worker.py`` polls for PENDING rows,
+    runs the actual strategy-basket simulation, and writes a BacktestResult
+    before flipping status to COMPLETED (or FAILED on error). Run it via
+    ``python -m scripts.run_backtest_worker --once`` or ``--loop``; it is not
+    yet wired into a scheduler (see that script's module docstring).
     """
+    user_id = _resolve_user(user)
     run = BacktestRun(
         backtest_id=uuid.uuid4(),
         name=body.name,
@@ -49,6 +134,9 @@ async def submit_backtest(
         rebalance_frequency=body.rebalance_frequency,
         max_positions=body.max_positions,
         transaction_cost_bps=body.transaction_cost_bps,
+        # P4-M-028 / P4-M-027: ownership + audit trail.
+        user_id=user_id,
+        created_by=user_id,
     )
     session.add(run)
     await session.commit()
@@ -56,25 +144,9 @@ async def submit_backtest(
     return BacktestRunResponse.model_validate(run)
 
 
-@router.get(
-    "/analytics/backtest/{backtest_id}/results",
-    response_model=BacktestPerformanceResponse,
-)
-async def get_backtest_results(
-    backtest_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
-):
-    """Return performance metrics for a backtest."""
-    query = (
-        select(BacktestResult)
-        .where(BacktestResult.backtest_id == backtest_id)
-        .limit(1)
-    )
-    result = await session.execute(query)
-    row = result.scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail="No results found for this backtest")
-
+def _row_to_performance_response(
+    backtest_id: uuid.UUID, row: BacktestResult
+) -> BacktestPerformanceResponse:
     return BacktestPerformanceResponse(
         backtest_id=backtest_id,
         total_return=float(row.total_return) if row.total_return else None,
@@ -99,14 +171,42 @@ async def get_backtest_results(
 
 
 @router.get(
+    "/analytics/backtest/{backtest_id}/results",
+    response_model=BacktestPerformanceResponse,
+)
+async def get_backtest_results(
+    backtest_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
+):
+    """Return performance metrics for a backtest."""
+    await _get_owned_backtest_run(session, backtest_id, _resolve_user(user))
+
+    query = (
+        select(BacktestResult)
+        .where(BacktestResult.backtest_id == backtest_id)
+        .limit(1)
+    )
+    result = await session.execute(query)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="No results found for this backtest")
+
+    return _row_to_performance_response(backtest_id, row)
+
+
+@router.get(
     "/analytics/backtest/{backtest_id}/holdings",
     response_model=BacktestHoldingsResponse,
 )
 async def get_backtest_holdings(
     backtest_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    user: str | None = Depends(get_optional_user),
 ):
     """Return holdings for a backtest."""
+    await _get_owned_backtest_run(session, backtest_id, _resolve_user(user))
+
     query = (
         select(BacktestResult)
         .where(BacktestResult.backtest_id == backtest_id)
@@ -142,17 +242,6 @@ async def compare_backtests(
         result = await session.execute(query)
         row = result.scalar_one_or_none()
         if row:
-            results.append(BacktestPerformanceResponse(
-                backtest_id=bid,
-                total_return=float(row.total_return) if row.total_return else None,
-                annualized_return=float(row.annualized_return) if row.annualized_return else None,
-                benchmark_return=float(row.benchmark_return) if row.benchmark_return else None,
-                excess_return=float(row.excess_return) if row.excess_return else None,
-                sharpe_ratio=float(row.sharpe_ratio) if row.sharpe_ratio else None,
-                sortino_ratio=float(row.sortino_ratio) if row.sortino_ratio else None,
-                max_drawdown=float(row.max_drawdown) if row.max_drawdown else None,
-                max_drawdown_duration_days=row.max_drawdown_duration_days,
-                annualized_volatility=float(row.annualized_volatility) if row.annualized_volatility else None,
-            ))
+            results.append(_row_to_performance_response(bid, row))
 
     return BacktestCompareResponse(backtests=results)

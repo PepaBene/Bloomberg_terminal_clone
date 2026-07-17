@@ -1,5 +1,7 @@
 """Portfolio Performance & Attribution API endpoints (Pillar 4 Phase 2)."""
 
+import csv
+import io
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -13,6 +15,7 @@ from src.api.deps import get_optional_user, get_session
 from src.engines import performance_engine
 from src.models.portfolio import Portfolio
 from src.models.position import Position
+from src.models.security import EODPrice, SecurityIdentifier
 from src.models.transaction import Transaction
 from src.models.nav_snapshot import NAVSnapshot
 from src.models.performance import PerformanceSnapshot
@@ -45,6 +48,15 @@ from src.schemas.reporting import (
 )
 
 router = APIRouter(tags=["Portfolio Performance"])
+
+
+def _rows_to_csv(header: list[str], rows: list[list]) -> str:
+    """Render a header + rows into a properly escaped/quoted CSV string."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buf.getvalue()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -176,6 +188,151 @@ def _dec_or_none(val: float | None, places: int = 6) -> Decimal | None:
     return Decimal(str(round(val, places))) if val is not None else None
 
 
+async def _resolve_benchmark_security_id(
+    session: AsyncSession, ticker: str
+) -> uuid.UUID | None:
+    """Resolve a free-text benchmark ticker (Portfolio.benchmark_id, e.g.
+    "SPY"/"^GSPC") to a real Security via its TICKER identifier.
+
+    Reuses the exact same TICKER-identifier lookup already established for
+    position tickers (src.api.routers.portfolios._resolve_security_id) and
+    for benchmark tickers elsewhere (src.api.routers.risk
+    ._resolve_benchmark_security_id) rather than inventing a new pattern.
+    Returns None (rather than raising) when the ticker isn't registered as a
+    SecurityIdentifier — an unresolvable benchmark is an honest gap, not an
+    error that should break the rest of performance computation.
+    """
+    result = await session.execute(
+        select(SecurityIdentifier.security_id).where(
+            SecurityIdentifier.identifier_type == "TICKER",
+            SecurityIdentifier.identifier_value == ticker.upper(),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _build_benchmark_history(
+    session: AsyncSession, security_id: uuid.UUID, nav_dates: list[date]
+) -> list[dict] | None:
+    """Build a benchmark price series aligned 1:1 to ``nav_dates``.
+
+    performance_engine.build_performance_summary() only computes
+    benchmark-relative metrics when ``len(benchmark_history) ==
+    len(nav_history)`` and zips the two lists index-by-index — so this only
+    returns a series when *every* NAV date has a matching EODPrice row for
+    the resolved benchmark security. A partial/gappy match would silently
+    misalign dates to the wrong daily return, which is worse than no
+    benchmark data at all. When coverage is incomplete, returns None so the
+    caller leaves benchmark-relative fields null (an honest gap) instead of
+    fabricating a misaligned comparison.
+    """
+    if not nav_dates:
+        return None
+    rows = (
+        await session.execute(
+            select(EODPrice.price_date, EODPrice.close).where(
+                EODPrice.security_id == security_id,
+                EODPrice.price_date >= nav_dates[0],
+                EODPrice.price_date <= nav_dates[-1],
+                EODPrice.close.isnot(None),
+            )
+        )
+    ).all()
+    price_by_date = {r.price_date: float(r.close) for r in rows}
+    if not all(d in price_by_date for d in nav_dates):
+        return None
+    return [{"date": d.isoformat(), "nav": price_by_date[d]} for d in nav_dates]
+
+
+async def _resolve_benchmark_history(
+    session: AsyncSession, portfolio: Portfolio, nav_dates: list[date]
+) -> list[dict] | None:
+    """End-to-end: Portfolio.benchmark_id ticker -> Security -> EODPrice
+    series aligned to ``nav_dates``, or None when unresolvable/incomplete.
+    """
+    if not portfolio.benchmark_id:
+        return None
+    security_id = await _resolve_benchmark_security_id(session, portfolio.benchmark_id)
+    if security_id is None:
+        return None
+    return await _build_benchmark_history(session, security_id, nav_dates)
+
+
+def _summary_to_fields(summary: performance_engine.PerformanceSummary) -> dict:
+    """Map a PerformanceSummary onto PerformanceSnapshot column values.
+
+    Shared by the live per-request computation below and the historical
+    backfill script (scripts/backfill_performance_snapshots.py) so both
+    write identical column semantics from the same engine output.
+    """
+    return dict(
+        twr_return=_dec_or_none(summary.twr_return, 8),
+        mwr_return=_dec_or_none(summary.mwr_return, 8),
+        benchmark_return=_dec_or_none(summary.benchmark_return, 8),
+        active_return=_dec_or_none(summary.active_return, 8),
+        max_drawdown=_dec_or_none(summary.drawdown.max_drawdown),
+        sharpe_ratio=_dec_or_none(summary.risk_metrics.sharpe_ratio),
+        sortino_ratio=_dec_or_none(summary.risk_metrics.sortino_ratio),
+        information_ratio=_dec_or_none(summary.risk_metrics.information_ratio),
+        tracking_error=_dec_or_none(summary.risk_metrics.tracking_error),
+        calmar_ratio=_dec_or_none(summary.risk_metrics.calmar_ratio),
+        beta=_dec_or_none(summary.risk_metrics.beta),
+        alpha=_dec_or_none(summary.risk_metrics.alpha),
+        volatility=_dec_or_none(summary.risk_metrics.volatility),
+        up_capture=_dec_or_none(summary.risk_metrics.up_capture),
+        down_capture=_dec_or_none(summary.risk_metrics.down_capture),
+        batting_average=_dec_or_none(summary.risk_metrics.batting_average),
+        best_day=_dec_or_none(summary.best_day, 8),
+        worst_day=_dec_or_none(summary.worst_day, 8),
+        positive_days=summary.positive_days,
+        negative_days=summary.negative_days,
+    )
+
+
+async def _upsert_performance_snapshot(
+    session: AsyncSession,
+    portfolio_id: uuid.UUID,
+    period_type: str,
+    period_start: date,
+    period_end: date,
+    fields: dict,
+) -> PerformanceSnapshot:
+    """Idempotent upsert keyed on (portfolio_id, period_type, period_end) —
+    matches the model's own uq_perf_portfolio_type_end constraint, so this
+    is safe to call repeatedly for the same day (or the same historical day
+    during a backfill re-run) without creating duplicate rows.
+
+    Does not commit — callers control transaction boundaries (a single
+    request vs. a multi-portfolio/multi-day backfill batch).
+    """
+    existing = (
+        await session.execute(
+            select(PerformanceSnapshot).where(
+                PerformanceSnapshot.portfolio_id == portfolio_id,
+                PerformanceSnapshot.period_type == period_type,
+                PerformanceSnapshot.period_end == period_end,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.period_start = period_start
+        snap = existing
+    else:
+        snap = PerformanceSnapshot(
+            id=uuid.uuid4(),
+            portfolio_id=portfolio_id,
+            period_type=period_type,
+            period_start=period_start,
+            period_end=period_end,
+            **fields,
+        )
+        session.add(snap)
+    return snap
+
+
 async def _compute_and_persist_performance(
     session: AsyncSession, portfolio_id: uuid.UUID
 ) -> PerformanceSnapshot | None:
@@ -185,11 +342,22 @@ async def _compute_and_persist_performance(
     Returns None when there's fewer than two NAV snapshots (not enough
     history yet to derive a return series) rather than fabricating one.
 
+    Because this runs once per calendar day (period_end tracks "today",
+    which advances with each new NAVSnapshot), repeated calls upsert the
+    *same* row for a given day but a *new* row each subsequent day — so
+    DAILY history genuinely accumulates one row per day over time. Prior
+    days are backfilled in bulk by scripts/backfill_performance_snapshots.py
+    (see src/scheduler/batch_config.py's performance_snapshot_backfill job)
+    rather than here, since re-deriving the whole history on every request
+    would be wasteful.
+
     Benchmark-relative metrics (benchmark_return, beta, alpha, tracking
-    error, information ratio, up/down capture, batting average) are left
-    null: Portfolio.benchmark_id is a free-text ticker, not a resolved
-    security with a real price series wired here, so those remain an
-    honest gap rather than a guess.
+    error, information ratio, up/down capture, batting average) are
+    computed for real when Portfolio.benchmark_id resolves to a Security
+    with full EODPrice coverage over the NAV date range (see
+    _resolve_benchmark_history). When it doesn't resolve, or coverage is
+    incomplete, those fields are left null — an honest gap rather than a
+    guess.
 
     The sole external cash flow modeled is the portfolio's initial_cash at
     inception — this portfolio model has no deposit/withdrawal transaction
@@ -211,54 +379,25 @@ async def _compute_and_persist_performance(
         return None
 
     nav_history = [{"date": r.snapshot_date.isoformat(), "nav": float(r.nav)} for r in nav_rows]
+    nav_dates = [r.snapshot_date for r in nav_rows]
 
     cash_flows = None
     if portfolio.initial_cash is not None and float(portfolio.initial_cash) > 0:
         cash_flows = [{"date_offset": 0, "amount": -float(portfolio.initial_cash)}]
 
-    summary = performance_engine.build_performance_summary(nav_history, cash_flows=cash_flows)
+    benchmark_history = await _resolve_benchmark_history(session, portfolio, nav_dates)
+
+    summary = performance_engine.build_performance_summary(
+        nav_history, benchmark_history=benchmark_history, cash_flows=cash_flows
+    )
 
     period_start = nav_rows[0].snapshot_date
     period_end = nav_rows[-1].snapshot_date
 
-    existing = (
-        await session.execute(
-            select(PerformanceSnapshot).where(
-                PerformanceSnapshot.portfolio_id == portfolio_id,
-                PerformanceSnapshot.period_type == "DAILY",
-                PerformanceSnapshot.period_end == period_end,
-            )
-        )
-    ).scalar_one_or_none()
-
-    fields = dict(
-        twr_return=_dec_or_none(summary.twr_return, 8),
-        mwr_return=_dec_or_none(summary.mwr_return, 8),
-        max_drawdown=_dec_or_none(summary.drawdown.max_drawdown),
-        sharpe_ratio=_dec_or_none(summary.risk_metrics.sharpe_ratio),
-        sortino_ratio=_dec_or_none(summary.risk_metrics.sortino_ratio),
-        calmar_ratio=_dec_or_none(summary.risk_metrics.calmar_ratio),
-        volatility=_dec_or_none(summary.risk_metrics.volatility),
-        best_day=_dec_or_none(summary.best_day, 8),
-        worst_day=_dec_or_none(summary.worst_day, 8),
-        positive_days=summary.positive_days,
-        negative_days=summary.negative_days,
+    fields = _summary_to_fields(summary)
+    snap = await _upsert_performance_snapshot(
+        session, portfolio_id, "DAILY", period_start, period_end, fields
     )
-
-    if existing:
-        for k, v in fields.items():
-            setattr(existing, k, v)
-        snap = existing
-    else:
-        snap = PerformanceSnapshot(
-            id=uuid.uuid4(),
-            portfolio_id=portfolio_id,
-            period_type="DAILY",
-            period_start=period_start,
-            period_end=period_end,
-            **fields,
-        )
-        session.add(snap)
 
     await session.commit()
     await session.refresh(snap)
@@ -806,6 +945,140 @@ async def generate_holdings_report(
     return await _generate_report(session, portfolio, "HOLDINGS", body)
 
 
+async def _build_report_data(
+    session: AsyncSession, portfolio: Portfolio, report_type: str
+) -> dict:
+    """Assemble real report data via reporting_engine from actual DB state."""
+    from src.engines import reporting_engine
+
+    pos_rows = (
+        await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio.id, Position.status == "OPEN"
+            )
+        )
+    ).scalars().all()
+    positions = [
+        {
+            "ticker": p.ticker,
+            "shares": _opt_float(p.shares) or 0.0,
+            "market_value": _opt_float(p.market_value) or 0.0,
+            "weight": _opt_float(p.weight) or 0.0,
+            "cost_basis": _opt_float(p.cost_basis_total) or 0.0,
+            "unrealized_pnl": _opt_float(p.unrealized_pnl) or 0.0,
+        }
+        for p in pos_rows
+    ]
+
+    nav_snap = (
+        await session.execute(
+            select(NAVSnapshot)
+            .where(NAVSnapshot.portfolio_id == portfolio.id)
+            .order_by(NAVSnapshot.snapshot_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    nav = {
+        "nav": _opt_float(nav_snap.nav) if nav_snap else 0.0,
+        "market_value": _opt_float(nav_snap.market_value) if nav_snap else 0.0,
+        "cash_balance": _opt_float(nav_snap.cash_balance) if nav_snap else 0.0,
+        "unrealized_pnl": _opt_float(nav_snap.unrealized_pnl) if nav_snap else 0.0,
+    }
+
+    perf_snap = (
+        await session.execute(
+            select(PerformanceSnapshot)
+            .where(PerformanceSnapshot.portfolio_id == portfolio.id)
+            .order_by(PerformanceSnapshot.period_end.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    performance = None
+    if perf_snap:
+        performance = {
+            "twr_return": _opt_float(perf_snap.twr_return) or 0.0,
+            "annualized_return": _opt_float(perf_snap.twr_return) or 0.0,
+            "benchmark_return": _opt_float(perf_snap.benchmark_return),
+            "active_return": _opt_float(perf_snap.active_return),
+            "volatility": _opt_float(perf_snap.volatility) or 0.0,
+            "sharpe_ratio": _opt_float(perf_snap.sharpe_ratio) or 0.0,
+            "sortino_ratio": _opt_float(perf_snap.sortino_ratio),
+            "max_drawdown": _opt_float(perf_snap.max_drawdown) or 0.0,
+            "beta": _opt_float(perf_snap.beta),
+            "alpha": _opt_float(perf_snap.alpha),
+            "tracking_error": _opt_float(perf_snap.tracking_error),
+            "information_ratio": _opt_float(perf_snap.information_ratio),
+            "positive_days": perf_snap.positive_days or 0,
+            "negative_days": perf_snap.negative_days or 0,
+            "best_day": _opt_float(perf_snap.best_day) or 0.0,
+            "worst_day": _opt_float(perf_snap.worst_day) or 0.0,
+        }
+
+    if report_type == "SUMMARY":
+        portfolio_dict = {
+            "id": str(portfolio.id),
+            "name": portfolio.portfolio_name,
+            "inception_date": portfolio.inception_date.isoformat()
+            if portfolio.inception_date else "",
+            "strategy": portfolio.portfolio_type or "",
+        }
+        return reporting_engine.build_portfolio_summary_report(
+            portfolio_dict, positions, nav, performance
+        )
+
+    attr = (
+        await session.execute(
+            select(AttributionResult)
+            .where(AttributionResult.portfolio_id == portfolio.id)
+            .order_by(AttributionResult.period_end.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if report_type == "PERFORMANCE":
+        attribution = None
+        if attr is not None:
+            attribution = {
+                "total_allocation": _opt_float(attr.total_allocation) or 0.0,
+                "total_selection": _opt_float(attr.total_selection) or 0.0,
+                "total_interaction": _opt_float(attr.total_interaction) or 0.0,
+            }
+        return reporting_engine.build_performance_report(
+            performance or {}, attribution=attribution, benchmark_name=portfolio.benchmark_id
+        )
+
+    if report_type == "ATTRIBUTION":
+        if attr is None:
+            return reporting_engine.build_attribution_report()
+        sector_detail = attr.sector_detail if isinstance(attr.sector_detail, list) else []
+        factor_detail = attr.factor_detail if isinstance(attr.factor_detail, list) else []
+        security_detail = [
+            s for s in (attr.security_detail if isinstance(attr.security_detail, list) else [])
+            if isinstance(s, dict)
+        ]
+        sorted_sec = sorted(
+            security_detail, key=lambda x: x.get("contribution", 0.0), reverse=True
+        )
+        brinson = {
+            "total_allocation": _opt_float(attr.total_allocation) or 0.0,
+            "total_selection": _opt_float(attr.total_selection) or 0.0,
+            "total_interaction": _opt_float(attr.total_interaction) or 0.0,
+            "residual": _opt_float(attr.residual) or 0.0,
+            "sector_detail": sector_detail,
+        }
+        factor = {"factors": factor_detail}
+        contributors = {
+            "top": sorted_sec[:5],
+            "bottom": sorted_sec[-5:] if len(sorted_sec) >= 5 else sorted_sec,
+        }
+        return reporting_engine.build_attribution_report(
+            brinson=brinson, factor=factor, contributors=contributors
+        )
+
+    # HOLDINGS
+    return reporting_engine.build_holdings_report(positions)
+
+
 async def _generate_report(
     session: AsyncSession,
     portfolio: Portfolio,
@@ -814,6 +1087,7 @@ async def _generate_report(
 ) -> ReportResponse:
     """Internal helper to create a ReportRequest record."""
     fmt = body.format if body else "json"
+    result_data = await _build_report_data(session, portfolio, report_type)
     report = ReportRequest(
         id=uuid.uuid4(),
         portfolio_id=portfolio.id,
@@ -823,7 +1097,7 @@ async def _generate_report(
         period_end=body.period_end if body else None,
         parameters=None,
         status="COMPLETED",
-        result_data={"report_type": report_type, "portfolio_name": portfolio.portfolio_name},
+        result_data=result_data,
     )
     session.add(report)
     await session.commit()
@@ -860,14 +1134,17 @@ async def export_holdings(
     )
     rows = result.scalars().all()
 
-    lines = ["ticker,shares,cost_basis_per_share,cost_basis_total,market_value"]
-    for pos in rows:
-        lines.append(
-            f"{pos.ticker},{_opt_float(pos.shares)},"
-            f"{_opt_float(pos.cost_basis_per_share)},{_opt_float(pos.cost_basis_total)},"
-            f"{_opt_float(pos.market_value)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["ticker", "shares", "cost_basis_per_share", "cost_basis_total", "market_value"],
+        [
+            [
+                pos.ticker, _opt_float(pos.shares),
+                _opt_float(pos.cost_basis_per_share), _opt_float(pos.cost_basis_total),
+                _opt_float(pos.market_value),
+            ]
+            for pos in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -887,15 +1164,18 @@ async def export_transactions(
     )
     rows = result.scalars().all()
 
-    lines = ["date,ticker,type,shares,price,gross,commission,net,cash_impact"]
-    for t in rows:
-        lines.append(
-            f"{t.transaction_date},{t.ticker},{t.transaction_type},"
-            f"{_opt_float(t.shares)},{_opt_float(t.price_per_share)},"
-            f"{_opt_float(t.gross_amount)},{_opt_float(t.commission)},"
-            f"{_opt_float(t.net_amount)},{_opt_float(t.cash_impact)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["date", "ticker", "type", "shares", "price", "gross", "commission", "net", "cash_impact"],
+        [
+            [
+                t.transaction_date, t.ticker, t.transaction_type,
+                _opt_float(t.shares), _opt_float(t.price_per_share),
+                _opt_float(t.gross_amount), _opt_float(t.commission),
+                _opt_float(t.net_amount), _opt_float(t.cash_impact),
+            ]
+            for t in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -915,14 +1195,17 @@ async def export_nav(
     )
     rows = result.scalars().all()
 
-    lines = ["date,nav,market_value,cash_balance,daily_return,cumulative_return"]
-    for snap in rows:
-        lines.append(
-            f"{snap.snapshot_date},{_opt_float(snap.nav)},"
-            f"{_opt_float(snap.market_value)},{_opt_float(snap.cash_balance)},"
-            f"{_opt_float(snap.daily_return)},{_opt_float(snap.cumulative_return)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["date", "nav", "market_value", "cash_balance", "daily_return", "cumulative_return"],
+        [
+            [
+                snap.snapshot_date, _opt_float(snap.nav),
+                _opt_float(snap.market_value), _opt_float(snap.cash_balance),
+                _opt_float(snap.daily_return), _opt_float(snap.cumulative_return),
+            ]
+            for snap in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -942,14 +1225,17 @@ async def export_returns(
     )
     rows = result.scalars().all()
 
-    lines = ["period_end,period_type,twr_return,benchmark_return,active_return"]
-    for snap in rows:
-        lines.append(
-            f"{snap.period_end},{snap.period_type},"
-            f"{_opt_float(snap.twr_return)},{_opt_float(snap.benchmark_return)},"
-            f"{_opt_float(snap.active_return)}"
-        )
-    csv_content = "\n".join(lines)
+    csv_content = _rows_to_csv(
+        ["period_end", "period_type", "twr_return", "benchmark_return", "active_return"],
+        [
+            [
+                snap.period_end, snap.period_type,
+                _opt_float(snap.twr_return), _opt_float(snap.benchmark_return),
+                _opt_float(snap.active_return),
+            ]
+            for snap in rows
+        ],
+    )
     return PlainTextResponse(content=csv_content, media_type="text/csv")
 
 
@@ -973,6 +1259,7 @@ def _parse_sector_detail(data: dict | list | None) -> list[SectorAttributionEntr
             total_effect=item.get("total_effect", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]
 
 
@@ -988,6 +1275,7 @@ def _parse_security_detail(data: dict | list | None) -> list[SecurityContributio
             contribution=item.get("contribution", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]
 
 
@@ -1004,4 +1292,5 @@ def _parse_factor_detail(data: dict | list | None) -> list[FactorAttributionEntr
             contribution=item.get("contribution", 0.0),
         )
         for item in items
+        if isinstance(item, dict)
     ]

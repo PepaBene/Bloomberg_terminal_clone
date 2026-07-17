@@ -52,16 +52,35 @@ PER_SECURITY_TIMEOUT = 30
 
 # Sub-engines that make up each --engine selection. Order groups cheap engines
 # first so a bounded pass makes visible progress before the slow multiples run.
+#
+# Dependency ordering for the "all" group (each key's per-security loop runs
+# to completion for every active security before the next key starts, so
+# ordering here is a real dependency guarantee, not just a suggestion):
+#   - "multiples" must precede "comps": comps reads peer securities' own
+#     multiples AnalyticsResult rows (via PeerService), so peers need their
+#     multiples already computed.
+#   - "dcf" and "comps" must precede "football_field": football_field reads
+#     the persisted DCFResult/CompsResult rows directly (not a live call),
+#     so both must have already run and committed for the subject security.
+#   - "wacc" should precede "dcf": DCF loads WACCResult and falls back to a
+#     default rate only when missing, so running wacc first gives more
+#     securities a real discount rate instead of the fallback.
 ENGINE_GROUPS: dict[str, list[str]] = {
     "e1": ["ttm", "ratios", "dupont"],
     "e1_trends": ["trends"],
     "e1_kpis": ["industry_kpis"],
     "e2_multiples": ["multiples"],
     "e2_wacc": ["wacc"],
+    "e2_dcf": ["dcf"],
+    "e2_comps": ["comps"],
+    "e2_football_field": ["football_field"],
     "e3": ["piotroski", "altman", "beneish"],
+    "e5_risk": ["risk"],
     "e6": ["flows"],
+    "e7_quant": ["quant"],
     "all": ["ttm", "ratios", "dupont", "trends", "industry_kpis",
-            "wacc", "piotroski", "altman", "beneish", "multiples", "flows"],
+            "wacc", "piotroski", "altman", "beneish", "multiples",
+            "dcf", "comps", "football_field", "risk", "quant", "flows"],
 }
 
 
@@ -88,6 +107,21 @@ def _load_engine(key: str):
     if key == "wacc":
         from src.engines.e2_wacc import WACCEngine
         return WACCEngine
+    if key == "dcf":
+        from src.engines.e2_dcf import DCFEngine
+        return DCFEngine
+    if key == "comps":
+        from src.engines.e2_comps import CompsEngine
+        return CompsEngine
+    if key == "football_field":
+        from src.engines.e2_football_field import FootballFieldEngine
+        return FootballFieldEngine
+    if key == "risk":
+        from src.engines.e5_risk import RiskEngine
+        return RiskEngine
+    if key == "quant":
+        from src.engines.e7_quant import QuantEngine
+        return QuantEngine
     if key == "piotroski":
         from src.engines.e3_piotroski import PiotroskiEngine
         return PiotroskiEngine

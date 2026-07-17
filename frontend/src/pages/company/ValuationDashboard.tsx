@@ -4,13 +4,60 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
-import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useDCFSensitivity, useFootballField, useSavePeerGroup } from '@/hooks';
+import { useDuPont, useMultiplesHistory, usePeerComparison, useDCFModel, useFootballField, useSavePeerGroup } from '@/hooks';
 import { api } from '@/api/client';
 import { ANALYTICS } from '@/api/endpoints';
 import { RatioDashboard } from '@/components/company/RatioDashboard';
 import type { DuPontData, MultiplesPoint } from '@/components/company/RatioDashboard';
-import { MultiplesOverTime, PeerScatter, DCFPanel, SensitivityMatrix } from '@/components/valuation';
-import type { MultiplesDataPoint, PeerPoint, DCFAssumptions, DCFResult } from '@/components/valuation';
+import { MultiplesOverTime, PeerScatter, DCFPanel, SensitivityMatrix, FootballField } from '@/components/valuation';
+import type { MultiplesDataPoint, PeerPoint, DCFAssumptions, DCFResult, FootballFieldMethodology } from '@/components/valuation';
+
+// --- API response shapes (subset of backend schemas we actually read) -------
+// Kept minimal/local rather than `any` so a future backend shape change is
+// caught by the compiler instead of silently producing `undefined`s.
+
+interface MultipleHistoryPointApi {
+  calculation_date: string;
+  value: number | null;
+}
+
+interface MultipleHistoryResponseApi {
+  security_id?: string;
+  multiple_type?: string;
+  data_points?: MultipleHistoryPointApi[];
+}
+
+interface DCFResponseApi {
+  sensitivity_grid?: {
+    wacc_values?: number[];
+    growth_values?: number[];
+    implied_prices?: (number | null)[][];
+  } | null;
+}
+
+interface FootballFieldResponseApi {
+  current_price?: number | null;
+  methodologies?: FootballFieldMethodology[];
+  consensus_view?: string | null;
+}
+
+/** Maps the raw metric_name persisted by the multiples engine to the chart field it feeds. */
+function multipleTypeToField(type: string | undefined): 'pe' | 'evEbitda' | 'pbv' | 'ps' | null {
+  switch ((type ?? '').toLowerCase()) {
+    case 'pe_trailing':
+    case 'pe_forward':
+      return 'pe';
+    case 'ev_ebitda':
+      return 'evEbitda';
+    case 'pb':
+    case 'p_tbv':
+      return 'pbv';
+    case 'ps':
+      return 'ps';
+    default:
+      return null;
+  }
+}
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -103,29 +150,71 @@ export default function ValuationDashboard() {
   const { data: apiMultiples } = useMultiplesHistory(resolvedId);
   const { data: apiPeers } = usePeerComparison(resolvedId);
   const { data: apiDcf } = useDCFModel(resolvedId);
-  const { data: apiSensitivity } = useDCFSensitivity(resolvedId);
   const { data: apiFootball } = useFootballField(resolvedId);
 
   // Use API data with mock fallback
   const activeDupont = (apiDupont as any) ?? MOCK_DUPONT;
-  const activeMultiplesHistory = (apiMultiples as any[]) ?? MOCK_MULTIPLES_HISTORY;
-  const activePeers = (apiPeers as any[]) ?? MOCK_PEER_SCATTER;
   const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? MOCK_DCF_ASSUMPTIONS;
   const activeDcfResult = (apiDcf as any)?.result ?? MOCK_DCF_RESULT;
 
-  // [Bug 79 fix] — Wire MultiplesOverTime chart to API data instead of separate hardcoded array
-  const activeMultiplesOverTime = (apiMultiples as any)?.history ?? (apiMultiples as any[]) ?? MOCK_MULTIPLES_OVER_TIME;
+  // [Bug 79 fix] — The real backend (`GET /v2/analytics/multiples/{id}/history`)
+  // returns `{ multiple_type, data_points: [{calculation_date, value}] }`, not a
+  // `.history` array of multi-metric points. Read `data_points`, map the single
+  // metric it represents into the chart-friendly shape, and guard with
+  // `Array.isArray` so an unexpected future shape degrades to an empty series
+  // instead of throwing when passed into `.map()` downstream.
+  const multiplesResp = apiMultiples as MultipleHistoryResponseApi | undefined;
+  const multiplesDataPoints: MultipleHistoryPointApi[] = Array.isArray(multiplesResp?.data_points)
+    ? multiplesResp!.data_points!
+    : [];
+  const multiplesField = multipleTypeToField(multiplesResp?.multiple_type);
 
-  // [Bug 81 fix] — Wire sensitivity data from API. The DCF engine emits
-  // snake_case keys (wacc_values, growth_values, implied_prices); read
-  // those first and only fall back to the camelCase aliases / mock matrix.
-  const _sens = apiSensitivity as any;
-  const activeWaccValues = _sens?.wacc_values ?? _sens?.waccValues ?? MOCK_WACC_VALUES;
-  const activeGrowthValues = _sens?.growth_values ?? _sens?.growthValues ?? MOCK_GROWTH_VALUES;
-  const activePriceMatrix = _sens?.implied_prices ?? _sens?.priceMatrix ?? MOCK_PRICE_MATRIX;
+  const activeMultiplesHistory: MultiplesPoint[] = useMemo(() => {
+    if (multiplesDataPoints.length === 0) return MOCK_MULTIPLES_HISTORY;
+    return multiplesDataPoints.map((d) => ({
+      period: d.calculation_date,
+      pe: multiplesField === 'pe' ? (d.value ?? 0) : 0,
+      evEbitda: multiplesField === 'evEbitda' ? (d.value ?? 0) : 0,
+      pbv: multiplesField === 'pbv' ? (d.value ?? 0) : 0,
+    }));
+  }, [multiplesDataPoints, multiplesField]);
 
-  // [Bug 80 fix] — Wire football field data from API
-  const activeFootballData = (apiFootball as any)?.methodologies ?? null;
+  const activeMultiplesOverTime: MultiplesDataPoint[] = useMemo(() => {
+    if (multiplesDataPoints.length === 0) return MOCK_MULTIPLES_OVER_TIME;
+    return multiplesDataPoints.map((d) => ({
+      date: d.calculation_date,
+      pe: multiplesField === 'pe' ? (d.value ?? 0) : 0,
+      evEbitda: multiplesField === 'evEbitda' ? (d.value ?? 0) : 0,
+      ps: multiplesField === 'ps' ? (d.value ?? 0) : 0,
+      pbv: multiplesField === 'pbv' ? (d.value ?? 0) : 0,
+    }));
+  }, [multiplesDataPoints, multiplesField]);
+
+  // [Bug 82 fix] — The real backend (`GET /v2/analytics/ratios/{id}/vs-peers`)
+  // returns `{ comparisons: [...] }` — per-metric percentile aggregates, NOT
+  // an array of per-peer `{ticker,x,y,marketCap}` scatter points. No backend
+  // endpoint currently exposes per-peer scatter points (checked `PeerGroupResponse`
+  // at `/peers/{id}`, which only carries `{ticker, name, market_cap, similarity_score}`
+  // — no per-peer P/E or revenue-growth values to plot). Rather than fabricate
+  // fake peer points, guard strictly and show an empty/placeholder state until
+  // a real per-peer-point endpoint exists (backend work, out of scope here).
+  const activePeers: PeerPoint[] = Array.isArray(apiPeers) ? (apiPeers as PeerPoint[]) : MOCK_PEER_SCATTER;
+
+  // [Bug 81 fix] — `GET /v2/analytics/dcf/{id}/sensitivity` does not exist in
+  // the backend at all; the main DCF response already carries `sensitivity_grid`
+  // (`{wacc_values, growth_values, implied_prices}`) so read it from there
+  // instead of calling the nonexistent endpoint.
+  const _sens = (apiDcf as DCFResponseApi | undefined)?.sensitivity_grid;
+  const activeWaccValues = _sens?.wacc_values ?? MOCK_WACC_VALUES;
+  const activeGrowthValues = _sens?.growth_values ?? MOCK_GROWTH_VALUES;
+  const activePriceMatrix = _sens?.implied_prices ?? MOCK_PRICE_MATRIX;
+
+  // [Bug 80 fix] — Wire football field data from API; a real `FootballField`
+  // chart is rendered below (see JSX) instead of leaving this fetched-but-unused.
+  const footballResp = apiFootball as FootballFieldResponseApi | undefined;
+  const activeFootballMethodologies: FootballFieldMethodology[] = Array.isArray(footballResp?.methodologies)
+    ? footballResp!.methodologies!
+    : [];
 
   // Get current price from API data or store
   const currentPrice = (apiDcf as any)?.result?.currentPrice ?? companyPrice ?? MOCK_DCF_RESULT.currentPrice;
@@ -271,6 +360,16 @@ export default function ValuationDashboard() {
         {/* DCFPanel Component */}
         <div style={{ gridColumn: '1 / -1' }}>
           <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} onRecalculate={handleDCFRecalculate} />
+        </div>
+
+        {/* Football Field — [Bug 80 fix] the fetched-but-never-rendered football
+            field data now feeds a real chart instead of being dead code. */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <FootballField
+            methodologies={activeFootballMethodologies}
+            currentPrice={footballResp?.current_price ?? currentPrice}
+            consensusView={footballResp?.consensus_view}
+          />
         </div>
 
         {/* SensitivityMatrix — [Bug 81 fix] wired to API data */}

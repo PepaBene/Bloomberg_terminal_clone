@@ -5,8 +5,10 @@ import { NavRail } from './NavRail';
 import { StatusBar } from './StatusBar';
 import { ShortcutReference } from '../ui/ShortcutReference';
 import { ExportMenu } from '../ui/ExportMenu';
+import { LoginModal } from '../auth/LoginModal';
 import { useKeyboardShortcuts, type ShortcutDef } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationStore } from '@/stores/navigationHistory';
+import { useLoginModalStore } from '@/stores/authStore';
 
 interface ShellProps {
   children: ReactNode;
@@ -16,6 +18,9 @@ export function Shell({ children }: ShellProps) {
   const navigate = useNavigate();
   const navBack = useNavigationStore((s) => s.back);
   const navForward = useNavigationStore((s) => s.forward);
+  const loginModalOpen = useLoginModalStore((s) => s.open);
+  const loginModalReason = useLoginModalStore((s) => s.reason);
+  const closeLoginModal = useLoginModalStore((s) => s.closeLoginModal);
 
   /* ── Modal / menu state ───────────────────────────────────── */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -225,6 +230,8 @@ export function Shell({ children }: ShellProps) {
         onExportPNG={handleExportPNG}
         onExportSVG={handleExportSVG}
       />
+
+      <LoginModal open={loginModalOpen} onClose={closeLoginModal} reason={loginModalReason} />
     </div>
   );
 }

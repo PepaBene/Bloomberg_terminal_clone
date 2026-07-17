@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+from src.models.auth import User
 from src.models.entity import Entity
 from src.models.investment_thesis import InvestmentThesis, ThesisVersion
 from src.models.analyst_qa import QASession, QAFeedback
@@ -29,6 +30,19 @@ async def _seed_entity(session, entity_id: uuid.UUID | None = None) -> Entity:
     return entity
 
 
+async def _seed_analyst(session) -> uuid.UUID:
+    """M-005: InvestmentThesis.analyst_id is now a real FK to users.user_id."""
+    user_id = uuid.uuid4()
+    session.add(User(
+        user_id=user_id,
+        username=f"analyst_{user_id.hex[:8]}",
+        email=f"{user_id.hex[:8]}@test.example",
+        hashed_password="x",
+    ))
+    await session.flush()
+    return user_id
+
+
 # ── InvestmentThesis Tests ───────────────────────────────────────────
 
 
@@ -36,11 +50,12 @@ async def _seed_entity(session, entity_id: uuid.UUID | None = None) -> Entity:
 async def test_create_investment_thesis(session):
     """Create an investment thesis with all fields and verify."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     tid = uuid.uuid4()
     thesis = InvestmentThesis(
         id=tid,
         entity_id=entity.entity_id,
-        analyst_id="analyst_001",
+        analyst_id=analyst_id,
         version=1,
         thesis_title="Bullish on Cloud Transition",
         investment_horizon="12M",
@@ -63,7 +78,7 @@ async def test_create_investment_thesis(session):
     )
     fetched = result.scalar_one()
     assert fetched.entity_id == entity.entity_id
-    assert fetched.analyst_id == "analyst_001"
+    assert fetched.analyst_id == analyst_id
     assert fetched.version == 1
     assert fetched.thesis_title == "Bullish on Cloud Transition"
     assert fetched.investment_horizon == "12M"
@@ -76,6 +91,7 @@ async def test_create_investment_thesis(session):
 async def test_thesis_jsonb_roundtrip(session):
     """Verify JSONB fields round-trip correctly."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     tid = uuid.uuid4()
     key_drivers = {"growth": ["SaaS ARR", "International expansion"], "margin": "improving"}
     primary_risks = {"regulatory": "MEDIUM", "execution": "LOW"}
@@ -83,7 +99,7 @@ async def test_thesis_jsonb_roundtrip(session):
     thesis = InvestmentThesis(
         id=tid,
         entity_id=entity.entity_id,
-        analyst_id="analyst_002",
+        analyst_id=analyst_id,
         version=1,
         key_drivers=key_drivers,
         primary_risks=primary_risks,
@@ -103,11 +119,12 @@ async def test_thesis_jsonb_roundtrip(session):
 async def test_thesis_defaults(session):
     """Verify default values for ai_enabled and version."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     tid = uuid.uuid4()
     thesis = InvestmentThesis(
         id=tid,
         entity_id=entity.entity_id,
-        analyst_id="analyst_003",
+        analyst_id=analyst_id,
     )
     session.add(thesis)
     await session.flush()
@@ -124,11 +141,12 @@ async def test_thesis_defaults(session):
 async def test_thesis_version_increment(session):
     """Test creating multiple thesis versions for same entity."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     for v in range(1, 4):
         session.add(InvestmentThesis(
             id=uuid.uuid4(),
             entity_id=entity.entity_id,
-            analyst_id="analyst_004",
+            analyst_id=analyst_id,
             version=v,
             conviction_level="HIGH" if v <= 2 else "MEDIUM",
         ))
@@ -152,10 +170,11 @@ async def test_thesis_version_increment(session):
 async def test_create_thesis_version(session):
     """Create a thesis version snapshot."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     thesis = InvestmentThesis(
         id=uuid.uuid4(),
         entity_id=entity.entity_id,
-        analyst_id="analyst_005",
+        analyst_id=analyst_id,
         version=1,
     )
     session.add(thesis)
@@ -188,10 +207,11 @@ async def test_create_thesis_version(session):
 async def test_thesis_version_decimal_precision(session):
     """Decimal conviction_change retains precision."""
     entity = await _seed_entity(session)
+    analyst_id = await _seed_analyst(session)
     thesis = InvestmentThesis(
         id=uuid.uuid4(),
         entity_id=entity.entity_id,
-        analyst_id="analyst_006",
+        analyst_id=analyst_id,
         version=1,
     )
     session.add(thesis)
