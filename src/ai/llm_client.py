@@ -1,60 +1,57 @@
-"""Thin LLM client wrapper with graceful degradation.
+"""Backwards-compatible thin LLM wrapper over the new AI core.
 
-When ANTHROPIC_API_KEY is not set, all generate() calls return None.
-This allows all endpoints to work without AI — structured data is always
-returned, only narrative text fields are None.
+Preserves the historical interface the API routers rely on::
+
+    llm = get_llm_client()
+    if llm.enabled:
+        text = await llm.generate(system_prompt, user_prompt)
+
+``generate`` returns ``None`` when AI is disabled (no key / package) or the call
+fails, so every endpoint keeps working without an API key. New code should use
+``src.ai.client.get_ai_client()`` directly for streaming / structured output.
 """
-
 from __future__ import annotations
 
 import logging
-import os
 
-from src.services.ai.claude_client import get_claude_client
+from src.ai.client import get_ai_client
 
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    """Wrapper around LLM API with enable/disable support."""
+    """Compatibility facade over :class:`src.ai.client.AIClient`."""
 
     def __init__(self):
-        self.api_key = os.environ.get("ANTHROPIC_API_KEY")
-        self._enabled = bool(self.api_key)
+        self._client = get_ai_client()
 
     @property
     def enabled(self) -> bool:
-        return self._enabled
+        return self._client.enabled
+
+    @property
+    def api_key(self) -> str:
+        return self._client.api_key
 
     async def generate(
         self,
         system_prompt: str,
         user_prompt: str,
         max_tokens: int = 2000,
+        *,
+        feature: str = "legacy_narrative",
+        user_id: str | None = None,
     ) -> str | None:
-        """Generate text from the LLM.
-
-        Returns None when AI is disabled (no API key) or the call fails.
-        """
-        if not self._enabled:
-            return None
-
-        client = get_claude_client()
-        if not client.is_configured:
-            return None
-
-        try:
-            return await client.generate_text(
-                prompt=user_prompt,
-                system=system_prompt,
-                max_tokens=max_tokens,
-            )
-        except Exception:
-            logger.exception("LLM generation failed")
-            return None
+        """Generate text; returns None when AI is disabled or the call fails."""
+        return await self._client.complete_text(
+            user=user_prompt,
+            system=system_prompt,
+            max_tokens=max_tokens,
+            feature=feature,
+            user_id=user_id,
+        )
 
 
-# Module-level singleton
 _client: LLMClient | None = None
 
 

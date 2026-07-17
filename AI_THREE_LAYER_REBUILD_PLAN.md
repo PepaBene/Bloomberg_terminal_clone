@@ -289,12 +289,51 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
 
 ---
 
-## 11. Open questions / decisions
+## 11. Decisions & open questions
 
-1. **News tier** — start free (RSS + allow-listed web_search) vs. license wire APIs now vs. hybrid? (Recommend: free-first, license later.)
-2. **"Insider / non-mainstream"** — confirm scope = *legal* alternative data + non-consensus analysis + public disclosures (no MNPI). (Recommend: yes.)
-3. **Embeddings** — keep Gemini `gemini-embedding-002` (3072) or switch to a finance-tuned embedder (e.g. Voyage-finance)? (Recommend: keep now, revisit in Phase 5.)
-4. **Identity** — wire a real `users` FK for conversations/recommendations, or keep free-form `user_id` strings for now? (Recommend: light `users` anchor in Phase 3.)
-5. **Eval gating** — block PRs on regression vs nightly report? (Recommend: block on Layer-1/3 features, nightly for the rest.)
-6. **Streaming default** — on by default for chat/briefings/deep-research (recommend) vs opt-in.
-7. **Build order** — start Phase 0 now, or refine this plan further first?
+**Decided (2026-07-09):**
+1. **Build order** — ✅ Start **Phase 0** (new `src/ai/` core) now.
+2. **News tier** — ✅ **Free-first**: RSS + Anthropic `web_search` allow-listed to Reuters/Bloomberg/FT/WSJ/WaPo/AP, GDELT, NewsAPI, SEC, FRED, Federal Register; readability body extraction. Connectors are written so licensed wire APIs can drop in later.
+3. **Information edge** — ✅ Legal alternative data + non-consensus analysis + public disclosures, **plus paid expert-network / primary-research feeds** (still public/legal). Explicitly **no MNPI**. Expert-network integration carries added cost + a compliance-review gate (§4.1, §10).
+
+**Still open:**
+4. **Embeddings** — keep Gemini `gemini-embedding-002` (3072) or switch to a finance-tuned embedder (e.g. Voyage-finance)? (Recommend: keep now, revisit in Phase 5.)
+5. **Identity** — wire a real `users` FK for conversations/recommendations, or keep free-form `user_id` strings for now? (Recommend: light `users` anchor in Phase 3.)
+6. **Eval gating** — block PRs on regression vs nightly report? (Recommend: block on Layer-1/3 features, nightly for the rest.)
+7. **Streaming default** — on by default for chat/briefings/deep-research (recommend) vs opt-in.
+8. **Expert networks** — which provider(s), and confirm the compliance-review process before that feed goes live.
+
+---
+
+## 12. Build log
+
+### Phase 0 — in progress
+
+**Done & tested (2026-07-09):**
+- New AI core under `src/ai/`: `models.py` (tier→model→pricing), `client.py`
+  (`AIClient`: async text / tool-forced **structured** output / **streaming**,
+  retry+backoff, prompt-cache markers, model tiering, telemetry), `router.py`
+  (feature→tier), `prompts/` (YAML versioned registry + `analyst_qa`,
+  `sentiment_score`, `interpret_metric` v1).
+- Telemetry: `telemetry.py` + `ai_call_log` model + migration `084_ai_call_log.py`
+  + daily-token-usage helper (for the budget guardrail).
+- `src/ai/llm_client.py` rewritten as a **compatibility shim** over the new core:
+  preserves `get_llm_client()` / `.enabled` / `generate(system, user, max_tokens)`
+  so all 9 existing LLM routers keep working — now with retries + telemetry.
+- Verified: 10 new unit tests pass; all 9 LLM-dependent routers import cleanly;
+  graceful degradation holds (no `anthropic` pkg / no key → `enabled=False`,
+  helpers no-op) exactly as before.
+
+**Next in Phase 0:**
+- Retrieval/RAG: add `pgvector` dep, migration to `VECTOR(3072)` + HNSW on
+  `search_documents`, `retrieval/{chunker,embedder,store,retriever}.py` (hybrid
+  vector+BM25). *(Requires the `pgvector` Python package and `CREATE EXTENSION
+  vector` on the live Postgres — code + migration buildable now, DB run needs the
+  extension.)*
+- Tool-use agent loop (`agents/loop.py`) + first tools (`data_query`,
+  `web_search`, `citation_check`).
+- Guardrails (`citations`, `dates`, `redaction`) + cost-budget enforcement.
+- SSE streaming helper (`streaming.py`) for chat/briefings/deep-research.
+- Eval harness skeleton (golden examples + LLM-as-judge).
+- Then migrate the 9 legacy narrative features off inline prompts onto the
+  registry + structured output, and retire `src/services/ai/*`.
