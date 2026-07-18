@@ -17,12 +17,18 @@ from src.ingestion.edgar_segments import EdgarSegmentsConnector, parse_segments
 
 # Representative company-facts-style us-gaap payload with dimensional segment
 # members (mirrors the shape live XBRL frames carry per the module docstring).
+# "Americas"/"EMEA" carry a geographical axis -> GEOGRAPHIC; the operating
+# segments ("iPhone"/"Services") carry the business-segments axis -> BUSINESS.
 SAMPLE_US_GAAP = {
     "RevenueFromContractWithCustomerExcludingAssessedTax": {
         "units": {
             "USD": [
-                {"end": "2025-12-31", "val": 100_000_000, "form": "10-K", "fy": 2025, "segment": "Americas"},
-                {"end": "2025-12-31", "val": 50_000_000, "form": "10-K", "fy": 2025, "segment": "EMEA"},
+                {"end": "2025-12-31", "val": 100_000_000, "form": "10-K", "fy": 2025,
+                 "segment": "Americas", "axis": "srt:StatementGeographicalAxis"},
+                {"end": "2025-12-31", "val": 50_000_000, "form": "10-K", "fy": 2025,
+                 "segment": "EMEA", "axis": "srt:StatementGeographicalAxis"},
+                {"end": "2025-12-31", "val": 80_000_000, "form": "10-K", "fy": 2025,
+                 "segment": "iPhone", "axis": "us-gaap:StatementBusinessSegmentsAxis"},
                 # No segment member -> consolidated fact, must be excluded.
                 {"end": "2025-12-31", "val": 150_000_000, "form": "10-K", "fy": 2025},
             ]
@@ -31,23 +37,41 @@ SAMPLE_US_GAAP = {
     "OperatingIncomeLoss": {
         "units": {
             "USD": [
-                {"end": "2025-12-31", "val": 20_000_000, "form": "10-K", "fy": 2025, "segment": "Americas"},
+                {"end": "2025-12-31", "val": 20_000_000, "form": "10-K", "fy": 2025,
+                 "segment": "iPhone", "axis": "us-gaap:StatementBusinessSegmentsAxis"},
             ]
         }
     },
 }
 
 
-def test_parse_segments_extracts_dimensional_facts_only():
+def test_parse_segments_classifies_geographic_and_business():
     segments = parse_segments(SAMPLE_US_GAAP)
-    assert ("2025-12-31", "Americas") in segments
-    assert ("2025-12-31", "EMEA") in segments
-    americas = segments[("2025-12-31", "Americas")]
+    assert ("2025-12-31", "GEOGRAPHIC", "Americas") in segments
+    assert ("2025-12-31", "GEOGRAPHIC", "EMEA") in segments
+    assert ("2025-12-31", "BUSINESS", "iPhone") in segments
+    americas = segments[("2025-12-31", "GEOGRAPHIC", "Americas")]
     assert americas["revenue"] == 100_000_000
-    assert americas["operating_income"] == 20_000_000
-    emea = segments[("2025-12-31", "EMEA")]
+    assert americas["segment_type"] == "GEOGRAPHIC"
+    iphone = segments[("2025-12-31", "BUSINESS", "iPhone")]
+    assert iphone["revenue"] == 80_000_000
+    assert iphone["operating_income"] == 20_000_000
+    emea = segments[("2025-12-31", "GEOGRAPHIC", "EMEA")]
     assert emea["revenue"] == 50_000_000
     assert "operating_income" not in emea
+
+
+def test_parse_segments_defaults_to_business_without_axis():
+    # Member with no axis -> conservative BUSINESS default.
+    payload = {
+        "Revenues": {
+            "units": {"USD": [
+                {"end": "2025-12-31", "val": 1_000, "form": "10-K", "fy": 2025, "segment": "Foo"},
+            ]}
+        }
+    }
+    segments = parse_segments(payload)
+    assert ("2025-12-31", "BUSINESS", "Foo") in segments
 
 
 @pytest.mark.asyncio
@@ -56,8 +80,11 @@ async def test_transform_produces_segment_data_dicts():
     records = [{"cik": "0000320193", "entity_name": "Apple Inc.", "us_gaap_facts": SAMPLE_US_GAAP}]
     out = await conn.transform(records)
     names = {r["segment_name"] for r in out}
-    assert names == {"Americas", "EMEA"}
-    assert all(r["segment_type"] == "BUSINESS" for r in out)
+    assert names == {"Americas", "EMEA", "iPhone"}
+    types = {r["segment_name"]: r["segment_type"] for r in out}
+    assert types["Americas"] == "GEOGRAPHIC"
+    assert types["EMEA"] == "GEOGRAPHIC"
+    assert types["iPhone"] == "BUSINESS"
     assert all(r["period_type"] == "ANNUAL" for r in out)
 
 
@@ -87,13 +114,16 @@ async def test_load_writes_segment_data_linked_to_financial_period(session):
     records = [{"cik": "0000320193", "entity_name": "Apple Inc.", "us_gaap_facts": SAMPLE_US_GAAP}]
     transformed = await conn.transform(records)
     stats = await conn.load(transformed, session)
-    assert stats["inserted"] == 2
+    assert stats["inserted"] == 3
     await session.flush()
 
     rows = (await session.execute(select(SegmentData))).scalars().all()
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert all(r.period_id == period_id for r in rows)
     assert all(r.entity_id == entity_id for r in rows)
+    # Geographic segments are now classified (were all hardcoded BUSINESS).
+    geo = {r.segment_name for r in rows if r.segment_type == "GEOGRAPHIC"}
+    assert geo == {"Americas", "EMEA"}
 
 
 @pytest.mark.asyncio
@@ -117,7 +147,7 @@ async def test_load_skips_when_no_matching_financial_period(session):
     stats = await conn.load(transformed, session)
     # No FinancialPeriod row exists for this entity/period_end_date -> skipped.
     assert stats["inserted"] == 0
-    assert stats["skipped"] == 2
+    assert stats["skipped"] == 3
 
 
 @pytest.mark.asyncio

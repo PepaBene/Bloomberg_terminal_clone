@@ -9,10 +9,17 @@ IMPORTANT — needs live-data validation:
     (e.g. ``StatementBusinessSegmentsAxis``) that identify a segment. Reliable
     segment extraction requires the dimensional R-files / Frames data of an
     individual filing. This connector is therefore implemented *to-pattern*:
-    :func:`parse_segments` reads a per-entry ``segment`` member label when
-    present (the shape live dimensional XBRL carries) and is exercised by a
-    mocked-payload unit test. It must be validated against real dimensional SEC
-    data before production use.
+    :func:`parse_segments` reads a per-entry ``segment`` member label and its
+    ``axis``/``dimension`` when present (the shape live dimensional XBRL
+    carries) and is exercised by a mocked-payload unit test. It must be
+    validated against real dimensional SEC data before production use.
+
+    Segment kind (BUSINESS vs GEOGRAPHIC) is derived from the dimensional axis
+    via :func:`_classify_segment_type` — a geographical axis
+    (``srt:StatementGeographicalAxis``) yields ``"GEOGRAPHIC"``, otherwise
+    ``"BUSINESS"``. This feeds the geographic-revenue surfaces in
+    ``competitive.py`` / ``company_intel_p2.py`` / ``research_primers.py``,
+    which filter on ``segment_type == "GEOGRAPHIC"``.
 """
 
 from __future__ import annotations
@@ -48,6 +55,31 @@ _ASSET_CONCEPTS = ("Assets", "SegmentReportingInformationAssets")
 
 _ACCEPTED_FORMS = ("10-K", "10-Q", "10-K/A", "10-Q/A")
 
+# Substrings that mark a dimensional axis (or member label) as a GEOGRAPHIC
+# rather than an operating/BUSINESS segment. Live dimensional XBRL identifies
+# the segment *kind* by its axis: ``srt:StatementGeographicalAxis`` (geographic
+# revenue breakdowns) vs ``us-gaap:StatementBusinessSegmentsAxis`` (operating
+# segments). Matched case-insensitively.
+_GEOGRAPHIC_AXIS_HINTS = ("geograph", "country", "region")
+
+
+def _classify_segment_type(axis: str | None, segment_type: str | None) -> str:
+    """Classify a dimensional segment fact as GEOGRAPHIC or BUSINESS.
+
+    Prefers an explicit ``segment_type`` on the entry, then infers from the
+    dimensional axis, and defaults to BUSINESS. Previously every row was
+    hardcoded ``"BUSINESS"``, so the three GEOGRAPHIC consumers
+    (competitive / company_intel_p2 / research_primers) never matched a row
+    and all geographic-revenue surfaces were permanently blank.
+    """
+    if segment_type:
+        st = segment_type.strip().upper()
+        if st in ("GEOGRAPHIC", "BUSINESS"):
+            return st
+    if axis and any(hint in axis.lower() for hint in _GEOGRAPHIC_AXIS_HINTS):
+        return "GEOGRAPHIC"
+    return "BUSINESS"
+
 
 def _iter_segment_entries(
     us_gaap: dict[str, Any], concepts: tuple[str, ...]
@@ -68,9 +100,15 @@ def _iter_segment_entries(
                     continue
                 if entry.get("end") is None or entry.get("val") is None:
                     continue
+                # The dimensional axis (when present) tells us whether this is
+                # a business or geographic segment.
+                axis = entry.get("axis") or entry.get("dimension")
                 out.append(
                     {
                         "segment": segment,
+                        "segment_type": _classify_segment_type(
+                            axis, entry.get("segment_type")
+                        ),
                         "end": entry["end"],
                         "form": entry["form"],
                         "val": float(entry["val"]),
@@ -81,19 +119,24 @@ def _iter_segment_entries(
     return out
 
 
-def parse_segments(us_gaap: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """Parse segment facts into a dict keyed by (period_end, segment_name).
+def parse_segments(
+    us_gaap: dict[str, Any],
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Parse segment facts into a dict keyed by (period_end, segment_type, name).
 
-    Pure function — no I/O — so it is directly unit-testable on a sample
-    companyfacts-style payload.
+    Keyed on ``segment_type`` as well as name so a geographic and a business
+    segment that happen to share a label don't collide. Pure function — no
+    I/O — so it is directly unit-testable on a sample companyfacts-style
+    payload.
     """
-    segments: dict[tuple[str, str], dict[str, Any]] = defaultdict(dict)
+    segments: dict[tuple[str, str, str], dict[str, Any]] = defaultdict(dict)
 
     def _apply(concept_group: tuple[str, ...], field: str) -> None:
         for e in _iter_segment_entries(us_gaap, concept_group):
-            key = (e["end"], e["segment"])
+            key = (e["end"], e["segment_type"], e["segment"])
             rec = segments[key]
             rec.setdefault("segment_name", e["segment"])
+            rec.setdefault("segment_type", e["segment_type"])
             rec.setdefault("period_end_date", e["end"])
             rec.setdefault("form", e["form"])
             rec.setdefault("fiscal_year", e.get("fy"))
@@ -171,7 +214,7 @@ class EdgarSegmentsConnector(BaseConnector):
         out: list[dict[str, Any]] = []
         for rec in records:
             segments = parse_segments(rec["us_gaap_facts"])
-            for (period_end, _segment), fields in segments.items():
+            for (period_end, segment_type, _segment), fields in segments.items():
                 form = fields.get("form", "10-K")
                 out.append(
                     {
@@ -180,7 +223,7 @@ class EdgarSegmentsConnector(BaseConnector):
                         "period_end_date": period_end,
                         "fiscal_year": fields.get("fiscal_year"),
                         "period_type": "ANNUAL" if "10-K" in form else "QUARTERLY",
-                        "segment_type": "BUSINESS",
+                        "segment_type": segment_type,
                         "segment_name": fields["segment_name"],
                         "revenue": fields.get("revenue"),
                         "operating_income": fields.get("operating_income"),

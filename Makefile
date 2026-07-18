@@ -8,7 +8,7 @@
 	ingest-earnings-surprises ingest-ma-deals ingest-ipo ingest-nport \
 	ingest-esg-controversies ingest-money-market \
 	compute-debt-maturity compute-ownership-summary compute-esg-temperature \
-	compute-technicals \
+	compute-technicals compute-shares-outstanding \
 	backfill backfill-status backfill-reconcile backfill-loop backfill-refresh \
 	analytics analytics-status analytics-loop analytics-refresh
 
@@ -104,7 +104,7 @@ ingest-money-market:
 	python -m scripts.ingest_money_market
 
 ingest-earnings-surprises:
-	python -m scripts.ingest_earnings_surprises
+	python -m scripts.ingest_earnings
 
 ingest-esg-controversies:
 	python -m scripts.ingest_esg_controversies
@@ -121,6 +121,9 @@ compute-esg-temperature:
 
 compute-technicals:
 	python -m scripts.compute_technicals
+
+compute-shares-outstanding:
+	python -m scripts.compute_shares_outstanding
 
 # --- Automated resumable backfill (see BACKFILL.md) ---
 backfill-status:      ## Show per-data-type coverage

@@ -11,6 +11,7 @@ Usage:
 import argparse
 import asyncio
 import logging
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -25,13 +26,31 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.scheduler.batch_config import BATCH_JOBS
 
 
+def _split_job_script(script: str) -> tuple[str, list[str]]:
+    """Split a job's ``script`` field into (script_path, extra_args).
+
+    Several jobs carry CLI arguments in their ``script`` field
+    (e.g. ``"scripts/run_analytics_batch.py --engine e1"``). Treating the
+    whole string as a filename made ``Path(...).exists()`` fail in
+    ``--validate`` and passed a bogus single-token filename to the
+    subprocess, so every arg-bearing job crashed on each fire. Split on
+    shell-like whitespace: the first token is the script path, the rest are
+    arguments.
+    """
+    tokens = shlex.split(script)
+    if not tokens:
+        return script, []
+    return tokens[0], tokens[1:]
+
+
 def validate_schedules() -> bool:
     """Validate that all batch job configurations are correct."""
     errors = []
     for job in BATCH_JOBS:
-        script_path = PROJECT_ROOT / job.script
+        script_rel, _ = _split_job_script(job.script)
+        script_path = PROJECT_ROOT / script_rel
         if not script_path.exists():
-            errors.append(f"  {job.name}: script not found -> {job.script}")
+            errors.append(f"  {job.name}: script not found -> {script_rel}")
         parts = job.cron.split()
         if len(parts) != 5:
             errors.append(f"  {job.name}: invalid cron expression '{job.cron}' (need 5 fields)")
@@ -55,9 +74,11 @@ def print_crontab() -> None:
     print(f"# Generated from {__file__}")
     print()
     for job in BATCH_JOBS:
-        script = PROJECT_ROOT / job.script
+        script_rel, extra_args = _split_job_script(job.script)
+        script = PROJECT_ROOT / script_rel
+        args_str = (" " + " ".join(extra_args)) if extra_args else ""
         print(f"# {job.description}")
-        print(f"{job.cron}  {python} {script}")
+        print(f"{job.cron}  {python} {script}{args_str}")
         print()
 
 
@@ -85,10 +106,16 @@ def run_scheduler() -> None:
             day_of_week=parts[4],
         )
 
-        def _run_script(script_path=str(PROJECT_ROOT / job.script), name=job.name):
+        _script_rel, _extra_args = _split_job_script(job.script)
+
+        def _run_script(
+            script_path=str(PROJECT_ROOT / _script_rel),
+            script_args=_extra_args,
+            name=job.name,
+        ):
             logger.info("Starting job: %s", name)
             result = subprocess.run(
-                [sys.executable, script_path],
+                [sys.executable, script_path, *script_args],
                 capture_output=True,
                 text=True,
             )

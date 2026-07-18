@@ -26,6 +26,39 @@ class BatchJob:
 # ---------------------------------------------------------------------------
 
 BATCH_JOBS: list[BatchJob] = [
+    # ── Entity / Security Master (D1) ─────────────────────────────────
+    #    ROOT OF THE INGESTION CASCADE. Everything downstream (XBRL,
+    #    ownership, ESG, segments, analytics) builds its CIK/ticker work
+    #    lists from these tables. They were reachable only via `make`
+    #    targets and so never ran in a normal deployment, leaving the
+    #    master empty and silently no-oping every downstream job. Scheduled
+    #    here early each morning, before the filing-derived jobs.
+    BatchJob(
+        name="edgar_entities_ingest",
+        cron="0 3 * * *",  # 3 AM daily
+        script="scripts/ingest_edgar.py",
+        sla_minutes=240,
+        domain="D1",
+        description="SEC EDGAR company tickers -> entities + CIK identifiers (entity master).",
+    ),
+    BatchJob(
+        name="gleif_lei_ingest",
+        cron="30 3 * * *",  # 3:30 AM daily (after entity master)
+        script="scripts/ingest_gleif.py",
+        sla_minutes=240,
+        domain="D1",
+        description="GLEIF LEI records -> entity LEI identifiers + legal hierarchy.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="openfigi_securities_ingest",
+        cron="0 4 * * *",  # 4 AM daily (after entity master)
+        script="scripts/ingest_openfigi.py",
+        sla_minutes=240,
+        domain="D1",
+        description="OpenFIGI mapping -> securities + FIGI/ticker identifiers (security master).",
+        depends_on=("edgar_entities_ingest",),
+    ),
     # ── Reference Data ────────────────────────────────────────────────
     BatchJob(
         name="reference_data_refresh",
@@ -254,6 +287,36 @@ BATCH_JOBS: list[BatchJob] = [
             "credit_ratings for the issuer's fixed-income securities."
         ),
     ),
+    # ── Corporate Events & Fund Holdings (real, tested connectors that
+    #    were Makefile-only and never scheduled -> /deals, /ipos and
+    #    /fund-holdings stayed empty in a normal deployment) ─────────────
+    BatchJob(
+        name="ma_deals_ingest",
+        cron="0 6 * * *",  # 6 AM daily
+        script="scripts/ingest_ma_deals.py --days-back 90",
+        sla_minutes=240,
+        domain="D5",
+        description="SEC EDGAR 8-K merger/acquisition disclosures -> ma_deals.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="ipo_events_ingest",
+        cron="30 6 * * *",  # 6:30 AM daily
+        script="scripts/ingest_ipo.py --days-back 365",
+        sla_minutes=240,
+        domain="D5",
+        description="SEC EDGAR S-1/424B IPO events -> ipo_events.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="nport_holdings_ingest",
+        cron="0 8 * * 1",  # Monday 8 AM (N-PORT filed monthly, quarterly public)
+        script="scripts/ingest_nport.py --days-back 120",
+        sla_minutes=1440,
+        domain="D6",
+        description="SEC N-PORT fund portfolio holdings -> fund_holdings.",
+        depends_on=("edgar_entities_ingest",),
+    ),
     # ── Pillar 1 Supplement: Executives + Macro Policy (real, tested
     #    connectors that were only reachable via manual `make` targets —
     #    the same "orphaned engine" pattern already fixed for Pillar 3) ──
@@ -322,6 +385,19 @@ BATCH_JOBS: list[BatchJob] = [
         domain="P1S",
         description="Buckets debt_tranches by maturity year -> debt_maturity_profiles/maturity_buckets.",
         depends_on=("capital_structure_ingest",),
+    ),
+    BatchJob(
+        name="shares_outstanding_compute",
+        cron="0 6 * * *",  # 6 AM daily (after overnight XBRL polling settles)
+        script="scripts/compute_shares_outstanding.py",
+        sla_minutes=30,
+        domain="P1S",
+        description=(
+            "Fills equity_details.shares_outstanding from the most recent XBRL "
+            "period's basic/diluted shares (feeds market-cap + per-share "
+            "valuation). Was fully orphaned — not in cron or Makefile."
+        ),
+        depends_on=("edgar_xbrl_ingest",),
     ),
     # ── Pillar 3: Intelligence (added in 924e640, never scheduled —
     #    all keyless/free sources except earnings, which reuses
