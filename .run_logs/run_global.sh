@@ -1,0 +1,32 @@
+#!/bin/bash
+cd "C:\Users\pepab\Documents\Bloomberg\bloomberg-data-fabric"
+scripts=(
+  "scripts/ingest_fred.py"
+  "scripts/ingest_treasury_curve.py"
+  "scripts/ingest_credit_spreads.py"
+  "scripts/ingest_money_market.py"
+  "scripts/ingest_treasury_securities.py"
+  "scripts/ingest_fomc.py"
+  "scripts/ingest_central_bank.py"
+  "scripts/ingest_econ_calendar.py"
+  "scripts/ingest_commodities.py"
+  "scripts/ingest_eia_commodity_inventory.py"
+  "scripts/ingest_legislative_bills.py"
+  "scripts/ingest_regulatory_actions.py"
+  "scripts/ingest_sanctions.py"
+  "scripts/ingest_country_risk.py"
+  "scripts/ingest_geopolitical.py"
+  "scripts/ingest_agency_bonds.py"
+  "scripts/ingest_congress.py"
+  "scripts/ingest_short_interest.py"
+)
+for s in "${scripts[@]}"; do
+  echo ""
+  echo "=================================================================="
+  echo "=== RUNNING: $s ($(date '+%Y-%m-%d %H:%M:%S'))"
+  echo "=================================================================="
+  python "$s"
+  echo "=== EXIT CODE: $? for $s ==="
+done
+echo ""
+echo "=== ALL GLOBAL-DATA JOBS COMPLETE ==="

@@ -11,6 +11,7 @@ Usage:
 import argparse
 import asyncio
 import logging
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -25,11 +26,26 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.scheduler.batch_config import BATCH_JOBS
 
 
+def _split_job_script(job_script: str) -> tuple[Path, list[str]]:
+    """Split a ``BatchJob.script`` like ``"scripts/foo.py --engine e1"`` into
+    its resolved script path and CLI args list.
+
+    ``job.script`` is a single string that may carry CLI args (~10 of the
+    scheduled jobs do, e.g. ``run_analytics_batch.py --engine e1`` or
+    ``backfill_news.py --batch-size 20 --max-minutes 8``). Treating the whole
+    string as one filename (``PROJECT_ROOT / job.script``) produces a path
+    that never exists, so every arg-bearing job silently "succeeds" at
+    scheduling but fails at run time (and used to fail ``--validate`` too).
+    """
+    parts = shlex.split(job_script)
+    return PROJECT_ROOT / parts[0], parts[1:]
+
+
 def validate_schedules() -> bool:
     """Validate that all batch job configurations are correct."""
     errors = []
     for job in BATCH_JOBS:
-        script_path = PROJECT_ROOT / job.script
+        script_path, _ = _split_job_script(job.script)
         if not script_path.exists():
             errors.append(f"  {job.name}: script not found -> {job.script}")
         parts = job.cron.split()
@@ -55,9 +71,10 @@ def print_crontab() -> None:
     print(f"# Generated from {__file__}")
     print()
     for job in BATCH_JOBS:
-        script = PROJECT_ROOT / job.script
+        script_path, extra_args = _split_job_script(job.script)
+        cmd = " ".join([str(script_path), *extra_args])
         print(f"# {job.description}")
-        print(f"{job.cron}  {python} {script}")
+        print(f"{job.cron}  {python} {cmd}")
         print()
 
 
@@ -85,10 +102,12 @@ def run_scheduler() -> None:
             day_of_week=parts[4],
         )
 
-        def _run_script(script_path=str(PROJECT_ROOT / job.script), name=job.name):
+        script_path, extra_args = _split_job_script(job.script)
+
+        def _run_script(script_path=str(script_path), extra_args=extra_args, name=job.name):
             logger.info("Starting job: %s", name)
             result = subprocess.run(
-                [sys.executable, script_path],
+                [sys.executable, script_path, *extra_args],
                 capture_output=True,
                 text=True,
             )

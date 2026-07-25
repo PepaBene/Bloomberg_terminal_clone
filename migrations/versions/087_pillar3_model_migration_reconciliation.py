@@ -58,10 +58,13 @@ def upgrade() -> None:
           AND jsonb_typeof(embedding_vector) = 'array'
         """
     )
-    op.execute(
-        "CREATE INDEX idx_search_documents_embedding_hnsw "
-        "ON search_documents USING hnsw (embedding vector_cosine_ops)"
-    )
+    # No HNSW/IVFFlat index: pgvector caps both index types at 2000
+    # dimensions, but gemini-embedding-002 (EMBEDDING_DIMENSIONS in
+    # src/services/ai/embedding_client.py) outputs 3072 — indexing this
+    # column isn't possible without truncating the embedding itself.
+    # Matches current app behavior anyway (semantic_search_engine.py /
+    # vector_search.py rank via pure-Python cosine similarity, not a SQL
+    # ANN index) — the column exists for brute-force `<=>` queries.
 
     # ── M-002: widen narrow VARCHAR columns ─────────────────────────
     op.alter_column("sentiment_scores", "source_type", type_=sa.String(50))

@@ -1,0 +1,484 @@
+2026-07-23 20:02:35,248 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,248 [INFO] __main__: Scheduled: reference_data_refresh (0 5 * * *)
+2026-07-23 20:02:35,248 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,248 [INFO] __main__: Scheduled: entity_master_edgar_ingest (0 2 * * 0)
+2026-07-23 20:02:35,249 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,249 [INFO] __main__: Scheduled: entity_master_gleif_ingest (0 3 * * 0)
+2026-07-23 20:02:35,249 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,249 [INFO] __main__: Scheduled: entity_master_openfigi_ingest (0 4 * * 0)
+2026-07-23 20:02:35,249 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,249 [INFO] __main__: Scheduled: congressional_trades_ingest (0 9 * * *)
+2026-07-23 20:02:35,250 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,250 [INFO] __main__: Scheduled: fred_macro_ingest (0 * * * *)
+2026-07-23 20:02:35,250 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,250 [INFO] __main__: Scheduled: edgar_xbrl_ingest (*/15 * * * *)
+2026-07-23 20:02:35,250 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,250 [INFO] __main__: Scheduled: segments_ingest (0 */4 * * *)
+2026-07-23 20:02:35,250 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,251 [INFO] __main__: Scheduled: corporate_actions_ingest (0 6 * * *)
+2026-07-23 20:02:35,251 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,251 [INFO] __main__: Scheduled: edgar_13f_ingest (0 6 * * *)
+2026-07-23 20:02:35,251 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,251 [INFO] __main__: Scheduled: finra_short_interest (0 6 1,16 * *)
+2026-07-23 20:02:35,251 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,251 [INFO] __main__: Scheduled: esg_ingest (0 6 * * 1)
+2026-07-23 20:02:35,252 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,252 [INFO] __main__: Scheduled: relationship_nlp_ingest (0 6 * * 1)
+2026-07-23 20:02:35,252 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,252 [INFO] __main__: Scheduled: polygon_eod_ingest (0 19 * * 1-5)
+2026-07-23 20:02:35,252 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,252 [INFO] __main__: Scheduled: analytics_ratios (0 20 * * 1-5)
+2026-07-23 20:02:35,252 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,252 [INFO] __main__: Scheduled: analytics_multiples (0 21 * * 1-5)
+2026-07-23 20:02:35,253 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,253 [INFO] __main__: Scheduled: analytics_wacc (0 21 * * 1-5)
+2026-07-23 20:02:35,253 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,253 [INFO] __main__: Scheduled: analytics_quality_scoring (0 21 * * 1-5)
+2026-07-23 20:02:35,253 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,253 [INFO] __main__: Scheduled: quality_check (0 8 * * *)
+2026-07-23 20:02:35,253 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,253 [INFO] __main__: Scheduled: treasury_yield_curve_ingest (30 18 * * 1-5)
+2026-07-23 20:02:35,254 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,254 [INFO] __main__: Scheduled: credit_spreads_ingest (30 18 * * 1-5)
+2026-07-23 20:02:35,254 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,254 [INFO] __main__: Scheduled: fi_market_briefings (0 19 * * 1-5)
+2026-07-23 20:02:35,254 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,254 [INFO] __main__: Scheduled: money_market_ingest (45 18 * * 1-5)
+2026-07-23 20:02:35,254 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,254 [INFO] __main__: Scheduled: treasury_securities_ingest (0 7 * * *)
+2026-07-23 20:02:35,255 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,255 [INFO] __main__: Scheduled: capital_structure_ingest (0 5 * * *)
+2026-07-23 20:02:35,255 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,255 [INFO] __main__: Scheduled: credit_ratings_ingest (15 5 * * *)
+2026-07-23 20:02:35,255 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,255 [INFO] __main__: Scheduled: executives_ingest (0 7 * * 3)
+2026-07-23 20:02:35,256 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,256 [INFO] __main__: Scheduled: fomc_meetings_ingest (20 5 * * *)
+2026-07-23 20:02:35,256 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,256 [INFO] __main__: Scheduled: central_bank_policy_ingest (25 5 * * *)
+2026-07-23 20:02:35,259 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,259 [INFO] __main__: Scheduled: ownership_summary_compute (0 8 * * *)
+2026-07-23 20:02:35,259 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,259 [INFO] __main__: Scheduled: technical_studies_compute (30 19 * * 1-5)
+2026-07-23 20:02:35,260 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,260 [INFO] __main__: Scheduled: esg_temperature_compute (15 7 * * 1)
+2026-07-23 20:02:35,260 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,260 [INFO] __main__: Scheduled: debt_maturity_compute (30 5 * * *)
+2026-07-23 20:02:35,260 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,260 [INFO] __main__: Scheduled: proxy_governance_ingest (0 6 * * 2)
+2026-07-23 20:02:35,260 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,260 [INFO] __main__: Scheduled: form4_insiders_ingest (0 7 * * *)
+2026-07-23 20:02:35,261 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,261 [INFO] __main__: Scheduled: econ_calendar_ingest (0 5 * * *)
+2026-07-23 20:02:35,261 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,261 [INFO] __main__: Scheduled: commodities_ingest (0 6 * * 1-5)
+2026-07-23 20:02:35,261 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,262 [INFO] __main__: Scheduled: eia_commodity_inventory_ingest (30 10 * * 3)
+2026-07-23 20:02:35,262 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,262 [INFO] __main__: Scheduled: legislative_bills_ingest (0 8 * * *)
+2026-07-23 20:02:35,262 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,262 [INFO] __main__: Scheduled: regulatory_actions_ingest (15 8 * * *)
+2026-07-23 20:02:35,262 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,262 [INFO] __main__: Scheduled: sanctions_ingest (0 9 * * 1)
+2026-07-23 20:02:35,263 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,263 [INFO] __main__: Scheduled: country_risk_ingest (0 10 * * 1)
+2026-07-23 20:02:35,263 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,263 [INFO] __main__: Scheduled: geopolitical_events_ingest (0 */6 * * *)
+2026-07-23 20:02:35,263 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,263 [INFO] __main__: Scheduled: filing_diff_ingest (0 6 * * 3)
+2026-07-23 20:02:35,263 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,263 [INFO] __main__: Scheduled: earnings_surprises_ingest (30 7 * * *)
+2026-07-23 20:02:35,264 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,264 [INFO] __main__: Scheduled: news_backfill (*/15 * * * *)
+2026-07-23 20:02:35,264 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,264 [INFO] __main__: Scheduled: sentiment_compute (0 * * * *)
+2026-07-23 20:02:35,264 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,264 [INFO] __main__: Scheduled: theme_scores_compute (0 7 * * *)
+2026-07-23 20:02:35,264 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,264 [INFO] __main__: Scheduled: esg_controversies_ingest (30 6 * * 1)
+2026-07-23 20:02:35,265 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,265 [INFO] __main__: Scheduled: esg_environmental_ingest (40 6 * * 1)
+2026-07-23 20:02:35,265 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,265 [INFO] __main__: Scheduled: bond_issuances_ingest (0 5 * * *)
+2026-07-23 20:02:35,265 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,265 [INFO] __main__: Scheduled: agency_bonds_ingest (10 5 * * *)
+2026-07-23 20:02:35,265 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,265 [INFO] __main__: Scheduled: consensus_estimates_ingest (0 6 * * *)
+2026-07-23 20:02:35,266 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,266 [INFO] __main__: Scheduled: guidance_tracking_ingest (45 7 * * *)
+2026-07-23 20:02:35,266 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,266 [INFO] __main__: Scheduled: subsidiaries_ingest (0 6 * * 3)
+2026-07-23 20:02:35,266 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,266 [INFO] __main__: Scheduled: backtest_worker (*/15 * * * *)
+2026-07-23 20:02:35,266 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 20:02:35,267 [INFO] __main__: Scheduled: performance_snapshot_backfill (0 22 * * 1-5)
+2026-07-23 20:02:35,267 [INFO] __main__: Scheduler started with 57 jobs. Press Ctrl+C to stop.
+2026-07-23 20:02:35,271 [INFO] apscheduler.scheduler: Added job "reference_data_refresh" to job store "default"
+2026-07-23 20:02:35,271 [INFO] apscheduler.scheduler: Added job "entity_master_edgar_ingest" to job store "default"
+2026-07-23 20:02:35,271 [INFO] apscheduler.scheduler: Added job "entity_master_gleif_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "entity_master_openfigi_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "congressional_trades_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "fred_macro_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "edgar_xbrl_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "segments_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "corporate_actions_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "edgar_13f_ingest" to job store "default"
+2026-07-23 20:02:35,272 [INFO] apscheduler.scheduler: Added job "finra_short_interest" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "esg_ingest" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "relationship_nlp_ingest" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "polygon_eod_ingest" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "analytics_ratios" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "analytics_multiples" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "analytics_wacc" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "analytics_quality_scoring" to job store "default"
+2026-07-23 20:02:35,273 [INFO] apscheduler.scheduler: Added job "quality_check" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "treasury_yield_curve_ingest" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "credit_spreads_ingest" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "fi_market_briefings" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "money_market_ingest" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "treasury_securities_ingest" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "capital_structure_ingest" to job store "default"
+2026-07-23 20:02:35,274 [INFO] apscheduler.scheduler: Added job "credit_ratings_ingest" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "executives_ingest" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "fomc_meetings_ingest" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "central_bank_policy_ingest" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "ownership_summary_compute" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "technical_studies_compute" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "esg_temperature_compute" to job store "default"
+2026-07-23 20:02:35,275 [INFO] apscheduler.scheduler: Added job "debt_maturity_compute" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "proxy_governance_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "form4_insiders_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "econ_calendar_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "commodities_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "eia_commodity_inventory_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "legislative_bills_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "regulatory_actions_ingest" to job store "default"
+2026-07-23 20:02:35,276 [INFO] apscheduler.scheduler: Added job "sanctions_ingest" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "country_risk_ingest" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "geopolitical_events_ingest" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "filing_diff_ingest" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "earnings_surprises_ingest" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "news_backfill" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "sentiment_compute" to job store "default"
+2026-07-23 20:02:35,277 [INFO] apscheduler.scheduler: Added job "theme_scores_compute" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "esg_controversies_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "esg_environmental_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "bond_issuances_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "agency_bonds_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "consensus_estimates_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "guidance_tracking_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "subsidiaries_ingest" to job store "default"
+2026-07-23 20:02:35,278 [INFO] apscheduler.scheduler: Added job "backtest_worker" to job store "default"
+2026-07-23 20:02:35,279 [INFO] apscheduler.scheduler: Added job "performance_snapshot_backfill" to job store "default"
+2026-07-23 20:02:35,279 [INFO] apscheduler.scheduler: Scheduler started
+2026-07-23 20:15:00,166 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:15:00 EDT)" (scheduled at 2026-07-23 20:15:00-04:00)
+2026-07-23 20:15:00,173 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 20:15:00,186 [INFO] apscheduler.executors.default: Running job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:15:00 EDT)" (scheduled at 2026-07-23 20:15:00-04:00)
+2026-07-23 20:15:00,187 [INFO] __main__: Starting job: edgar_xbrl_ingest
+2026-07-23 20:15:00,205 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:15:00 EDT)" (scheduled at 2026-07-23 20:15:00-04:00)
+2026-07-23 20:15:00,206 [INFO] __main__: Starting job: news_backfill
+2026-07-23 20:15:04,949 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 20:15:04,950 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:30:00 EDT)" executed successfully
+2026-07-23 20:23:05,186 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 20:23:05,190 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:30:00 EDT)" executed successfully
+2026-07-23 20:30:00,452 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:45:00 EDT)" (scheduled at 2026-07-23 20:30:00-04:00)
+2026-07-23 20:30:00,457 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:30:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 20:30:00,476 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 20:30:00,496 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:45:00 EDT)" (scheduled at 2026-07-23 20:30:00-04:00)
+2026-07-23 20:30:00,499 [INFO] __main__: Starting job: news_backfill
+2026-07-23 20:30:03,526 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 20:30:03,526 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:45:00 EDT)" executed successfully
+2026-07-23 20:38:04,044 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 20:38:04,046 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:45:00 EDT)" executed successfully
+2026-07-23 20:45:00,195 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 20:45:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 20:45:00,204 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" (scheduled at 2026-07-23 20:45:00-04:00)
+2026-07-23 20:45:00,216 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 20:45:00,215 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" (scheduled at 2026-07-23 20:45:00-04:00)
+2026-07-23 20:45:00,224 [INFO] __main__: Starting job: news_backfill
+2026-07-23 20:45:05,149 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 20:45:05,150 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" executed successfully
+2026-07-23 20:53:06,195 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 20:53:06,209 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" executed successfully
+2026-07-23 21:00:00,085 [INFO] apscheduler.executors.default: Running job "analytics_quality_scoring (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,091 [INFO] apscheduler.executors.default: Running job "analytics_multiples (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,097 [INFO] __main__: Starting job: analytics_multiples
+2026-07-23 21:00:00,096 [INFO] __main__: Starting job: analytics_quality_scoring
+2026-07-23 21:00:00,104 [INFO] apscheduler.executors.default: Running job "analytics_wacc (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,110 [INFO] __main__: Starting job: analytics_wacc
+2026-07-23 21:00:00,110 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:15:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,117 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 21:00:00,128 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 21:00:00,147 [INFO] apscheduler.executors.default: Running job "fred_macro_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-23 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,147 [INFO] __main__: Starting job: fred_macro_ingest
+2026-07-23 21:00:00,169 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,179 [INFO] __main__: Starting job: news_backfill
+2026-07-23 21:00:00,222 [INFO] apscheduler.executors.default: Running job "sentiment_compute (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-23 21:00:00 EDT)" (scheduled at 2026-07-23 21:00:00-04:00)
+2026-07-23 21:00:00,224 [INFO] __main__: Starting job: sentiment_compute
+2026-07-23 21:00:05,605 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 21:00:05,607 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:15:00 EDT)" executed successfully
+2026-07-23 21:00:39,878 [INFO] __main__: Job 'sentiment_compute' completed successfully.
+2026-07-23 21:00:39,878 [INFO] apscheduler.executors.default: Job "sentiment_compute (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-23 22:00:00 EDT)" executed successfully
+2026-07-23 21:00:57,460 [INFO] __main__: Job 'analytics_multiples' completed successfully.
+2026-07-23 21:00:57,460 [INFO] apscheduler.executors.default: Job "analytics_multiples (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" executed successfully
+2026-07-23 21:01:40,947 [INFO] __main__: Job 'analytics_wacc' completed successfully.
+2026-07-23 21:01:40,947 [INFO] apscheduler.executors.default: Job "analytics_wacc (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" executed successfully
+2026-07-23 21:02:14,900 [INFO] __main__: Job 'analytics_quality_scoring' completed successfully.
+2026-07-23 21:02:14,900 [INFO] apscheduler.executors.default: Job "analytics_quality_scoring (trigger: cron[month='*', day='*', day_of_week='1-5', hour='21', minute='0'], next run at: 2026-07-24 21:00:00 EDT)" executed successfully
+2026-07-23 21:04:12,227 [INFO] __main__: Job 'fred_macro_ingest' completed successfully.
+2026-07-23 21:04:12,227 [INFO] apscheduler.executors.default: Job "fred_macro_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-23 22:00:00 EDT)" executed successfully
+2026-07-23 21:08:33,485 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 21:08:33,492 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:15:00 EDT)" executed successfully
+2026-07-23 21:15:04,486 [WARNING] apscheduler.executors.default: Run time of job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:30:00 EDT)" was missed by 0:00:04.244280
+2026-07-23 21:15:04,492 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:15:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 21:15:04,721 [WARNING] apscheduler.executors.default: Run time of job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:30:00 EDT)" was missed by 0:00:04.714858
+2026-07-23 21:30:02,648 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:30:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 21:30:02,610 [WARNING] apscheduler.executors.default: Run time of job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:45:00 EDT)" was missed by 0:00:02.233854
+2026-07-23 21:30:03,885 [WARNING] apscheduler.executors.default: Run time of job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:45:00 EDT)" was missed by 0:00:03.885317
+2026-07-23 21:45:00,154 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:00:00 EDT)" (scheduled at 2026-07-23 21:45:00-04:00)
+2026-07-23 21:45:00,152 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 21:45:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 21:45:00,162 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 21:45:00,172 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:00:00 EDT)" (scheduled at 2026-07-23 21:45:00-04:00)
+2026-07-23 21:45:00,173 [INFO] __main__: Starting job: news_backfill
+2026-07-23 21:45:03,220 [ERROR] __main__: Job 'news_backfill' FAILED (rc=101): Unable to create process using 'C:\Users\pepab\Documents\Bloomberg\bloomberg-data-fabric\.venv\Scripts\python.exe C:\Users\pepab\Documents\Bloomberg\bloomberg-data-fabric\scripts\backfill_news.py --batch-size 20 --max-minutes 8 --days 30': The paging file is too small for this operation to complete.
+
+
+
+2026-07-23 21:45:03,221 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:00:00 EDT)" executed successfully
+2026-07-23 21:45:03,221 [ERROR] __main__: Job 'backtest_worker' FAILED (rc=3221225773): 
+2026-07-23 21:45:03,222 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:00:00 EDT)" executed successfully
+2026-07-23 22:22:06,933 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,934 [INFO] __main__: Scheduled: reference_data_refresh (0 5 * * *)
+2026-07-23 22:22:06,934 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,935 [INFO] __main__: Scheduled: entity_master_edgar_ingest (0 2 * * 0)
+2026-07-23 22:22:06,935 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,935 [INFO] __main__: Scheduled: entity_master_gleif_ingest (0 3 * * 0)
+2026-07-23 22:22:06,936 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,936 [INFO] __main__: Scheduled: entity_master_openfigi_ingest (0 4 * * 0)
+2026-07-23 22:22:06,936 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,936 [INFO] __main__: Scheduled: congressional_trades_ingest (0 9 * * *)
+2026-07-23 22:22:06,937 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,937 [INFO] __main__: Scheduled: fred_macro_ingest (0 * * * *)
+2026-07-23 22:22:06,937 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,937 [INFO] __main__: Scheduled: edgar_xbrl_ingest (*/15 * * * *)
+2026-07-23 22:22:06,937 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,937 [INFO] __main__: Scheduled: segments_ingest (0 */4 * * *)
+2026-07-23 22:22:06,938 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,938 [INFO] __main__: Scheduled: corporate_actions_ingest (0 6 * * *)
+2026-07-23 22:22:06,938 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,938 [INFO] __main__: Scheduled: edgar_13f_ingest (0 6 * * *)
+2026-07-23 22:22:06,939 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,939 [INFO] __main__: Scheduled: finra_short_interest (0 6 1,16 * *)
+2026-07-23 22:22:06,939 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,939 [INFO] __main__: Scheduled: esg_ingest (0 6 * * 1)
+2026-07-23 22:22:06,939 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,939 [INFO] __main__: Scheduled: relationship_nlp_ingest (0 6 * * 1)
+2026-07-23 22:22:06,940 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,940 [INFO] __main__: Scheduled: polygon_eod_ingest (0 19 * * 1-5)
+2026-07-23 22:22:06,940 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,940 [INFO] __main__: Scheduled: analytics_ratios (0 20 * * 1-5)
+2026-07-23 22:22:06,940 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,940 [INFO] __main__: Scheduled: analytics_multiples (0 21 * * 1-5)
+2026-07-23 22:22:06,940 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,941 [INFO] __main__: Scheduled: analytics_wacc (0 21 * * 1-5)
+2026-07-23 22:22:06,941 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,941 [INFO] __main__: Scheduled: analytics_quality_scoring (0 21 * * 1-5)
+2026-07-23 22:22:06,941 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,941 [INFO] __main__: Scheduled: quality_check (0 8 * * *)
+2026-07-23 22:22:06,942 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,942 [INFO] __main__: Scheduled: treasury_yield_curve_ingest (30 18 * * 1-5)
+2026-07-23 22:22:06,942 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,942 [INFO] __main__: Scheduled: credit_spreads_ingest (30 18 * * 1-5)
+2026-07-23 22:22:06,943 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,943 [INFO] __main__: Scheduled: fi_market_briefings (0 19 * * 1-5)
+2026-07-23 22:22:06,943 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,943 [INFO] __main__: Scheduled: money_market_ingest (45 18 * * 1-5)
+2026-07-23 22:22:06,943 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,944 [INFO] __main__: Scheduled: treasury_securities_ingest (0 7 * * *)
+2026-07-23 22:22:06,944 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,944 [INFO] __main__: Scheduled: capital_structure_ingest (0 5 * * *)
+2026-07-23 22:22:06,944 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,944 [INFO] __main__: Scheduled: credit_ratings_ingest (15 5 * * *)
+2026-07-23 22:22:06,945 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,945 [INFO] __main__: Scheduled: executives_ingest (0 7 * * 3)
+2026-07-23 22:22:06,945 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,945 [INFO] __main__: Scheduled: fomc_meetings_ingest (20 5 * * *)
+2026-07-23 22:22:06,945 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,945 [INFO] __main__: Scheduled: central_bank_policy_ingest (25 5 * * *)
+2026-07-23 22:22:06,948 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,948 [INFO] __main__: Scheduled: ownership_summary_compute (0 8 * * *)
+2026-07-23 22:22:06,949 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,949 [INFO] __main__: Scheduled: technical_studies_compute (30 19 * * 1-5)
+2026-07-23 22:22:06,949 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,949 [INFO] __main__: Scheduled: esg_temperature_compute (15 7 * * 1)
+2026-07-23 22:22:06,949 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,949 [INFO] __main__: Scheduled: debt_maturity_compute (30 5 * * *)
+2026-07-23 22:22:06,949 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,949 [INFO] __main__: Scheduled: proxy_governance_ingest (0 6 * * 2)
+2026-07-23 22:22:06,950 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,950 [INFO] __main__: Scheduled: form4_insiders_ingest (0 7 * * *)
+2026-07-23 22:22:06,950 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,950 [INFO] __main__: Scheduled: econ_calendar_ingest (0 5 * * *)
+2026-07-23 22:22:06,950 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,950 [INFO] __main__: Scheduled: commodities_ingest (0 6 * * 1-5)
+2026-07-23 22:22:06,950 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,950 [INFO] __main__: Scheduled: eia_commodity_inventory_ingest (30 10 * * 3)
+2026-07-23 22:22:06,951 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,951 [INFO] __main__: Scheduled: legislative_bills_ingest (0 8 * * *)
+2026-07-23 22:22:06,951 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,951 [INFO] __main__: Scheduled: regulatory_actions_ingest (15 8 * * *)
+2026-07-23 22:22:06,951 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,951 [INFO] __main__: Scheduled: sanctions_ingest (0 9 * * 1)
+2026-07-23 22:22:06,952 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,952 [INFO] __main__: Scheduled: country_risk_ingest (0 10 * * 1)
+2026-07-23 22:22:06,952 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,952 [INFO] __main__: Scheduled: geopolitical_events_ingest (0 */6 * * *)
+2026-07-23 22:22:06,952 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,952 [INFO] __main__: Scheduled: filing_diff_ingest (0 6 * * 3)
+2026-07-23 22:22:06,952 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,952 [INFO] __main__: Scheduled: earnings_surprises_ingest (30 7 * * *)
+2026-07-23 22:22:06,953 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,953 [INFO] __main__: Scheduled: news_backfill (*/15 * * * *)
+2026-07-23 22:22:06,953 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,953 [INFO] __main__: Scheduled: sentiment_compute (0 * * * *)
+2026-07-23 22:22:06,953 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,953 [INFO] __main__: Scheduled: theme_scores_compute (0 7 * * *)
+2026-07-23 22:22:06,953 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,954 [INFO] __main__: Scheduled: esg_controversies_ingest (30 6 * * 1)
+2026-07-23 22:22:06,954 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,954 [INFO] __main__: Scheduled: esg_environmental_ingest (40 6 * * 1)
+2026-07-23 22:22:06,954 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,954 [INFO] __main__: Scheduled: bond_issuances_ingest (0 5 * * *)
+2026-07-23 22:22:06,954 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,954 [INFO] __main__: Scheduled: agency_bonds_ingest (10 5 * * *)
+2026-07-23 22:22:06,955 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,955 [INFO] __main__: Scheduled: consensus_estimates_ingest (0 6 * * *)
+2026-07-23 22:22:06,955 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,955 [INFO] __main__: Scheduled: guidance_tracking_ingest (45 7 * * *)
+2026-07-23 22:22:06,955 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,955 [INFO] __main__: Scheduled: subsidiaries_ingest (0 6 * * 3)
+2026-07-23 22:22:06,955 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,955 [INFO] __main__: Scheduled: backtest_worker (*/15 * * * *)
+2026-07-23 22:22:06,956 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-07-23 22:22:06,956 [INFO] __main__: Scheduled: performance_snapshot_backfill (0 22 * * 1-5)
+2026-07-23 22:22:06,956 [INFO] __main__: Scheduler started with 57 jobs. Press Ctrl+C to stop.
+2026-07-23 22:22:06,959 [INFO] apscheduler.scheduler: Added job "reference_data_refresh" to job store "default"
+2026-07-23 22:22:06,959 [INFO] apscheduler.scheduler: Added job "entity_master_edgar_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "entity_master_gleif_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "entity_master_openfigi_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "congressional_trades_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "fred_macro_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "edgar_xbrl_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "segments_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "corporate_actions_ingest" to job store "default"
+2026-07-23 22:22:06,960 [INFO] apscheduler.scheduler: Added job "edgar_13f_ingest" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "finra_short_interest" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "esg_ingest" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "relationship_nlp_ingest" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "polygon_eod_ingest" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "analytics_ratios" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "analytics_multiples" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "analytics_wacc" to job store "default"
+2026-07-23 22:22:06,961 [INFO] apscheduler.scheduler: Added job "analytics_quality_scoring" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "quality_check" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "treasury_yield_curve_ingest" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "credit_spreads_ingest" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "fi_market_briefings" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "money_market_ingest" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "treasury_securities_ingest" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "capital_structure_ingest" to job store "default"
+2026-07-23 22:22:06,962 [INFO] apscheduler.scheduler: Added job "credit_ratings_ingest" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "executives_ingest" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "fomc_meetings_ingest" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "central_bank_policy_ingest" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "ownership_summary_compute" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "technical_studies_compute" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "esg_temperature_compute" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "debt_maturity_compute" to job store "default"
+2026-07-23 22:22:06,963 [INFO] apscheduler.scheduler: Added job "proxy_governance_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "form4_insiders_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "econ_calendar_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "commodities_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "eia_commodity_inventory_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "legislative_bills_ingest" to job store "default"
+2026-07-23 22:22:06,964 [INFO] apscheduler.scheduler: Added job "regulatory_actions_ingest" to job store "default"
+2026-07-23 22:22:06,965 [INFO] apscheduler.scheduler: Added job "sanctions_ingest" to job store "default"
+2026-07-23 22:22:06,965 [INFO] apscheduler.scheduler: Added job "country_risk_ingest" to job store "default"
+2026-07-23 22:22:06,965 [INFO] apscheduler.scheduler: Added job "geopolitical_events_ingest" to job store "default"
+2026-07-23 22:22:06,965 [INFO] apscheduler.scheduler: Added job "filing_diff_ingest" to job store "default"
+2026-07-23 22:22:06,965 [INFO] apscheduler.scheduler: Added job "earnings_surprises_ingest" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "news_backfill" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "sentiment_compute" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "theme_scores_compute" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "esg_controversies_ingest" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "esg_environmental_ingest" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "bond_issuances_ingest" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "agency_bonds_ingest" to job store "default"
+2026-07-23 22:22:06,966 [INFO] apscheduler.scheduler: Added job "consensus_estimates_ingest" to job store "default"
+2026-07-23 22:22:06,967 [INFO] apscheduler.scheduler: Added job "guidance_tracking_ingest" to job store "default"
+2026-07-23 22:22:06,967 [INFO] apscheduler.scheduler: Added job "subsidiaries_ingest" to job store "default"
+2026-07-23 22:22:06,967 [INFO] apscheduler.scheduler: Added job "backtest_worker" to job store "default"
+2026-07-23 22:22:06,967 [INFO] apscheduler.scheduler: Added job "performance_snapshot_backfill" to job store "default"
+2026-07-23 22:22:06,967 [INFO] apscheduler.scheduler: Scheduler started
+2026-07-23 22:30:00,003 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:30:00 EDT)" (scheduled at 2026-07-23 22:30:00-04:00)
+2026-07-23 22:30:00,004 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 22:30:00,004 [INFO] apscheduler.executors.default: Running job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:45:00 EDT)" (scheduled at 2026-07-23 22:30:00-04:00)
+2026-07-23 22:30:00,005 [INFO] __main__: Starting job: edgar_xbrl_ingest
+2026-07-23 22:30:00,007 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:30:00 EDT)" (scheduled at 2026-07-23 22:30:00-04:00)
+2026-07-23 22:30:00,007 [INFO] __main__: Starting job: news_backfill
+2026-07-23 22:30:03,061 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 22:30:03,061 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:45:00 EDT)" executed successfully
+2026-07-23 22:37:25,861 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 22:37:25,876 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:45:00 EDT)" executed successfully
+2026-07-23 22:45:00,057 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:00:00 EDT)" (scheduled at 2026-07-23 22:45:00-04:00)
+2026-07-23 22:45:00,062 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 22:45:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 22:45:00,070 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 22:45:00,073 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:00:00 EDT)" (scheduled at 2026-07-23 22:45:00-04:00)
+2026-07-23 22:45:00,084 [INFO] __main__: Starting job: news_backfill
+2026-07-23 22:45:03,073 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 22:45:03,073 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:00:00 EDT)" executed successfully
+2026-07-23 22:45:03,628 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 22:45:03,628 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:00:00 EDT)" executed successfully
+2026-07-23 23:00:00,007 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:00:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 23:00:00,018 [INFO] apscheduler.executors.default: Running job "fred_macro_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-24 00:00:00 EDT)" (scheduled at 2026-07-23 23:00:00-04:00)
+2026-07-23 23:00:00,011 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:15:00 EDT)" (scheduled at 2026-07-23 23:00:00-04:00)
+2026-07-23 23:00:00,021 [INFO] __main__: Starting job: fred_macro_ingest
+2026-07-23 23:00:00,026 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 23:00:00,027 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:15:00 EDT)" (scheduled at 2026-07-23 23:00:00-04:00)
+2026-07-23 23:00:00,038 [INFO] __main__: Starting job: news_backfill
+2026-07-23 23:00:00,039 [INFO] apscheduler.executors.default: Running job "sentiment_compute (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-24 00:00:00 EDT)" (scheduled at 2026-07-23 23:00:00-04:00)
+2026-07-23 23:00:00,043 [INFO] __main__: Starting job: sentiment_compute
+2026-07-23 23:00:03,729 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 23:00:03,729 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:15:00 EDT)" executed successfully
+2026-07-23 23:00:04,290 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 23:00:04,291 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:15:00 EDT)" executed successfully
+2026-07-23 23:00:16,210 [INFO] __main__: Job 'sentiment_compute' completed successfully.
+2026-07-23 23:00:16,210 [INFO] apscheduler.executors.default: Job "sentiment_compute (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-24 00:00:00 EDT)" executed successfully
+2026-07-23 23:03:25,262 [INFO] __main__: Job 'fred_macro_ingest' completed successfully.
+2026-07-23 23:03:25,275 [INFO] apscheduler.executors.default: Job "fred_macro_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='0'], next run at: 2026-07-24 00:00:00 EDT)" executed successfully
+2026-07-23 23:15:00,001 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:15:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 23:15:00,002 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:30:00 EDT)" (scheduled at 2026-07-23 23:15:00-04:00)
+2026-07-23 23:15:00,006 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 23:15:00,005 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:30:00 EDT)" (scheduled at 2026-07-23 23:15:00-04:00)
+2026-07-23 23:15:00,008 [INFO] __main__: Starting job: news_backfill
+2026-07-23 23:15:10,924 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 23:15:10,924 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:30:00 EDT)" executed successfully
+2026-07-23 23:15:11,818 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 23:15:11,818 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:30:00 EDT)" executed successfully
+2026-07-23 23:30:00,013 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:30:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 23:30:00,027 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:45:00 EDT)" (scheduled at 2026-07-23 23:30:00-04:00)
+2026-07-23 23:30:00,029 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 23:30:00,036 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:45:00 EDT)" (scheduled at 2026-07-23 23:30:00-04:00)
+2026-07-23 23:30:00,044 [INFO] __main__: Starting job: news_backfill
+2026-07-23 23:30:24,457 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 23:30:24,458 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:45:00 EDT)" executed successfully
+2026-07-23 23:30:32,186 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 23:30:32,187 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:45:00 EDT)" executed successfully
+2026-07-23 23:45:00,004 [WARNING] apscheduler.scheduler: Execution of job "edgar_xbrl_ingest (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-23 23:45:00 EDT)" skipped: maximum number of running instances reached (1)
+2026-07-23 23:45:00,008 [INFO] apscheduler.executors.default: Running job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-24 00:00:00 EDT)" (scheduled at 2026-07-23 23:45:00-04:00)
+2026-07-23 23:45:00,010 [INFO] __main__: Starting job: backtest_worker
+2026-07-23 23:45:00,015 [INFO] apscheduler.executors.default: Running job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-24 00:00:00 EDT)" (scheduled at 2026-07-23 23:45:00-04:00)
+2026-07-23 23:45:00,016 [INFO] __main__: Starting job: news_backfill
+2026-07-23 23:45:06,322 [INFO] __main__: Job 'backtest_worker' completed successfully.
+2026-07-23 23:45:06,325 [INFO] apscheduler.executors.default: Job "backtest_worker (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-24 00:00:00 EDT)" executed successfully
+2026-07-23 23:45:07,464 [INFO] __main__: Job 'news_backfill' completed successfully.
+2026-07-23 23:45:07,464 [INFO] apscheduler.executors.default: Job "news_backfill (trigger: cron[month='*', day='*', day_of_week='*', hour='*', minute='*/15'], next run at: 2026-07-24 00:00:00 EDT)" executed successfully

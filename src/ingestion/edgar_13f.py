@@ -4,6 +4,7 @@ Fetches 13F-HR (institutional investment manager) filings from SEC EDGAR
 and creates InstitutionProfile + InstitutionalHolding records.
 """
 
+import asyncio
 import logging
 import uuid
 import xml.etree.ElementTree as ET
@@ -41,15 +42,24 @@ class Edgar13FConnector(BaseConnector):
         self,
         ciks: list[str] | None = None,
         max_filings_per_cik: int = 1,
+        concurrency: int = 8,
     ):
         """Initialize connector.
 
         Args:
             ciks: List of institutional investor CIKs to fetch.
             max_filings_per_cik: Max number of recent 13F filings to process per CIK.
+            concurrency: Max CIKs processed concurrently. Each CIK still makes its
+                requests one at a time and every request still goes through the
+                same shared ``rate_limiter``, so this can't push the aggregate
+                request rate past SEC_RATE_LIMIT -- it just lets one CIK's network
+                wait overlap with another's, instead of the whole pipeline sitting
+                idle on a single response before the rate limiter even gets a
+                chance to release the next token.
         """
         self.ciks = ciks or []
         self.max_filings_per_cik = max_filings_per_cik
+        self.concurrency = concurrency
         self.rate_limiter = RateLimiter(
             max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
         )
@@ -218,62 +228,81 @@ class Edgar13FConnector(BaseConnector):
 
         return holdings
 
+    async def _process_cik(self, cik: str) -> list[dict[str, Any]]:
+        """Fetch + parse the configured 13F filings for a single CIK."""
+        cik_records: list[dict[str, Any]] = []
+
+        submissions = await self._fetch_submissions(cik)
+        if submissions is None:
+            return cik_records
+
+        entity_name = submissions.get("name", "")
+        recent = submissions.get("filings", {}).get("recent", {})
+
+        forms = recent.get("form", [])
+        accession_numbers = recent.get("accessionNumber", [])
+        filing_dates = recent.get("filingDate", [])
+        report_dates = recent.get("reportDate", [])
+
+        filings_13f = []
+        for i, form in enumerate(forms):
+            if form not in ("13F-HR", "13F-HR/A"):
+                continue
+            filings_13f.append({
+                "accession": accession_numbers[i] if i < len(accession_numbers) else "",
+                "filing_date": filing_dates[i] if i < len(filing_dates) else "",
+                "report_date": report_dates[i] if i < len(report_dates) else "",
+                "form": form,
+            })
+            if len(filings_13f) >= self.max_filings_per_cik:
+                break
+
+        for filing in filings_13f:
+            xml_text = await self._fetch_13f_xml(cik, filing["accession"])
+            if xml_text is None:
+                continue
+
+            holdings = self._parse_13f_xml(xml_text)
+
+            cik_records.append({
+                "cik": cik,
+                "institution_name": entity_name,
+                "accession": filing["accession"],
+                "filing_date": filing["filing_date"],
+                "report_date": filing["report_date"],
+                "form": filing["form"],
+                "holdings": holdings,
+            })
+            logger.info(
+                f"  13F: CIK {cik} ({entity_name}) — "
+                f"{len(holdings)} holdings in {filing['report_date']}"
+            )
+
+        return cik_records
+
     async def extract(self) -> list[dict[str, Any]]:
-        """Pull 13F filing data from SEC EDGAR for all configured CIKs."""
+        """Pull 13F filing data from SEC EDGAR for all configured CIKs.
+
+        CIKs are processed with bounded concurrency rather than one at a time:
+        every HTTP call, from any concurrent CIK task, still goes through the
+        same shared ``rate_limiter`` before firing, so the aggregate request
+        rate can't exceed SEC_RATE_LIMIT. What concurrency buys is overlap --
+        while one task is waiting on a response, another can already be
+        making progress, instead of the whole pipeline idling on one
+        round-trip at a time.
+        """
         if not self.ciks:
             logger.warning("No CIKs configured — skipping 13F extraction")
             return []
 
-        records: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(self.concurrency)
 
-        for cik in self.ciks:
-            submissions = await self._fetch_submissions(cik)
-            if submissions is None:
-                continue
+        async def _bounded(cik: str) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await self._process_cik(cik)
 
-            entity_name = submissions.get("name", "")
-            recent = submissions.get("filings", {}).get("recent", {})
-
-            forms = recent.get("form", [])
-            accession_numbers = recent.get("accessionNumber", [])
-            filing_dates = recent.get("filingDate", [])
-            report_dates = recent.get("reportDate", [])
-
-            filings_13f = []
-            for i, form in enumerate(forms):
-                if form not in ("13F-HR", "13F-HR/A"):
-                    continue
-                filings_13f.append({
-                    "accession": accession_numbers[i] if i < len(accession_numbers) else "",
-                    "filing_date": filing_dates[i] if i < len(filing_dates) else "",
-                    "report_date": report_dates[i] if i < len(report_dates) else "",
-                    "form": form,
-                })
-                if len(filings_13f) >= self.max_filings_per_cik:
-                    break
-
-            for filing in filings_13f:
-                xml_text = await self._fetch_13f_xml(cik, filing["accession"])
-                if xml_text is None:
-                    continue
-
-                holdings = self._parse_13f_xml(xml_text)
-
-                records.append({
-                    "cik": cik,
-                    "institution_name": entity_name,
-                    "accession": filing["accession"],
-                    "filing_date": filing["filing_date"],
-                    "report_date": filing["report_date"],
-                    "form": filing["form"],
-                    "holdings": holdings,
-                })
-                logger.info(
-                    f"  13F: CIK {cik} ({entity_name}) — "
-                    f"{len(holdings)} holdings in {filing['report_date']}"
-                )
-
-        return records
+        results = await asyncio.gather(*(_bounded(cik) for cik in self.ciks))
+        return [rec for cik_records in results for rec in cik_records]
 
     async def validate(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Validate 13F records — ensure required fields are present."""

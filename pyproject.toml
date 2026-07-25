@@ -29,11 +29,15 @@ dependencies = [
     "metaphone>=0.6",
     # Data processing
     "pandas>=2.0.0",
+    # xlsx parsing (FHLB Office of Finance debt-statistics file has no CSV/JSON export)
+    "openpyxl>=3.1.0",
     # Cache & search
     "redis[hiredis]>=5.0.0",
     "elasticsearch[async]>=8.0.0",
     # Utilities
     "python-dotenv>=1.0.0",
+    # Batch scheduler (scripts/run_scheduler.py)
+    "apscheduler>=3.10.0",
 ]
 
 [project.optional-dependencies]

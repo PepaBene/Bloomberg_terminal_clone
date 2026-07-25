@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # Polygon.io (EOD Prices)
     POLYGON_API_KEY: str = ""
-    POLYGON_RATE_LIMIT: int = 5  # requests per second (free tier)
+    POLYGON_RATE_LIMIT: int = 5  # requests per MINUTE (free tier) -- see RateLimiter(per_seconds=60.0) call sites
 
     # Finnhub (Index constituents)
     FINNHUB_API_KEY: str = ""

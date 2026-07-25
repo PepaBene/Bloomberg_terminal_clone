@@ -1,68 +1,2576 @@
 [
-  {"sic_code": "1311", "description": "Crude Petroleum and Natural Gas", "division": "B", "major_group": "13"},
-  {"sic_code": "1381", "description": "Drilling Oil and Gas Wells", "division": "B", "major_group": "13"},
-  {"sic_code": "1382", "description": "Oil and Gas Field Services, Not Elsewhere Classified", "division": "B", "major_group": "13"},
-  {"sic_code": "1040", "description": "Gold Mining", "division": "B", "major_group": "10"},
-  {"sic_code": "1220", "description": "Bituminous Coal and Lignite Mining", "division": "B", "major_group": "12"},
-  {"sic_code": "2011", "description": "Meat Packing Plants", "division": "D", "major_group": "20"},
-  {"sic_code": "2080", "description": "Beverages", "division": "D", "major_group": "20"},
-  {"sic_code": "2086", "description": "Bottled and Canned Soft Drinks and Carbonated Waters", "division": "D", "major_group": "20"},
-  {"sic_code": "2111", "description": "Cigarettes", "division": "D", "major_group": "21"},
-  {"sic_code": "2621", "description": "Paper Mills", "division": "D", "major_group": "26"},
-  {"sic_code": "2810", "description": "Industrial Chemicals and Synthetics", "division": "D", "major_group": "28"},
-  {"sic_code": "2834", "description": "Pharmaceutical Preparations", "division": "D", "major_group": "28"},
-  {"sic_code": "2836", "description": "Biological Products, No Diagnostic Substances", "division": "D", "major_group": "28"},
-  {"sic_code": "2844", "description": "Perfumes, Cosmetics, and Other Toilet Preparations", "division": "D", "major_group": "28"},
-  {"sic_code": "2911", "description": "Petroleum Refining", "division": "D", "major_group": "29"},
-  {"sic_code": "3310", "description": "Steel Works, Blast Furnaces, and Rolling and Finishing Mills", "division": "D", "major_group": "33"},
-  {"sic_code": "3411", "description": "Metal Cans", "division": "D", "major_group": "34"},
-  {"sic_code": "3510", "description": "Engines and Turbines", "division": "D", "major_group": "35"},
-  {"sic_code": "3523", "description": "Farm Machinery and Equipment", "division": "D", "major_group": "35"},
-  {"sic_code": "3559", "description": "Special Industry Machinery, Not Elsewhere Classified", "division": "D", "major_group": "35"},
-  {"sic_code": "3571", "description": "Electronic Computers", "division": "D", "major_group": "35"},
-  {"sic_code": "3572", "description": "Computer Storage Devices", "division": "D", "major_group": "35"},
-  {"sic_code": "3576", "description": "Computer Communications Equipment", "division": "D", "major_group": "35"},
-  {"sic_code": "3579", "description": "Office Machines, Not Elsewhere Classified", "division": "D", "major_group": "35"},
-  {"sic_code": "3661", "description": "Telephone and Telegraph Apparatus", "division": "D", "major_group": "36"},
-  {"sic_code": "3674", "description": "Semiconductors and Related Devices", "division": "D", "major_group": "36"},
-  {"sic_code": "3711", "description": "Motor Vehicles and Passenger Car Bodies", "division": "D", "major_group": "37"},
-  {"sic_code": "3721", "description": "Aircraft", "division": "D", "major_group": "37"},
-  {"sic_code": "3812", "description": "Defense Electronics and Communications Equipment", "division": "D", "major_group": "38"},
-  {"sic_code": "3841", "description": "Surgical and Medical Instruments and Apparatus", "division": "D", "major_group": "38"},
-  {"sic_code": "4011", "description": "Railroads, Line-Haul Operating", "division": "E", "major_group": "40"},
-  {"sic_code": "4210", "description": "Trucking and Courier Services, Except Air", "division": "E", "major_group": "42"},
-  {"sic_code": "4512", "description": "Air Transportation, Scheduled", "division": "E", "major_group": "45"},
-  {"sic_code": "4813", "description": "Telephone Communications", "division": "E", "major_group": "48"},
-  {"sic_code": "4833", "description": "Television Broadcasting Stations", "division": "E", "major_group": "48"},
-  {"sic_code": "4911", "description": "Electric Services", "division": "E", "major_group": "49"},
-  {"sic_code": "4922", "description": "Natural Gas Transmission", "division": "E", "major_group": "49"},
-  {"sic_code": "4924", "description": "Natural Gas Distribution", "division": "E", "major_group": "49"},
-  {"sic_code": "4931", "description": "Electric and Other Services Combined", "division": "E", "major_group": "49"},
-  {"sic_code": "4941", "description": "Water Supply", "division": "E", "major_group": "49"},
-  {"sic_code": "5065", "description": "Electronic Parts and Equipment, Not Elsewhere Classified", "division": "F", "major_group": "50"},
-  {"sic_code": "5140", "description": "Groceries and Related Products, Not Elsewhere Classified", "division": "F", "major_group": "51"},
-  {"sic_code": "5311", "description": "Department Stores", "division": "G", "major_group": "53"},
-  {"sic_code": "5411", "description": "Grocery Stores", "division": "G", "major_group": "54"},
-  {"sic_code": "5912", "description": "Drug Stores and Proprietary Stores", "division": "G", "major_group": "59"},
-  {"sic_code": "6020", "description": "State Commercial Banks — Federal Reserve Members and State", "division": "H", "major_group": "60"},
-  {"sic_code": "6021", "description": "National Commercial Banks", "division": "H", "major_group": "60"},
-  {"sic_code": "6035", "description": "Savings Institution, Federally Chartered", "division": "H", "major_group": "60"},
-  {"sic_code": "6141", "description": "Personal Credit Institutions", "division": "H", "major_group": "61"},
-  {"sic_code": "6159", "description": "Federal-Sponsored Credit Agencies, Not Elsewhere Classified", "division": "H", "major_group": "61"},
-  {"sic_code": "6199", "description": "Finance Services", "division": "H", "major_group": "61"},
-  {"sic_code": "6211", "description": "Security Brokers, Dealers, and Flotation Companies", "division": "H", "major_group": "62"},
-  {"sic_code": "6282", "description": "Investment Advice", "division": "H", "major_group": "62"},
-  {"sic_code": "6311", "description": "Life Insurance", "division": "H", "major_group": "63"},
-  {"sic_code": "6321", "description": "Accident and Health Insurance", "division": "H", "major_group": "63"},
-  {"sic_code": "6331", "description": "Fire, Marine, and Casualty Insurance", "division": "H", "major_group": "63"},
-  {"sic_code": "6399", "description": "Services Allied with the Exchange of Securities or Commodities", "division": "H", "major_group": "63"},
-  {"sic_code": "6512", "description": "Operators of Apartment Buildings", "division": "H", "major_group": "65"},
-  {"sic_code": "6531", "description": "Real Estate Agents and Managers", "division": "H", "major_group": "65"},
-  {"sic_code": "6798", "description": "Real Estate Investment Trusts", "division": "H", "major_group": "67"},
-  {"sic_code": "7011", "description": "Hotels and Motels", "division": "I", "major_group": "70"},
-  {"sic_code": "7372", "description": "Prepackaged Software", "division": "I", "major_group": "73"},
-  {"sic_code": "7374", "description": "Computer Processing and Data Preparation", "division": "I", "major_group": "73"},
-  {"sic_code": "8062", "description": "General Medical and Surgical Hospitals", "division": "J", "major_group": "80"},
-  {"sic_code": "8711", "description": "Engineering Services", "division": "I", "major_group": "87"},
-  {"sic_code": "8731", "description": "Commercial Physical and Biological Research", "division": "I", "major_group": "87"}
+  {
+    "sic_code": "0100",
+    "description": "AGRICULTURAL PRODUCTION-CROPS",
+    "division": null,
+    "major_group": "01"
+  },
+  {
+    "sic_code": "0200",
+    "description": "AGRICULTURAL PROD-LIVESTOCK & ANIMAL SPECIALTIES",
+    "division": null,
+    "major_group": "02"
+  },
+  {
+    "sic_code": "0700",
+    "description": "AGRICULTURAL SERVICES",
+    "division": null,
+    "major_group": "07"
+  },
+  {
+    "sic_code": "0800",
+    "description": "FORESTRY",
+    "division": null,
+    "major_group": "08"
+  },
+  {
+    "sic_code": "0900",
+    "description": "FISHING, HUNTING AND TRAPPING",
+    "division": null,
+    "major_group": "09"
+  },
+  {
+    "sic_code": "1000",
+    "description": "METAL MINING",
+    "division": null,
+    "major_group": "10"
+  },
+  {
+    "sic_code": "1040",
+    "description": "GOLD AND SILVER ORES",
+    "division": null,
+    "major_group": "10"
+  },
+  {
+    "sic_code": "1090",
+    "description": "MISCELLANEOUS METAL ORES",
+    "division": null,
+    "major_group": "10"
+  },
+  {
+    "sic_code": "1220",
+    "description": "BITUMINOUS COAL & LIGNITE MINING",
+    "division": null,
+    "major_group": "12"
+  },
+  {
+    "sic_code": "1221",
+    "description": "BITUMINOUS COAL & LIGNITE SURFACE MINING",
+    "division": null,
+    "major_group": "12"
+  },
+  {
+    "sic_code": "1311",
+    "description": "CRUDE PETROLEUM & NATURAL GAS",
+    "division": null,
+    "major_group": "13"
+  },
+  {
+    "sic_code": "1381",
+    "description": "DRILLING OIL & GAS WELLS",
+    "division": null,
+    "major_group": "13"
+  },
+  {
+    "sic_code": "1382",
+    "description": "OIL & GAS FIELD EXPLORATION SERVICES",
+    "division": null,
+    "major_group": "13"
+  },
+  {
+    "sic_code": "1389",
+    "description": "OIL & GAS FIELD SERVICES, NEC",
+    "division": null,
+    "major_group": "13"
+  },
+  {
+    "sic_code": "1400",
+    "description": "MINING & QUARRYING OF NONMETALLIC MINERALS (NO FUELS)",
+    "division": null,
+    "major_group": "14"
+  },
+  {
+    "sic_code": "1520",
+    "description": "GENERAL BLDG CONTRACTORS - RESIDENTIAL BLDGS",
+    "division": null,
+    "major_group": "15"
+  },
+  {
+    "sic_code": "1531",
+    "description": "OPERATIVE BUILDERS",
+    "division": null,
+    "major_group": "15"
+  },
+  {
+    "sic_code": "1540",
+    "description": "GENERAL BLDG CONTRACTORS - NONRESIDENTIAL BLDGS",
+    "division": null,
+    "major_group": "15"
+  },
+  {
+    "sic_code": "1600",
+    "description": "HEAVY CONSTRUCTION OTHER THAN BLDG CONST - CONTRACTORS",
+    "division": null,
+    "major_group": "16"
+  },
+  {
+    "sic_code": "1623",
+    "description": "WATER, SEWER, PIPELINE, COMM & POWER LINE CONSTRUCTION",
+    "division": null,
+    "major_group": "16"
+  },
+  {
+    "sic_code": "1700",
+    "description": "CONSTRUCTION - SPECIAL TRADE CONTRACTORS",
+    "division": null,
+    "major_group": "17"
+  },
+  {
+    "sic_code": "1731",
+    "description": "ELECTRICAL WORK",
+    "division": null,
+    "major_group": "17"
+  },
+  {
+    "sic_code": "2000",
+    "description": "FOOD AND KINDRED PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2011",
+    "description": "MEAT PACKING PLANTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2013",
+    "description": "SAUSAGES & OTHER PREPARED MEAT PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2015",
+    "description": "POULTRY SLAUGHTERING AND PROCESSING",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2020",
+    "description": "DAIRY PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2024",
+    "description": "ICE CREAM & FROZEN DESSERTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2030",
+    "description": "CANNED, FROZEN & PRESERVD FRUIT, VEG & FOOD SPECIALTIES",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2033",
+    "description": "CANNED, FRUITS, VEG, PRESERVES, JAMS & JELLIES",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2040",
+    "description": "GRAIN MILL PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2050",
+    "description": "BAKERY PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2052",
+    "description": "COOKIES & CRACKERS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2060",
+    "description": "SUGAR & CONFECTIONERY PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2070",
+    "description": "FATS & OILS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2080",
+    "description": "BEVERAGES",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2082",
+    "description": "MALT BEVERAGES",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2086",
+    "description": "BOTTLED & CANNED SOFT DRINKS & CARBONATED WATERS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2090",
+    "description": "MISCELLANEOUS FOOD PREPARATIONS & KINDRED PRODUCTS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2092",
+    "description": "PREPARED FRESH OR FROZEN FISH & SEAFOODS",
+    "division": null,
+    "major_group": "20"
+  },
+  {
+    "sic_code": "2100",
+    "description": "TOBACCO PRODUCTS",
+    "division": null,
+    "major_group": "21"
+  },
+  {
+    "sic_code": "2111",
+    "description": "CIGARETTES",
+    "division": null,
+    "major_group": "21"
+  },
+  {
+    "sic_code": "2200",
+    "description": "TEXTILE MILL PRODUCTS",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2211",
+    "description": "BROADWOVEN FABRIC MILLS, COTTON",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2221",
+    "description": "BROADWOVEN FABRIC MILLS, MAN MADE FIBER & SILK",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2250",
+    "description": "KNITTING MILLS",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2253",
+    "description": "KNIT OUTERWEAR MILLS",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2273",
+    "description": "CARPETS & RUGS",
+    "division": null,
+    "major_group": "22"
+  },
+  {
+    "sic_code": "2300",
+    "description": "APPAREL & OTHER FINISHD PRODS OF FABRICS & SIMILAR MATL",
+    "division": null,
+    "major_group": "23"
+  },
+  {
+    "sic_code": "2320",
+    "description": "MEN'S & BOYS' FURNISHGS, WORK CLOTHG, & ALLIED GARMENTS",
+    "division": null,
+    "major_group": "23"
+  },
+  {
+    "sic_code": "2330",
+    "description": "WOMEN'S, MISSES', AND JUNIORS OUTERWEAR",
+    "division": null,
+    "major_group": "23"
+  },
+  {
+    "sic_code": "2340",
+    "description": "WOMEN'S, MISSES', CHILDREN'S & INFANTS' UNDERGARMENTS",
+    "division": null,
+    "major_group": "23"
+  },
+  {
+    "sic_code": "2390",
+    "description": "MISCELLANEOUS FABRICATED TEXTILE PRODUCTS",
+    "division": null,
+    "major_group": "23"
+  },
+  {
+    "sic_code": "2400",
+    "description": "LUMBER & WOOD PRODUCTS (NO FURNITURE)",
+    "division": null,
+    "major_group": "24"
+  },
+  {
+    "sic_code": "2421",
+    "description": "SAWMILLS & PLANTING MILLS, GENERAL",
+    "division": null,
+    "major_group": "24"
+  },
+  {
+    "sic_code": "2430",
+    "description": "MILLWOOD, VENEER, PLYWOOD, & STRUCTURAL WOOD MEMBERS",
+    "division": null,
+    "major_group": "24"
+  },
+  {
+    "sic_code": "2451",
+    "description": "MOBILE HOMES",
+    "division": null,
+    "major_group": "24"
+  },
+  {
+    "sic_code": "2452",
+    "description": "PREFABRICATED WOOD BLDGS & COMPONENTS",
+    "division": null,
+    "major_group": "24"
+  },
+  {
+    "sic_code": "2510",
+    "description": "HOUSEHOLD FURNITURE",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2511",
+    "description": "WOOD HOUSEHOLD FURNITURE, (NO UPHOLSTERED)",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2520",
+    "description": "OFFICE FURNITURE",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2522",
+    "description": "OFFICE FURNITURE (NO WOOD)",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2531",
+    "description": "PUBLIC BLDG & RELATED FURNITURE",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2540",
+    "description": "PARTITIONS, SHELVG, LOCKERS, & OFFICE & STORE FIXTURES",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2590",
+    "description": "MISCELLANEOUS FURNITURE & FIXTURES",
+    "division": null,
+    "major_group": "25"
+  },
+  {
+    "sic_code": "2600",
+    "description": "PAPERS & ALLIED PRODUCTS",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2611",
+    "description": "PULP MILLS",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2621",
+    "description": "PAPER MILLS",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2631",
+    "description": "PAPERBOARD MILLS",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2650",
+    "description": "PAPERBOARD CONTAINERS & BOXES",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2670",
+    "description": "CONVERTED PAPER & PAPERBOARD PRODS (NO CONTANERS/BOXES)",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2673",
+    "description": "PLASTICS, FOIL & COATED PAPER BAGS",
+    "division": null,
+    "major_group": "26"
+  },
+  {
+    "sic_code": "2711",
+    "description": "NEWSPAPERS: PUBLISHING OR PUBLISHING & PRINTING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2721",
+    "description": "PERIODICALS: PUBLISHING OR PUBLISHING & PRINTING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2731",
+    "description": "BOOKS: PUBLISHING OR PUBLISHING & PRINTING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2732",
+    "description": "BOOK PRINTING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2741",
+    "description": "MISCELLANEOUS PUBLISHING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2750",
+    "description": "COMMERCIAL PRINTING",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2761",
+    "description": "MANIFOLD BUSINESS FORMS",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2771",
+    "description": "GREETING CARDS",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2780",
+    "description": "BLANKBOOKS, LOOSELEAF BINDERS & BOOKBINDG & RELATD WORK",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2790",
+    "description": "SERVICE INDUSTRIES FOR THE PRINTING TRADE",
+    "division": null,
+    "major_group": "27"
+  },
+  {
+    "sic_code": "2800",
+    "description": "CHEMICALS & ALLIED PRODUCTS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2810",
+    "description": "INDUSTRIAL INORGANIC CHEMICALS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2820",
+    "description": "PLASTIC MATERIAL, SYNTH RESIN/RUBBER, CELLULOS (NO GLASS)",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2821",
+    "description": "PLASTIC MATERIALS, SYNTH RESINS & NONVULCAN ELASTOMERS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2833",
+    "description": "MEDICINAL CHEMICALS & BOTANICAL PRODUCTS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2834",
+    "description": "PHARMACEUTICAL PREPARATIONS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2835",
+    "description": "IN VITRO & IN VIVO DIAGNOSTIC SUBSTANCES",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2836",
+    "description": "BIOLOGICAL PRODUCTS, (NO DISGNOSTIC SUBSTANCES)",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2840",
+    "description": "SOAP, DETERGENTS, CLEANG PREPARATIONS, PERFUMES, COSMETICS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2842",
+    "description": "SPECIALTY CLEANING, POLISHING AND SANITATION PREPARATIONS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2844",
+    "description": "PERFUMES, COSMETICS & OTHER TOILET PREPARATIONS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2851",
+    "description": "PAINTS, VARNISHES, LACQUERS, ENAMELS & ALLIED PRODS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2860",
+    "description": "INDUSTRIAL ORGANIC CHEMICALS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2870",
+    "description": "AGRICULTURAL CHEMICALS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2890",
+    "description": "MISCELLANEOUS CHEMICAL PRODUCTS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2891",
+    "description": "ADHESIVES & SEALANTS",
+    "division": null,
+    "major_group": "28"
+  },
+  {
+    "sic_code": "2911",
+    "description": "PETROLEUM REFINING",
+    "division": null,
+    "major_group": "29"
+  },
+  {
+    "sic_code": "2950",
+    "description": "ASPHALT PAVING & ROOFING MATERIALS",
+    "division": null,
+    "major_group": "29"
+  },
+  {
+    "sic_code": "2990",
+    "description": "MISCELLANEOUS PRODUCTS OF PETROLEUM & COAL",
+    "division": null,
+    "major_group": "29"
+  },
+  {
+    "sic_code": "3011",
+    "description": "TIRES & INNER TUBES",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3021",
+    "description": "RUBBER & PLASTICS FOOTWEAR",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3050",
+    "description": "GASKETS, PACKG & SEALG DEVICES & RUBBER & PLASTICS HOSE",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3060",
+    "description": "FABRICATED RUBBER PRODUCTS, NEC",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3080",
+    "description": "MISCELLANEOUS PLASTICS PRODUCTS",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3081",
+    "description": "UNSUPPORTED PLASTICS FILM & SHEET",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3086",
+    "description": "PLASTICS FOAM PRODUCTS",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3089",
+    "description": "PLASTICS PRODUCTS, NEC",
+    "division": null,
+    "major_group": "30"
+  },
+  {
+    "sic_code": "3100",
+    "description": "LEATHER & LEATHER PRODUCTS",
+    "division": null,
+    "major_group": "31"
+  },
+  {
+    "sic_code": "3140",
+    "description": "FOOTWEAR, (NO RUBBER)",
+    "division": null,
+    "major_group": "31"
+  },
+  {
+    "sic_code": "3211",
+    "description": "FLAT GLASS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3220",
+    "description": "GLASS & GLASSWARE, PRESSED OR BLOWN",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3221",
+    "description": "GLASS CONTAINERS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3231",
+    "description": "GLASS PRODUCTS, MADE OF PURCHASED GLASS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3241",
+    "description": "CEMENT, HYDRAULIC",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3250",
+    "description": "STRUCTURAL CLAY PRODUCTS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3260",
+    "description": "POTTERY & RELATED PRODUCTS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3270",
+    "description": "CONCRETE, GYPSUM & PLASTER PRODUCTS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3272",
+    "description": "CONCRETE PRODUCTS, EXCEPT BLOCK & BRICK",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3281",
+    "description": "CUT STONE & STONE PRODUCTS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3290",
+    "description": "ABRASIVE, ASBESTOS & MISC NONMETALLIC MINERAL PRODS",
+    "division": null,
+    "major_group": "32"
+  },
+  {
+    "sic_code": "3310",
+    "description": "STEEL WORKS, BLAST FURNACES & ROLLING & FINISHING MILLS",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3312",
+    "description": "STEEL WORKS, BLAST FURNACES & ROLLING MILLS (COKE OVENS)",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3317",
+    "description": "STEEL PIPE & TUBES",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3320",
+    "description": "IRON & STEEL FOUNDRIES",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3330",
+    "description": "PRIMARY SMELTING & REFINING OF NONFERROUS METALS",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3334",
+    "description": "PRIMARY PRODUCTION OF ALUMINUM",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3341",
+    "description": "SECONDARY SMELTING & REFINING OF NONFERROUS METALS",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3350",
+    "description": "ROLLING DRAWING & EXTRUDING OF NONFERROUS METALS",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3357",
+    "description": "DRAWING & INSULATING OF NONFERROUS WIRE",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3360",
+    "description": "NONFERROUS FOUNDRIES (CASTINGS)",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3390",
+    "description": "MISCELLANEOUS PRIMARY METAL PRODUCTS",
+    "division": null,
+    "major_group": "33"
+  },
+  {
+    "sic_code": "3411",
+    "description": "METAL CANS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3412",
+    "description": "METAL SHIPPING BARRELS, DRUMS, KEGS & PAILS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3420",
+    "description": "CUTLERY, HANDTOOLS & GENERAL HARDWARE",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3430",
+    "description": "HEATING EQUIP, EXCEPT ELEC & WARM AIR; & PLUMBING FIXTURES",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3433",
+    "description": "HEATING EQUIPMENT, EXCEPT ELECTRIC & WARM AIR FURNACES",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3440",
+    "description": "FABRICATED STRUCTURAL METAL PRODUCTS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3442",
+    "description": "METAL DOORS, SASH, FRAMES, MOLDINGS & TRIM",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3443",
+    "description": "FABRICATED PLATE WORK (BOILER SHOPS)",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3444",
+    "description": "SHEET METAL WORK",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3448",
+    "description": "PREFABRICATED METAL BUILDINGS & COMPONENTS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3451",
+    "description": "SCREW MACHINE PRODUCTS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3452",
+    "description": "BOLTS, NUTS, SCREWS, RIVETS & WASHERS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3460",
+    "description": "METAL FORGINGS & STAMPINGS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3470",
+    "description": "COATING, ENGRAVING & ALLIED SERVICES",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3480",
+    "description": "ORDNANCE & ACCESSORIES, (NO VEHICLES/GUIDED MISSILES)",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3490",
+    "description": "MISCELLANEOUS FABRICATED METAL PRODUCTS",
+    "division": null,
+    "major_group": "34"
+  },
+  {
+    "sic_code": "3510",
+    "description": "ENGINES & TURBINES",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3523",
+    "description": "FARM MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3524",
+    "description": "LAWN & GARDEN TRACTORS & HOME LAWN & GARDENS EQUIP",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3531",
+    "description": "CONSTRUCTION MACHINERY & EQUIP",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3532",
+    "description": "MINING MACHINERY & EQUIP (NO OIL & GAS FIELD MACH & EQUIP)",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3533",
+    "description": "OIL & GAS FIELD MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3537",
+    "description": "INDUSTRIAL TRUCKS, TRACTORS, TRAILORS & STACKERS",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3540",
+    "description": "METALWORKG MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3541",
+    "description": "MACHINE TOOLS, METAL CUTTING TYPES",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3550",
+    "description": "SPECIAL INDUSTRY MACHINERY (NO METALWORKING MACHINERY)",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3555",
+    "description": "PRINTING TRADES MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3559",
+    "description": "SPECIAL INDUSTRY MACHINERY, NEC",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3560",
+    "description": "GENERAL INDUSTRIAL MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3561",
+    "description": "PUMPS & PUMPING EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3562",
+    "description": "BALL & ROLLER BEARINGS",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3567",
+    "description": "INDUSTRIAL PROCESS FURNACES & OVENS",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3569",
+    "description": "GENERAL INDUSTRIAL MACHINERY & EQUIPMENT, NEC",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3570",
+    "description": "COMPUTER & OFFICE EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3571",
+    "description": "ELECTRONIC COMPUTERS",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3572",
+    "description": "COMPUTER STORAGE DEVICES",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3575",
+    "description": "COMPUTER TERMINALS",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3576",
+    "description": "COMPUTER COMMUNICATIONS EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3577",
+    "description": "COMPUTER PERIPHERAL EQUIPMENT, NEC",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3579",
+    "description": "OFFICE MACHINES, NEC",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3580",
+    "description": "REFRIGERATION & SERVICE INDUSTRY MACHINERY",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3585",
+    "description": "AIR-COND & WARM AIR HEATG EQUIP & COMM & INDL REFRIG EQUIP",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3590",
+    "description": "MISC INDUSTRIAL & COMMERCIAL MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "35"
+  },
+  {
+    "sic_code": "3612",
+    "description": "POWER, DISTRIBUTION & SPECIALTY TRANSFORMERS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3613",
+    "description": "SWITCHGEAR & SWITCHBOARD APPARATUS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3620",
+    "description": "ELECTRICAL INDUSTRIAL APPARATUS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3621",
+    "description": "MOTORS & GENERATORS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3630",
+    "description": "HOUSEHOLD APPLIANCES",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3634",
+    "description": "ELECTRIC HOUSEWARES & FANS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3640",
+    "description": "ELECTRIC LIGHTING & WIRING EQUIPMENT",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3651",
+    "description": "HOUSEHOLD AUDIO & VIDEO EQUIPMENT",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3652",
+    "description": "PHONOGRAPH RECORDS & PRERECORDED AUDIO TAPES & DISKS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3661",
+    "description": "TELEPHONE & TELEGRAPH APPARATUS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3663",
+    "description": "RADIO & TV BROADCASTING & COMMUNICATIONS EQUIPMENT",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3669",
+    "description": "COMMUNICATIONS EQUIPMENT, NEC",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3670",
+    "description": "ELECTRONIC COMPONENTS & ACCESSORIES",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3672",
+    "description": "PRINTED CIRCUIT BOARDS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3674",
+    "description": "SEMICONDUCTORS & RELATED DEVICES",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3677",
+    "description": "ELECTRONIC COILS, TRANSFORMERS & OTHER INDUCTORS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3678",
+    "description": "ELECTRONIC CONNECTORS",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3679",
+    "description": "ELECTRONIC COMPONENTS, NEC",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3690",
+    "description": "MISCELLANEOUS ELECTRICAL MACHINERY, EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3695",
+    "description": "MAGNETIC & OPTICAL RECORDING MEDIA",
+    "division": null,
+    "major_group": "36"
+  },
+  {
+    "sic_code": "3711",
+    "description": "MOTOR VEHICLES & PASSENGER CAR BODIES",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3713",
+    "description": "TRUCK & BUS BODIES",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3714",
+    "description": "MOTOR VEHICLE PARTS & ACCESSORIES",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3715",
+    "description": "TRUCK TRAILERS",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3716",
+    "description": "MOTOR HOMES",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3720",
+    "description": "AIRCRAFT & PARTS",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3721",
+    "description": "AIRCRAFT",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3724",
+    "description": "AIRCRAFT ENGINES & ENGINE PARTS",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3728",
+    "description": "AIRCRAFT PARTS & AUXILIARY EQUIPMENT, NEC",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3730",
+    "description": "SHIP & BOAT BUILDING & REPAIRING",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3743",
+    "description": "RAILROAD EQUIPMENT",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3751",
+    "description": "MOTORCYCLES, BICYCLES & PARTS",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3760",
+    "description": "GUIDED MISSILES & SPACE VEHICLES & PARTS",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3790",
+    "description": "MISCELLANEOUS TRANSPORTATION EQUIPMENT",
+    "division": null,
+    "major_group": "37"
+  },
+  {
+    "sic_code": "3812",
+    "description": "SEARCH, DETECTION, NAVAGATION, GUIDANCE, AERONAUTICAL SYS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3821",
+    "description": "LABORATORY APPARATUS & FURNITURE",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3824",
+    "description": "TOTALIZING FLUID METERS & COUNTING DEVICES",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3825",
+    "description": "INSTRUMENTS FOR MEAS & TESTING OF ELECTRICITY & ELEC SIGNALS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3826",
+    "description": "LABORATORY ANALYTICAL INSTRUMENTS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3827",
+    "description": "OPTICAL INSTRUMENTS & LENSES",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3829",
+    "description": "MEASURING & CONTROLLING DEVICES, NEC",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3841",
+    "description": "SURGICAL & MEDICAL INSTRUMENTS & APPARATUS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3842",
+    "description": "ORTHOPEDIC, PROSTHETIC & SURGICAL APPLIANCES & SUPPLIES",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3843",
+    "description": "DENTAL EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3844",
+    "description": "X-RAY APPARATUS & TUBES & RELATED IRRADIATION APPARATUS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3845",
+    "description": "ELECTROMEDICAL & ELECTROTHERAPEUTIC APPARATUS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3851",
+    "description": "OPHTHALMIC GOODS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3861",
+    "description": "PHOTOGRAPHIC EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3873",
+    "description": "WATCHES, CLOCKS, CLOCKWORK OPERATED DEVICES/PARTS",
+    "division": null,
+    "major_group": "38"
+  },
+  {
+    "sic_code": "3910",
+    "description": "JEWELRY, SILVERWARE & PLATED WARE",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3911",
+    "description": "JEWELRY, PRECIOUS METAL",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3931",
+    "description": "MUSICAL INSTRUMENTS",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3942",
+    "description": "DOLLS & STUFFED TOYS",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3944",
+    "description": "GAMES, TOYS & CHILDREN'S VEHICLES (NO DOLLS & BICYCLES)",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3949",
+    "description": "SPORTING & ATHLETIC GOODS, NEC",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3950",
+    "description": "PENS, PENCILS & OTHER ARTISTS' MATERIALS",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3960",
+    "description": "COSTUME JEWELRY & NOVELTIES",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "3990",
+    "description": "MISCELLANEOUS MANUFACTURING INDUSTRIES",
+    "division": null,
+    "major_group": "39"
+  },
+  {
+    "sic_code": "4011",
+    "description": "RAILROADS, LINE-HAUL OPERATING",
+    "division": null,
+    "major_group": "40"
+  },
+  {
+    "sic_code": "4013",
+    "description": "RAILROAD SWITCHING & TERMINAL ESTABLISHMENTS",
+    "division": null,
+    "major_group": "40"
+  },
+  {
+    "sic_code": "4210",
+    "description": "TRUCKING & COURIER SERVICES (NO AIR)",
+    "division": null,
+    "major_group": "42"
+  },
+  {
+    "sic_code": "4213",
+    "description": "TRUCKING (NO LOCAL)",
+    "division": null,
+    "major_group": "42"
+  },
+  {
+    "sic_code": "4220",
+    "description": "PUBLIC WAREHOUSING & STORAGE",
+    "division": null,
+    "major_group": "42"
+  },
+  {
+    "sic_code": "4400",
+    "description": "WATER TRANSPORTATION",
+    "division": null,
+    "major_group": "44"
+  },
+  {
+    "sic_code": "4412",
+    "description": "DEEP SEA FOREIGN TRANSPORTATION OF FREIGHT",
+    "division": null,
+    "major_group": "44"
+  },
+  {
+    "sic_code": "4512",
+    "description": "AIR TRANSPORTATION, SCHEDULED",
+    "division": null,
+    "major_group": "45"
+  },
+  {
+    "sic_code": "4513",
+    "description": "AIR COURIER SERVICES",
+    "division": null,
+    "major_group": "45"
+  },
+  {
+    "sic_code": "4522",
+    "description": "AIR TRANSPORTATION, NONSCHEDULED",
+    "division": null,
+    "major_group": "45"
+  },
+  {
+    "sic_code": "4581",
+    "description": "AIRPORTS, FLYING FIELDS & AIRPORT TERMINAL SERVICES",
+    "division": null,
+    "major_group": "45"
+  },
+  {
+    "sic_code": "4610",
+    "description": "PIPE LINES (NO NATURAL GAS)",
+    "division": null,
+    "major_group": "46"
+  },
+  {
+    "sic_code": "4700",
+    "description": "TRANSPORTATION SERVICES",
+    "division": null,
+    "major_group": "47"
+  },
+  {
+    "sic_code": "4731",
+    "description": "ARRANGEMENT OF TRANSPORTATION OF FREIGHT & CARGO",
+    "division": null,
+    "major_group": "47"
+  },
+  {
+    "sic_code": "4812",
+    "description": "RADIOTELEPHONE COMMUNICATIONS",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4813",
+    "description": "TELEPHONE COMMUNICATIONS (NO RADIOTELEPHONE)",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4822",
+    "description": "TELEGRAPH & OTHER MESSAGE COMMUNICATIONS",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4832",
+    "description": "RADIO BROADCASTING STATIONS",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4833",
+    "description": "TELEVISION BROADCASTING STATIONS",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4841",
+    "description": "CABLE & OTHER PAY TELEVISION SERVICES",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4899",
+    "description": "COMMUNICATIONS SERVICES, NEC",
+    "division": null,
+    "major_group": "48"
+  },
+  {
+    "sic_code": "4900",
+    "description": "ELECTRIC, GAS & SANITARY SERVICES",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4911",
+    "description": "ELECTRIC SERVICES",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4922",
+    "description": "NATURAL GAS TRANSMISSION",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4923",
+    "description": "NATURAL GAS TRANSMISISON & DISTRIBUTION",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4924",
+    "description": "NATURAL GAS DISTRIBUTION",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4931",
+    "description": "ELECTRIC & OTHER SERVICES COMBINED",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4932",
+    "description": "GAS & OTHER SERVICES COMBINED",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4941",
+    "description": "WATER SUPPLY",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4950",
+    "description": "SANITARY SERVICES",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4953",
+    "description": "REFUSE SYSTEMS",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4955",
+    "description": "HAZARDOUS WASTE MANAGEMENT",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4961",
+    "description": "STEAM & AIR-CONDITIONING SUPPLY",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "4991",
+    "description": "COGENERATION SERVICES & SMALL POWER PRODUCERS",
+    "division": null,
+    "major_group": "49"
+  },
+  {
+    "sic_code": "5000",
+    "description": "WHOLESALE-DURABLE GOODS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5010",
+    "description": "WHOLESALE-MOTOR VEHICLES & MOTOR VEHICLE PARTS & SUPPLIES",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5013",
+    "description": "WHOLESALE-MOTOR VEHICLE SUPPLIES & NEW PARTS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5020",
+    "description": "WHOLESALE-FURNITURE & HOME FURNISHINGS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5030",
+    "description": "WHOLESALE-LUMBER & OTHER CONSTRUCTION MATERIALS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5031",
+    "description": "WHOLESALE-LUMBER, PLYWOOD, MILLWORK & WOOD PANELS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5040",
+    "description": "WHOLESALE-PROFESSIONAL & COMMERCIAL EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5045",
+    "description": "WHOLESALE-COMPUTERS & PERIPHERAL EQUIPMENT & SOFTWARE",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5047",
+    "description": "WHOLESALE-MEDICAL, DENTAL & HOSPITAL EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5050",
+    "description": "WHOLESALE-METALS & MINERALS (NO PETROLEUM)",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5051",
+    "description": "WHOLESALE-METALS SERVICE CENTERS & OFFICES",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5064",
+    "description": "WHOLESALE-ELECTRICAL APPLIANCES, TV & RADIO SETS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5065",
+    "description": "WHOLESALE-ELECTRONIC PARTS & EQUIPMENT, NEC",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5072",
+    "description": "WHOLESALE-HARDWARE",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5080",
+    "description": "WHOLESALE-MACHINERY, EQUIPMENT & SUPPLIES",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5084",
+    "description": "WHOLESALE-INDUSTRIAL MACHINERY & EQUIPMENT",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5090",
+    "description": "WHOLESALE-MISC DURABLE GOODS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5094",
+    "description": "WHOLESALE-JEWELRY, WATCHES, PRECIOUS STONES & METALS",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5099",
+    "description": "WHOLESALE-DURABLE GOODS, NEC",
+    "division": null,
+    "major_group": "50"
+  },
+  {
+    "sic_code": "5110",
+    "description": "WHOLESALE-PAPER & PAPER PRODUCTS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5122",
+    "description": "WHOLESALE-DRUGS, PROPRIETARIES & DRUGGISTS' SUNDRIES",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5130",
+    "description": "WHOLESALE-APPAREL, PIECE GOODS & NOTIONS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5140",
+    "description": "WHOLESALE-GROCERIES & RELATED PRODUCTS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5141",
+    "description": "WHOLESALE-GROCERIES, GENERAL LINE",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5150",
+    "description": "WHOLESALE-FARM PRODUCT RAW MATERIALS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5160",
+    "description": "WHOLESALE-CHEMICALS & ALLIED PRODUCTS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5171",
+    "description": "WHOLESALE-PETROLEUM BULK STATIONS & TERMINALS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5180",
+    "description": "WHOLESALE-BEER, WINE & DISTILLED ALCOHOLIC BEVERAGES",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5190",
+    "description": "WHOLESALE-MISCELLANEOUS NONDURABLE GOODS",
+    "division": null,
+    "major_group": "51"
+  },
+  {
+    "sic_code": "5200",
+    "description": "RETAIL-BUILDING MATERIALS, HARDWARE, GARDEN SUPPLY",
+    "division": null,
+    "major_group": "52"
+  },
+  {
+    "sic_code": "5211",
+    "description": "RETAIL-LUMBER & OTHER BUILDING MATERIALS DEALERS",
+    "division": null,
+    "major_group": "52"
+  },
+  {
+    "sic_code": "5271",
+    "description": "RETAIL-MOBILE HOME DEALERS",
+    "division": null,
+    "major_group": "52"
+  },
+  {
+    "sic_code": "5311",
+    "description": "RETAIL-DEPARTMENT STORES",
+    "division": null,
+    "major_group": "53"
+  },
+  {
+    "sic_code": "5331",
+    "description": "RETAIL-VARIETY STORES",
+    "division": null,
+    "major_group": "53"
+  },
+  {
+    "sic_code": "5399",
+    "description": "RETAIL-MISC GENERAL MERCHANDISE STORES",
+    "division": null,
+    "major_group": "53"
+  },
+  {
+    "sic_code": "5400",
+    "description": "RETAIL-FOOD STORES",
+    "division": null,
+    "major_group": "54"
+  },
+  {
+    "sic_code": "5411",
+    "description": "RETAIL-GROCERY STORES",
+    "division": null,
+    "major_group": "54"
+  },
+  {
+    "sic_code": "5412",
+    "description": "RETAIL-CONVENIENCE STORES",
+    "division": null,
+    "major_group": "54"
+  },
+  {
+    "sic_code": "5500",
+    "description": "RETAIL-AUTO DEALERS & GASOLINE STATIONS",
+    "division": null,
+    "major_group": "55"
+  },
+  {
+    "sic_code": "5531",
+    "description": "RETAIL-AUTO & HOME SUPPLY STORES",
+    "division": null,
+    "major_group": "55"
+  },
+  {
+    "sic_code": "5600",
+    "description": "RETAIL-APPAREL & ACCESSORY STORES",
+    "division": null,
+    "major_group": "56"
+  },
+  {
+    "sic_code": "5621",
+    "description": "RETAIL-WOMEN'S CLOTHING STORES",
+    "division": null,
+    "major_group": "56"
+  },
+  {
+    "sic_code": "5651",
+    "description": "RETAIL-FAMILY CLOTHING STORES",
+    "division": null,
+    "major_group": "56"
+  },
+  {
+    "sic_code": "5661",
+    "description": "RETAIL-SHOE STORES",
+    "division": null,
+    "major_group": "56"
+  },
+  {
+    "sic_code": "5700",
+    "description": "RETAIL-HOME FURNITURE, FURNISHINGS & EQUIPMENT STORES",
+    "division": null,
+    "major_group": "57"
+  },
+  {
+    "sic_code": "5712",
+    "description": "RETAIL-FURNITURE STORES",
+    "division": null,
+    "major_group": "57"
+  },
+  {
+    "sic_code": "5731",
+    "description": "RETAIL-RADIO, TV & CONSUMER ELECTRONICS STORES",
+    "division": null,
+    "major_group": "57"
+  },
+  {
+    "sic_code": "5734",
+    "description": "RETAIL-COMPUTER & COMPUTER SOFTWARE STORES",
+    "division": null,
+    "major_group": "57"
+  },
+  {
+    "sic_code": "5735",
+    "description": "RETAIL-RECORD & PRERECORDED TAPE STORES",
+    "division": null,
+    "major_group": "57"
+  },
+  {
+    "sic_code": "5810",
+    "description": "RETAIL-EATING & DRINKING PLACES",
+    "division": null,
+    "major_group": "58"
+  },
+  {
+    "sic_code": "5812",
+    "description": "RETAIL-EATING PLACES",
+    "division": null,
+    "major_group": "58"
+  },
+  {
+    "sic_code": "5900",
+    "description": "RETAIL-MISCELLANEOUS RETAIL",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5912",
+    "description": "RETAIL-DRUG STORES AND PROPRIETARY STORES",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5940",
+    "description": "RETAIL-MISCELLANEOUS SHOPPING GOODS STORES",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5944",
+    "description": "RETAIL-JEWELRY STORES",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5945",
+    "description": "RETAIL-HOBBY, TOY & GAME SHOPS",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5960",
+    "description": "RETAIL-NONSTORE RETAILERS",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5961",
+    "description": "RETAIL-CATALOG & MAIL-ORDER HOUSES",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "5990",
+    "description": "RETAIL-RETAIL STORES, NEC",
+    "division": null,
+    "major_group": "59"
+  },
+  {
+    "sic_code": "6021",
+    "description": "NATIONAL COMMERCIAL BANKS",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6022",
+    "description": "STATE COMMERCIAL BANKS",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6029",
+    "description": "COMMERCIAL BANKS, NEC",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6035",
+    "description": "SAVINGS INSTITUTION, FEDERALLY CHARTERED",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6036",
+    "description": "SAVINGS INSTITUTIONS, NOT FEDERALLY CHARTERED",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6099",
+    "description": "FUNCTIONS RELATED TO DEPOSITORY BANKING, NEC",
+    "division": null,
+    "major_group": "60"
+  },
+  {
+    "sic_code": "6111",
+    "description": "FEDERAL & FEDERALLY-SPONSORED CREDIT AGENCIES",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6141",
+    "description": "PERSONAL CREDIT INSTITUTIONS",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6153",
+    "description": "SHORT-TERM BUSINESS CREDIT INSTITUTIONS",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6159",
+    "description": "MISCELLANEOUS BUSINESS CREDIT INSTITUTION",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6162",
+    "description": "MORTGAGE BANKERS & LOAN CORRESPONDENTS",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6163",
+    "description": "LOAN BROKERS",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6172",
+    "description": "FINANCE LESSORS",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6189",
+    "description": "ASSET-BACKED SECURITIES",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6199",
+    "description": "FINANCE SERVICES",
+    "division": null,
+    "major_group": "61"
+  },
+  {
+    "sic_code": "6211",
+    "description": "SECURITY BROKERS, DEALERS & FLOTATION COMPANIES",
+    "division": null,
+    "major_group": "62"
+  },
+  {
+    "sic_code": "6221",
+    "description": "COMMODITY CONTRACTS BROKERS & DEALERS",
+    "division": null,
+    "major_group": "62"
+  },
+  {
+    "sic_code": "6282",
+    "description": "INVESTMENT ADVICE",
+    "division": null,
+    "major_group": "62"
+  },
+  {
+    "sic_code": "6311",
+    "description": "LIFE INSURANCE",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6321",
+    "description": "ACCIDENT & HEALTH INSURANCE",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6324",
+    "description": "HOSPITAL & MEDICAL SERVICE PLANS",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6331",
+    "description": "FIRE, MARINE & CASUALTY INSURANCE",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6351",
+    "description": "SURETY INSURANCE",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6361",
+    "description": "TITLE INSURANCE",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6399",
+    "description": "INSURANCE CARRIERS, NEC",
+    "division": null,
+    "major_group": "63"
+  },
+  {
+    "sic_code": "6411",
+    "description": "INSURANCE AGENTS, BROKERS & SERVICE",
+    "division": null,
+    "major_group": "64"
+  },
+  {
+    "sic_code": "6500",
+    "description": "REAL ESTATE",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6510",
+    "description": "REAL ESTATE OPERATORS (NO DEVELOPERS) & LESSORS",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6512",
+    "description": "OPERATORS OF NONRESIDENTIAL BUILDINGS",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6513",
+    "description": "OPERATORS OF APARTMENT BUILDINGS",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6519",
+    "description": "LESSORS OF REAL PROPERTY, NEC",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6531",
+    "description": "REAL ESTATE AGENTS & MANAGERS (FOR OTHERS)",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6532",
+    "description": "REAL ESTATE DEALERS (FOR THEIR OWN ACCOUNT)",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6552",
+    "description": "LAND SUBDIVIDERS & DEVELOPERS (NO CEMETERIES)",
+    "division": null,
+    "major_group": "65"
+  },
+  {
+    "sic_code": "6770",
+    "description": "BLANK CHECKS",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "6792",
+    "description": "OIL ROYALTY TRADERS",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "6794",
+    "description": "PATENT OWNERS & LESSORS",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "6795",
+    "description": "MINERAL ROYALTY TRADERS",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "6798",
+    "description": "REAL ESTATE INVESTMENT TRUSTS",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "6799",
+    "description": "INVESTORS, NEC",
+    "division": null,
+    "major_group": "67"
+  },
+  {
+    "sic_code": "7000",
+    "description": "HOTELS, ROOMING HOUSES, CAMPS & OTHER LODGING PLACES",
+    "division": null,
+    "major_group": "70"
+  },
+  {
+    "sic_code": "7011",
+    "description": "HOTELS & MOTELS",
+    "division": null,
+    "major_group": "70"
+  },
+  {
+    "sic_code": "7200",
+    "description": "SERVICES-PERSONAL SERVICES",
+    "division": null,
+    "major_group": "72"
+  },
+  {
+    "sic_code": "7310",
+    "description": "SERVICES-ADVERTISING",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7311",
+    "description": "SERVICES-ADVERTISING AGENCIES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7320",
+    "description": "SERVICES-CONSUMER CREDIT REPORTING, COLLECTION AGENCIES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7331",
+    "description": "SERVICES-DIRECT MAIL ADVERTISING SERVICES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7340",
+    "description": "SERVICES-TO DWELLINGS & OTHER BUILDINGS",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7350",
+    "description": "SERVICES-MISCELLANEOUS EQUIPMENT RENTAL & LEASING",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7359",
+    "description": "SERVICES-EQUIPMENT RENTAL & LEASING, NEC",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7361",
+    "description": "SERVICES-EMPLOYMENT AGENCIES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7363",
+    "description": "SERVICES-HELP SUPPLY SERVICES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7370",
+    "description": "SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING, ETC.",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7371",
+    "description": "SERVICES-COMPUTER PROGRAMMING SERVICES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7372",
+    "description": "SERVICES-PREPACKAGED SOFTWARE",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7373",
+    "description": "SERVICES-COMPUTER INTEGRATED SYSTEMS DESIGN",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7374",
+    "description": "SERVICES-COMPUTER PROCESSING & DATA PREPARATION",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7377",
+    "description": "SERVICES-COMPUTER RENTAL & LEASING",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7380",
+    "description": "SERVICES-MISCELLANEOUS BUSINESS SERVICES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7381",
+    "description": "SERVICES-DETECTIVE, GUARD & ARMORED CAR SERVICES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7384",
+    "description": "SERVICES-PHOTOFINISHING LABORATORIES",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7385",
+    "description": "SERVICES-TELEPHONE INTERCONNECT SYSTEMS",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7389",
+    "description": "SERVICES-BUSINESS SERVICES, NEC",
+    "division": null,
+    "major_group": "73"
+  },
+  {
+    "sic_code": "7500",
+    "description": "SERVICES-AUTOMOTIVE REPAIR, SERVICES & PARKING",
+    "division": null,
+    "major_group": "75"
+  },
+  {
+    "sic_code": "7510",
+    "description": "SERVICES-AUTO RENTAL & LEASING (NO DRIVERS)",
+    "division": null,
+    "major_group": "75"
+  },
+  {
+    "sic_code": "7600",
+    "description": "SERVICES-MISCELLANEOUS REPAIR SERVICES",
+    "division": null,
+    "major_group": "76"
+  },
+  {
+    "sic_code": "7812",
+    "description": "SERVICES-MOTION PICTURE & VIDEO TAPE PRODUCTION",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7819",
+    "description": "SERVICES-ALLIED TO MOTION PICTURE PRODUCTION",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7822",
+    "description": "SERVICES-MOTION PICTURE & VIDEO TAPE DISTRIBUTION",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7829",
+    "description": "SERVICES-ALLIED TO MOTION PICTURE DISTRIBUTION",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7830",
+    "description": "SERVICES-MOTION PICTURE THEATERS",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7841",
+    "description": "SERVICES-VIDEO TAPE RENTAL",
+    "division": null,
+    "major_group": "78"
+  },
+  {
+    "sic_code": "7900",
+    "description": "SERVICES-AMUSEMENT & RECREATION SERVICES",
+    "division": null,
+    "major_group": "79"
+  },
+  {
+    "sic_code": "7948",
+    "description": "SERVICES-RACING, INCLUDING TRACK OPERATION",
+    "division": null,
+    "major_group": "79"
+  },
+  {
+    "sic_code": "7990",
+    "description": "SERVICES-MISCELLANEOUS AMUSEMENT & RECREATION",
+    "division": null,
+    "major_group": "79"
+  },
+  {
+    "sic_code": "7997",
+    "description": "SERVICES-MEMBERSHIP SPORTS & RECREATION CLUBS",
+    "division": null,
+    "major_group": "79"
+  },
+  {
+    "sic_code": "8000",
+    "description": "SERVICES-HEALTH SERVICES",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8011",
+    "description": "SERVICES-OFFICES & CLINICS OF DOCTORS OF MEDICINE",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8050",
+    "description": "SERVICES-NURSING & PERSONAL CARE FACILITIES",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8051",
+    "description": "SERVICES-SKILLED NURSING CARE FACILITIES",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8060",
+    "description": "SERVICES-HOSPITALS",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8062",
+    "description": "SERVICES-GENERAL MEDICAL & SURGICAL HOSPITALS, NEC",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8071",
+    "description": "SERVICES-MEDICAL LABORATORIES",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8082",
+    "description": "SERVICES-HOME HEALTH CARE SERVICES",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8090",
+    "description": "SERVICES-MISC HEALTH & ALLIED SERVICES, NEC",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8093",
+    "description": "SERVICES-SPECIALTY OUTPATIENT FACILITIES, NEC",
+    "division": null,
+    "major_group": "80"
+  },
+  {
+    "sic_code": "8111",
+    "description": "SERVICES-LEGAL SERVICES",
+    "division": null,
+    "major_group": "81"
+  },
+  {
+    "sic_code": "8200",
+    "description": "SERVICES-EDUCATIONAL SERVICES",
+    "division": null,
+    "major_group": "82"
+  },
+  {
+    "sic_code": "8300",
+    "description": "SERVICES-SOCIAL SERVICES",
+    "division": null,
+    "major_group": "83"
+  },
+  {
+    "sic_code": "8351",
+    "description": "SERVICES-CHILD DAY CARE SERVICES",
+    "division": null,
+    "major_group": "83"
+  },
+  {
+    "sic_code": "8600",
+    "description": "SERVICES-MEMBERSHIP ORGANIZATIONS",
+    "division": null,
+    "major_group": "86"
+  },
+  {
+    "sic_code": "8700",
+    "description": "SERVICES-ENGINEERING, ACCOUNTING, RESEARCH, MANAGEMENT",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8711",
+    "description": "SERVICES-ENGINEERING SERVICES",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8731",
+    "description": "SERVICES-COMMERCIAL PHYSICAL & BIOLOGICAL RESEARCH",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8734",
+    "description": "SERVICES-TESTING LABORATORIES",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8741",
+    "description": "SERVICES-MANAGEMENT SERVICES",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8742",
+    "description": "SERVICES-MANAGEMENT CONSULTING SERVICES",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8744",
+    "description": "SERVICES-FACILITIES SUPPORT MANAGEMENT SERVICES",
+    "division": null,
+    "major_group": "87"
+  },
+  {
+    "sic_code": "8880",
+    "description": "AMERICAN DEPOSITARY RECEIPTS",
+    "division": null,
+    "major_group": "88"
+  },
+  {
+    "sic_code": "8888",
+    "description": "FOREIGN GOVERNMENTS",
+    "division": null,
+    "major_group": "88"
+  },
+  {
+    "sic_code": "8900",
+    "description": "SERVICES-SERVICES, NEC",
+    "division": null,
+    "major_group": "89"
+  },
+  {
+    "sic_code": "9721",
+    "description": "INTERNATIONAL AFFAIRS",
+    "division": null,
+    "major_group": "97"
+  }
 ]

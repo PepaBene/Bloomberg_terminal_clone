@@ -27,7 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.backfill import (  # noqa: E402
     ENTITY_TYPES,
+    FILER_TYPES,
     _pending_entities,
+    _pending_filers,
     _pending_price_dates,
 )
 from src.database import get_session_factory  # noqa: E402
@@ -38,6 +40,9 @@ async def _remaining(lookback_days: int) -> bool:
     async with get_session_factory()() as session:
         for key in ENTITY_TYPES:
             if await _pending_entities(session, key, 1):
+                return True
+        for key in FILER_TYPES:
+            if await _pending_filers(session, key, 1):
                 return True
         if await _pending_price_dates(session, 1, lookback_days):
             return True

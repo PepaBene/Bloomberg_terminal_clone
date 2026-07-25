@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 import sys
 import time
 import uuid
@@ -36,18 +37,27 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import httpx
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.database import get_session_factory
 from src.ingestion.edgar_13f import Edgar13FConnector
 from src.ingestion.edgar_8k import Edgar8KConnector
+from src.ingestion.edgar_capital_structure import EdgarCapitalStructureConnector
+from src.ingestion.edgar_credit_ratings import EdgarCreditRatingConnector
 from src.ingestion.edgar_esg import EdgarESGConnector
+from src.ingestion.edgar_esg_environmental import EdgarESGEnvironmentalConnector
+from src.ingestion.edgar_executives import EdgarExecutivesConnector
+from src.ingestion.edgar_exhibit21 import EdgarExhibit21Connector
 from src.ingestion.edgar_filing_diff import EdgarFilingDiffConnector
 from src.ingestion.edgar_form4 import EdgarForm4Connector
 from src.ingestion.edgar_proxy import EdgarProxyConnector
+from src.ingestion.edgar_segments import EdgarSegmentsConnector
 from src.ingestion.edgar_xbrl import EdgarXBRLConnector
+from src.ingestion.guidance_extraction import GuidanceExtractionConnector
 from src.ingestion.polygon_eod import PolygonEODConnector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -69,6 +79,17 @@ class EntityCikType:
     target_table: str       # table that gets a row when the subject has data
     target_fk: str          # FK column on that table pointing at the entity
     extra_kwargs: dict = field(default_factory=dict)
+    # Optional SQL fragment (e.g. "AND provider = 'X'") disambiguating a
+    # has-data check on a table shared by more than one data type/connector.
+    extra_where: str = ""
+    # Per-type override for --batch-size. A single round-robin "turn" calls
+    # connector.run() once for the whole batch with no internal deadline
+    # check (unlike prices), so a type whose connector fetches multiple
+    # documents per subject (e.g. esg_environmental's 5 historical 10-Ks +
+    # an EPA lookup per CIK) can single-handedly burn an entire pass's time
+    # budget in one turn -- starving every type that comes after it in the
+    # rotation. Cap batch_size here for measured-slow types instead.
+    batch_size: int | None = None
     kind: str = "entity_cik"
 
 
@@ -87,14 +108,15 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     "esg": EntityCikType(
         "esg", EdgarESGConnector, "cik_list", "esg_scores", "entity_id"
     ),
-    # NOTE: 13F ownership is intentionally NOT in the CIK-driven backfill.
+    # NOTE: 13F ownership is intentionally NOT here — see FILER_TYPES below.
     # 13F-HR filings are filed BY institutional managers, not by the issuer, so
-    # querying an issuer's CIK returns nothing (confirmed: 0 institutional_holdings
-    # after hundreds of attempts). Real 13F ingestion needs an institution-CIK-
-    # driven connector (the ~5–6k 13F filers), which is a separate task.
-    # "ownership": EntityCikType(
-    #     "ownership", Edgar13FConnector, "ciks", "institutional_holdings", "security_id"
-    # ),
+    # querying an issuer's CIK returns nothing (confirmed live 2026-07-22: a
+    # standalone run against 8,006 issuer CIKs produced 3 institution_profiles
+    # in 10 minutes — only the handful of issuers that are themselves also
+    # registered 13F filers, e.g. bank holding companies). Real 13F ingestion
+    # needs an institution-CIK-driven universe instead (~8-9k active filers,
+    # discovered from SEC's own quarterly full-index — see
+    # ``_discover_13f_filers`` / ``FILER_TYPES``).
     # SEC Form 4 insider transactions (per issuer CIK). 2y historical window
     # (cut from 5y to speed up the backfill; 2y rarely exceeds the 500-filing cap
     # even for active issuers, so history within the window isn't truncated).
@@ -110,9 +132,196 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     "filing_diff": EntityCikType(
         "filing_diff", EdgarFilingDiffConnector, "cik_list", "filing_diffs", "entity_id"
     ),
+    # -- Added: per-CIK types that had a real connector + scheduled ingest
+    # script but no resumable/cursored backfill path (they only ever ran as
+    # "load every CIK, whatever finishes in the SLA window" with no memory of
+    # what was already tried) -- see run_backfill_loop.py's completion gap.
+    "capital_structure": EntityCikType(
+        "capital_structure", EdgarCapitalStructureConnector, "ciks",
+        "capital_structures", "entity_id",
+    ),
+    "credit_ratings": EntityCikType(
+        "credit_ratings", EdgarCreditRatingConnector, "ciks",
+        "credit_rating_events", "entity_id",
+    ),
+    # Executive is person-level (no entity_id) -- ExecutiveRole is the join
+    # table that actually links a person to a company, so it's the correct
+    # "did this CIK get data" signal.
+    # Measured ~5.8s/CIK live (365d ownership-filing lookup) -- batch_size
+    # capped so one turn doesn't run ~150s+ and crowd out other types.
+    "executives": EntityCikType(
+        "executives", EdgarExecutivesConnector, "issuer_ciks",
+        "executive_roles", "entity_id", extra_kwargs={"days_back": 365},
+        batch_size=10,
+    ),
+    # Guidance is tied to earnings-release 8-Ks (roughly quarterly); 730d
+    # mirrors the "insider" override above so a backfill pass captures ~8
+    # quarters instead of the connector's 30-day freshness default.
+    "guidance": EntityCikType(
+        "guidance", GuidanceExtractionConnector, "ciks",
+        "guidance_tracking", "entity_id", extra_kwargs={"days_back": 730},
+    ),
+    # Shares esg_scores with the "esg" type above (EdgarESGConnector writes
+    # provider='SEC_EDGAR'); this connector writes provider='EDGAR_DISCLOSURE_PROXY'
+    # (see PROVIDER in edgar_esg_environmental.py). Without the provider filter,
+    # any company already covered by "esg" would look done here too.
+    # Measured ~10s/CIK live (up to 5 historical 10-K fetches + an EPA
+    # Envirofacts lookup per CIK) -- the heaviest of the new types, so it
+    # gets the smallest batch_size cap.
+    "esg_environmental": EntityCikType(
+        "esg_environmental", EdgarESGEnvironmentalConnector, "cik_list",
+        "esg_scores", "entity_id",
+        extra_where="AND provider = 'EDGAR_DISCLOSURE_PROXY'",
+        batch_size=5,
+    ),
+    "subsidiaries": EntityCikType(
+        "subsidiaries", EdgarExhibit21Connector, "ciks",
+        "subsidiaries", "parent_entity_id",
+    ),
+    "segments": EntityCikType(
+        "segments", EdgarSegmentsConnector, "ciks",
+        "segment_data", "entity_id",
+    ),
 }
+
+# NOTE: three more per-CIK external jobs were considered and deliberately left
+# out because their connectors don't fit this registry's shape
+# (``connector_cls(**{kwarg: ciks}, **extra_kwargs)`` then a single
+# ``connector.run(session)``):
+#   - earnings_surprises_ingest (FinnhubEarningsConnector): no batch ciks/run()
+#     entry point at all -- driven per-entity via connector.fetch_for_entity().
+#   - consensus_estimates_ingest (AlphaVantageEstimatesConnector): ticker-driven
+#     (security_identifiers, identifier_type='TICKER'), not CIK-driven, and
+#     Alpha Vantage's free tier is a hard 25 requests/DAY cap -- unsafe to fold
+#     into an unattended round-robin loop.
+#   - esg_controversies_ingest (EsgControversiesConnector): needs
+#     entities=[{cik, legal_name, entity_id}, ...] dicts, not a plain CIK list.
+
+
+@dataclass
+class FilerCikType:
+    """A data type driven by a CIK universe that is NOT our issuer entities
+    (e.g. 13F institutional managers) -- subjects live directly in
+    ``ingestion_progress`` (seeded by a discovery step) rather than being
+    derived from ``entity_identifiers``.
+    """
+
+    key: str
+    connector_cls: type
+    kwarg: str
+    target_table: str        # table that gets a row when the subject has data
+    target_key_col: str      # column on that table holding the filer's CIK
+    extra_kwargs: dict = field(default_factory=dict)
+    kind: str = "filer_cik"
+
+
+FILER_TYPES: dict[str, FilerCikType] = {
+    "ownership_13f": FilerCikType(
+        "ownership_13f", Edgar13FConnector, "ciks", "institution_profiles", "cik"
+    ),
+}
+
 DATE_TYPES = {"prices"}
-ALL_TYPES = list(ENTITY_TYPES.keys()) + list(DATE_TYPES)
+# Explicit round-robin order (NOT dict-derived). A single turn has no
+# internal deadline check (prices excepted), so a type positioned late can be
+# starved entirely if the types ahead of it in rotation are individually
+# slow -- this happened live: ownership_13f (by far the largest remaining
+# backlog) went untouched for 55+ minutes once the newer, heavier per-CIK
+# types (esg_environmental especially -- 5 historical 10-K fetches + an EPA
+# lookup per CIK) were added ahead of it and started eating whole passes.
+# Placing it right after the original six protects it regardless of how the
+# newer types perform.
+ALL_TYPES = [
+    "xbrl", "corporate_actions", "esg", "insider", "governance", "filing_diff",
+    "ownership_13f",
+    "capital_structure", "credit_ratings", "executives", "guidance",
+    "esg_environmental", "subsidiaries", "segments",
+    "prices",
+]
+assert set(ALL_TYPES) == set(ENTITY_TYPES) | set(FILER_TYPES) | DATE_TYPES, (
+    "ALL_TYPES must list every registered type exactly once -- "
+    f"missing: {(set(ENTITY_TYPES) | set(FILER_TYPES) | DATE_TYPES) - set(ALL_TYPES)}, "
+    f"unknown: {set(ALL_TYPES) - (set(ENTITY_TYPES) | set(FILER_TYPES) | DATE_TYPES)}"
+)
+
+# --------------------------------------------------------------------------- #
+# 13F filer discovery -- SEC's own quarterly full-index is the authoritative,
+# free, keyless list of "who filed a 13F-HR" (institutional managers aren't
+# enumerable any other way; they're not in our issuer-driven `entities` table).
+# --------------------------------------------------------------------------- #
+_FULL_INDEX_LINE_RE = re.compile(r"^13F-HR\s+(.+?)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\S+)\s*$")
+
+
+def _recent_quarters(n: int) -> list[tuple[int, int]]:
+    """Last ``n`` (year, quarter) pairs ending with the most recently
+    completed quarter (today's in-progress quarter is skipped -- its index
+    is usually still thin)."""
+    today = date.today()
+    year, q = today.year, (today.month - 1) // 3 + 1
+    q -= 1
+    if q == 0:
+        year, q = year - 1, 4
+    out = []
+    for _ in range(n):
+        out.append((year, q))
+        q -= 1
+        if q == 0:
+            year, q = year - 1, 4
+    return out
+
+
+async def _discover_13f_filers(session: AsyncSession) -> int:
+    """Seed PENDING ingestion_progress rows for every unique 13F-HR filer CIK
+    found in SEC's last 4 quarterly full-indexes (trailing ~1yr, so filers who
+    miss a single quarter's deadline are still caught). Idempotent -- already
+    known subjects (any status) are left untouched via ON CONFLICT DO NOTHING.
+    """
+    ciks: set[str] = set()
+    async with httpx.AsyncClient(timeout=60.0, headers={"User-Agent": settings.SEC_USER_AGENT}) as client:
+        for year, q in _recent_quarters(4):
+            url = f"https://www.sec.gov/Archives/edgar/full-index/{year}/QTR{q}/form.idx"
+            try:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    continue
+            except httpx.HTTPError as e:
+                logger.warning("13F filer discovery: %s failed: %s", url, e)
+                continue
+            for line in resp.text.splitlines():
+                m = _FULL_INDEX_LINE_RE.match(line)
+                if m:
+                    ciks.add(m.group(2))
+
+    if not ciks:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": uuid.uuid4(), "dt": "ownership_13f", "sk": cik, "eid": None,
+            "status": "PENDING", "attempts": 0, "rows": 0, "now": now,
+        }
+        for cik in ciks
+    ]
+    # Plain per-row upsert via raw SQL (consistent with the rest of this
+    # module's ingestion_progress access, which is all text()-based).
+    for row in rows:
+        await session.execute(
+            text(
+                """
+                INSERT INTO ingestion_progress
+                    (id, data_type, subject_key, entity_id, status, attempts,
+                     rows_ingested, last_attempt_at, last_success_at, created_at, updated_at)
+                VALUES
+                    (:id, :dt, :sk, :eid, :status, :attempts, :rows, NULL, NULL, :now, :now)
+                ON CONFLICT (data_type, subject_key) DO NOTHING
+                """
+            ),
+            row,
+        )
+    await session.commit()
+    logger.info("13F filer discovery: %d unique filer CIKs found (trailing 4 quarters).", len(ciks))
+    return len(ciks)
 
 # Prioritization knob: BACKFILL_SKIP="insider" (comma-separated) drops those
 # types from this run so the shared SEC 10/s budget goes entirely to the rest.
@@ -217,12 +426,12 @@ async def _pending_entities(
 
 
 async def _entity_has_data(
-    session: AsyncSession, table: str, fk: str, entity_id: uuid.UUID
+    session: AsyncSession, table: str, fk: str, entity_id: uuid.UUID, extra_where: str = ""
 ) -> bool:
-    # table/fk are registry constants (never user input) — safe to interpolate.
+    # table/fk/extra_where are registry constants (never user input) — safe to interpolate.
     return bool(
         await session.scalar(
-            text(f"SELECT EXISTS(SELECT 1 FROM {table} WHERE {fk} = :eid)"),
+            text(f"SELECT EXISTS(SELECT 1 FROM {table} WHERE {fk} = :eid {extra_where})"),
             {"eid": entity_id},
         )
     )
@@ -235,7 +444,7 @@ async def _run_entity_batch(
     session: AsyncSession, cfg: EntityCikType, batch_size: int
 ) -> int:
     """Process one batch of a CIK-driven type. Returns subjects processed."""
-    subjects = await _pending_entities(session, cfg.key, batch_size)
+    subjects = await _pending_entities(session, cfg.key, cfg.batch_size or batch_size)
     if not subjects:
         return 0
 
@@ -252,7 +461,7 @@ async def _run_entity_batch(
 
     for entity_id, _cik in subjects:
         has = False if err else await _entity_has_data(
-            session, cfg.target_table, cfg.target_fk, entity_id
+            session, cfg.target_table, cfg.target_fk, entity_id, cfg.extra_where
         )
         await _record(
             session, cfg.key, str(entity_id), entity_id=entity_id,
@@ -260,6 +469,61 @@ async def _run_entity_batch(
         )
     await session.commit()
     return len(subjects)
+
+
+async def _pending_filers(session: AsyncSession, data_type: str, limit: int) -> list[str]:
+    """Next batch of filer CIKs not yet done for this data type.
+
+    Unlike ``_pending_entities``, the subject universe already lives in
+    ``ingestion_progress`` (seeded by ``_discover_13f_filers``) rather than
+    being derived from ``entity_identifiers`` on the fly.
+    """
+    rows = await session.execute(
+        text(
+            """
+            SELECT subject_key FROM ingestion_progress
+            WHERE data_type = :dt AND status = 'PENDING' AND attempts < :max
+            ORDER BY last_attempt_at ASC NULLS FIRST, subject_key
+            LIMIT :n
+            """
+        ),
+        {"dt": data_type, "max": MAX_ATTEMPTS, "n": limit},
+    )
+    return [r[0] for r in rows.all()]
+
+
+async def _run_filer_batch(session: AsyncSession, cfg: FilerCikType, batch_size: int) -> int:
+    """Process one batch of a filer-CIK-driven type. Returns subjects processed."""
+    if not await session.scalar(
+        text("SELECT EXISTS(SELECT 1 FROM ingestion_progress WHERE data_type=:dt)"),
+        {"dt": cfg.key},
+    ):
+        await _discover_13f_filers(session)
+
+    ciks = await _pending_filers(session, cfg.key, batch_size)
+    if not ciks:
+        return 0
+
+    connector = cfg.connector_cls(**{cfg.kwarg: ciks}, **cfg.extra_kwargs)
+    err: str | None = None
+    try:
+        await connector.run(session)
+        await session.commit()
+    except Exception as e:  # whole-batch failure (e.g. network) — retry later
+        await session.rollback()
+        err = f"{type(e).__name__}: {e}"[:400]
+        logger.warning("[%s] batch failed: %s", cfg.key, err)
+
+    for cik in ciks:
+        has = False if err else bool(
+            await session.scalar(
+                text(f"SELECT EXISTS(SELECT 1 FROM {cfg.target_table} WHERE {cfg.target_key_col} = :cik)"),
+                {"cik": cik},
+            )
+        )
+        await _record(session, cfg.key, cik, entity_id=None, has_data=has, error=err)
+    await session.commit()
+    return len(ciks)
 
 
 async def _pending_price_dates(
@@ -341,7 +605,23 @@ async def reconcile(session: AsyncSession) -> None:
                 SELECT gen_random_uuid(), :dt, d.eid::text, d.eid, 'SUCCESS', 1, 0,
                        now(), now(), now(), now()
                 FROM (SELECT DISTINCT {cfg.target_fk} AS eid FROM {cfg.target_table}
-                      WHERE {cfg.target_fk} IS NOT NULL) d
+                      WHERE {cfg.target_fk} IS NOT NULL {cfg.extra_where}) d
+                ON CONFLICT (data_type, subject_key) DO NOTHING
+                """
+            ),
+            {"dt": cfg.key},
+        )
+    for cfg in FILER_TYPES.values():
+        await session.execute(
+            text(
+                f"""
+                INSERT INTO ingestion_progress
+                    (id, data_type, subject_key, entity_id, status, attempts,
+                     rows_ingested, last_attempt_at, last_success_at, created_at, updated_at)
+                SELECT gen_random_uuid(), :dt, d.cik, NULL, 'SUCCESS', 1, 0,
+                       now(), now(), now(), now()
+                FROM (SELECT DISTINCT {cfg.target_key_col} AS cik FROM {cfg.target_table}
+                      WHERE {cfg.target_key_col} IS NOT NULL) d
                 ON CONFLICT (data_type, subject_key) DO NOTHING
                 """
             ),
@@ -395,6 +675,29 @@ async def print_status(session: AsyncSession) -> None:
         cov = (done / total_ciks * 100) if total_ciks else 0
         print(f"{key:20} {succ:>9} {nodata:>9} {pend:>9} {remaining:>10} {cov:>8.1f}%")
 
+    # Filer-CIK-driven types (universe = however many subjects discovery has
+    # seeded into ingestion_progress so far, not the issuer CIK count above).
+    for key in FILER_TYPES:
+        counts = dict(
+            (r[0], r[1])
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT status, count(*) FROM ingestion_progress "
+                        "WHERE data_type=:k GROUP BY status"
+                    ),
+                    {"k": key},
+                )
+            ).all()
+        )
+        succ = counts.get("SUCCESS", 0)
+        nodata = counts.get("NO_DATA", 0)
+        pend = counts.get("PENDING", 0)
+        universe = succ + nodata + pend
+        done = succ + nodata
+        cov = (done / universe * 100) if universe else 0
+        print(f"{key:20} {succ:>9} {nodata:>9} {pend:>9} {pend:>10} {cov:>8.1f}%  (of {universe} discovered filers)")
+
     # Prices coverage (date-based)
     total_days = await session.scalar(
         text(
@@ -432,7 +735,7 @@ async def reopen_stale(session: AsyncSession, days: int) -> int:
               AND last_success_at < now() - make_interval(days => :days)
             """
         ),
-        {"types": list(ENTITY_TYPES.keys()), "days": days},
+        {"types": list(ENTITY_TYPES.keys()) + list(FILER_TYPES.keys()), "days": days},
     )
     await session.commit()
     logger.info("Reopened %d stale subjects for refresh (older than %dd).",
@@ -465,6 +768,8 @@ async def _backfill_type(session, key, args, deadline) -> int:
         return await _run_price_batch(
             session, args.batch_size, args.prices_lookback_days, deadline
         )
+    if key in FILER_TYPES:
+        return await _run_filer_batch(session, FILER_TYPES[key], args.batch_size)
     return await _run_entity_batch(session, ENTITY_TYPES[key], args.batch_size)
 
 

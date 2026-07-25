@@ -35,6 +35,48 @@ BATCH_JOBS: list[BatchJob] = [
         domain="D8",
         description="Refresh reference data (countries, currencies, exchanges).",
     ),
+    # ── Entity / Security Master (D1) ─────────────────────────────────
+    # Previously Makefile-only (`make ingest-edgar/ingest-gleif/ingest-figi/
+    # ingest-congress`) — everything downstream builds its CIK/ticker lists
+    # from `entities`/`securities`, so this table going stale silently starves
+    # every other domain. Weekly cadence: EDGAR's full company list + GLEIF/
+    # OpenFIGI identifier mappings don't change fast enough to justify daily
+    # SEC_RATE_LIMIT-bound bulk refetches; congressional STOCK Act filings
+    # trickle in continuously so that one runs daily instead.
+    BatchJob(
+        name="entity_master_edgar_ingest",
+        cron="0 2 * * 0",  # Sunday 2 AM
+        script="scripts/ingest_edgar.py",
+        sla_minutes=240,
+        domain="D1",
+        description="SEC EDGAR full company list -> entities, plus per-company detail enrichment.",
+    ),
+    BatchJob(
+        name="entity_master_gleif_ingest",
+        cron="0 3 * * 0",  # Sunday 3 AM (after EDGAR)
+        script="scripts/ingest_gleif.py",
+        sla_minutes=240,
+        domain="D1",
+        description="GLEIF LEI records + parent hierarchy -> entities/entity relationships.",
+        depends_on=("entity_master_edgar_ingest",),
+    ),
+    BatchJob(
+        name="entity_master_openfigi_ingest",
+        cron="0 4 * * 0",  # Sunday 4 AM (after EDGAR)
+        script="scripts/ingest_openfigi.py",
+        sla_minutes=240,
+        domain="D1",
+        description="OpenFIGI security identifier mapping -> securities/security_identifiers.",
+        depends_on=("entity_master_edgar_ingest",),
+    ),
+    BatchJob(
+        name="congressional_trades_ingest",
+        cron="0 9 * * *",  # 9 AM daily
+        script="scripts/ingest_congress.py",
+        sla_minutes=60,
+        domain="D1",
+        description="House/Senate STOCK Act periodic transaction reports -> congressional_trades.",
+    ),
     # ── Macro (D7) ────────────────────────────────────────────────────
     BatchJob(
         name="fred_macro_ingest",

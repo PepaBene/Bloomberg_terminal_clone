@@ -53,8 +53,13 @@ class PolygonEODConnector(BaseConnector):
         self.api_key = api_key or getattr(settings, "POLYGON_API_KEY", "")
         self.target_date = target_date
         polygon_rate_limit = getattr(settings, "POLYGON_RATE_LIMIT", 5)
+        # POLYGON_RATE_LIMIT is calls-per-MINUTE (free tier: 5/min) -- per_seconds
+        # must be 60.0, not 1.0. Currently masked here because callers
+        # (backfill.py, ingest_eod_prices.py) add their own explicit ~13s
+        # sleep between calls, but this internal limiter should be correct on
+        # its own rather than relying on every caller to know that.
         self.rate_limiter = RateLimiter(
-            max_requests=polygon_rate_limit, per_seconds=1.0
+            max_requests=polygon_rate_limit, per_seconds=60.0
         )
         self._client: httpx.AsyncClient | None = None
         # Ticker-to-security_id mapping, populated during resolve()
