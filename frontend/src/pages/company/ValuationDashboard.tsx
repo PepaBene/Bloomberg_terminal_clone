@@ -94,29 +94,29 @@ const dataStyle: React.CSSProperties = {
 // rendering Apple's valuation as if it belonged to whichever entity the
 // user is viewing.
 
-const MOCK_PEER_VALUATION: { ticker: string; name: string; pe: number; evEbitda: number; pfcf: number; evRev: number; mktCap: string }[] = [];
+const EMPTY_PEER_VALUATION: { ticker: string; name: string; pe: number; evEbitda: number; pfcf: number; evRev: number; mktCap: string }[] = [];
 
-const MOCK_DUPONT: DuPontData = {
+const EMPTY_DUPONT: DuPontData = {
   roe: 0,
   profitMargin: 0,
   assetTurnover: 0,
   equityMultiplier: 0,
 };
 
-const MOCK_MULTIPLES_HISTORY: MultiplesPoint[] = [];
+const EMPTY_MULTIPLES_HISTORY: MultiplesPoint[] = [];
 
-const MOCK_MULTIPLES_OVER_TIME: MultiplesDataPoint[] = [];
+const EMPTY_MULTIPLES_OVER_TIME: MultiplesDataPoint[] = [];
 
-const MOCK_PEER_SCATTER: PeerPoint[] = [];
+const EMPTY_PEER_SCATTER: PeerPoint[] = [];
 
-const MOCK_DCF_ASSUMPTIONS: DCFAssumptions = {
+const DEFAULT_DCF_ASSUMPTIONS: DCFAssumptions = {
   wacc: 0.10,
   terminalGrowth: 0.025,
   projectionYears: 10,
   currentFCF: 0,
 };
 
-const MOCK_DCF_RESULT: DCFResult = {
+const EMPTY_DCF_RESULT: DCFResult = {
   enterpriseValue: 0,
   equityValue: 0,
   impliedPrice: 0,
@@ -129,9 +129,9 @@ const MOCK_DCF_RESULT: DCFResult = {
 // renders with sensible labels; the price matrix is empty until real DCF
 // sensitivity data lands.
 
-const MOCK_WACC_VALUES = [0.08, 0.085, 0.09, 0.095, 0.10, 0.105, 0.11];
-const MOCK_GROWTH_VALUES = [0.015, 0.02, 0.025, 0.03, 0.035];
-const MOCK_PRICE_MATRIX: number[][] = [];
+const EMPTY_WACC_VALUES: number[] = [];
+const EMPTY_GROWTH_VALUES: number[] = [];
+const EMPTY_PRICE_MATRIX: number[][] = [];
 
 // --- Component ---------------------------------------------------------------
 
@@ -143,7 +143,7 @@ export default function ValuationDashboard() {
   // [Bug 83 fix] — Read company info from store instead of hardcoding
   const companyName = primary?.name ?? primary?.ticker ?? 'Unknown';
   const companyTicker = primary?.ticker ?? resolvedId ?? '--';
-  const companyPrice = (primary as any)?.price ?? (primary as any)?.last_price ?? 0;
+  const companyPrice = (primary as any)?.price ?? (primary as any)?.last_price;
 
   // Wire hooks
   const { data: apiDupont } = useDuPont(resolvedId);
@@ -153,9 +153,10 @@ export default function ValuationDashboard() {
   const { data: apiFootball } = useFootballField(resolvedId);
 
   // Use API data with mock fallback
-  const activeDupont = (apiDupont as any) ?? MOCK_DUPONT;
-  const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? MOCK_DCF_ASSUMPTIONS;
-  const activeDcfResult = (apiDcf as any)?.result ?? MOCK_DCF_RESULT;
+  const activeDupont = (apiDupont as any) ?? EMPTY_DUPONT;
+  const activeDcfAssumptions = (apiDcf as any)?.assumptions ?? DEFAULT_DCF_ASSUMPTIONS;
+  const activeDcfResult = (apiDcf as any)?.result ?? EMPTY_DCF_RESULT;
+  const hasDcfModel = Boolean((apiDcf as any)?.assumptions && (apiDcf as any)?.result);
 
   // [Bug 79 fix] — The real backend (`GET /v2/analytics/multiples/{id}/history`)
   // returns `{ multiple_type, data_points: [{calculation_date, value}] }`, not a
@@ -170,7 +171,7 @@ export default function ValuationDashboard() {
   const multiplesField = multipleTypeToField(multiplesResp?.multiple_type);
 
   const activeMultiplesHistory: MultiplesPoint[] = useMemo(() => {
-    if (multiplesDataPoints.length === 0) return MOCK_MULTIPLES_HISTORY;
+    if (multiplesDataPoints.length === 0) return EMPTY_MULTIPLES_HISTORY;
     return multiplesDataPoints.map((d) => ({
       period: d.calculation_date,
       pe: multiplesField === 'pe' ? (d.value ?? 0) : 0,
@@ -180,7 +181,7 @@ export default function ValuationDashboard() {
   }, [multiplesDataPoints, multiplesField]);
 
   const activeMultiplesOverTime: MultiplesDataPoint[] = useMemo(() => {
-    if (multiplesDataPoints.length === 0) return MOCK_MULTIPLES_OVER_TIME;
+    if (multiplesDataPoints.length === 0) return EMPTY_MULTIPLES_OVER_TIME;
     return multiplesDataPoints.map((d) => ({
       date: d.calculation_date,
       pe: multiplesField === 'pe' ? (d.value ?? 0) : 0,
@@ -198,16 +199,16 @@ export default function ValuationDashboard() {
   // — no per-peer P/E or revenue-growth values to plot). Rather than fabricate
   // fake peer points, guard strictly and show an empty/placeholder state until
   // a real per-peer-point endpoint exists (backend work, out of scope here).
-  const activePeers: PeerPoint[] = Array.isArray(apiPeers) ? (apiPeers as PeerPoint[]) : MOCK_PEER_SCATTER;
+  const activePeers: PeerPoint[] = Array.isArray(apiPeers) ? (apiPeers as PeerPoint[]) : EMPTY_PEER_SCATTER;
 
   // [Bug 81 fix] — `GET /v2/analytics/dcf/{id}/sensitivity` does not exist in
   // the backend at all; the main DCF response already carries `sensitivity_grid`
   // (`{wacc_values, growth_values, implied_prices}`) so read it from there
   // instead of calling the nonexistent endpoint.
   const _sens = (apiDcf as DCFResponseApi | undefined)?.sensitivity_grid;
-  const activeWaccValues = _sens?.wacc_values ?? MOCK_WACC_VALUES;
-  const activeGrowthValues = _sens?.growth_values ?? MOCK_GROWTH_VALUES;
-  const activePriceMatrix = _sens?.implied_prices ?? MOCK_PRICE_MATRIX;
+  const activeWaccValues = _sens?.wacc_values ?? EMPTY_WACC_VALUES;
+  const activeGrowthValues = _sens?.growth_values ?? EMPTY_GROWTH_VALUES;
+  const activePriceMatrix = _sens?.implied_prices ?? EMPTY_PRICE_MATRIX;
 
   // [Bug 80 fix] — Wire football field data from API; a real `FootballField`
   // chart is rendered below (see JSX) instead of leaving this fetched-but-unused.
@@ -217,14 +218,14 @@ export default function ValuationDashboard() {
     : [];
 
   // Get current price from API data or store
-  const currentPrice = (apiDcf as any)?.result?.currentPrice ?? companyPrice ?? MOCK_DCF_RESULT.currentPrice;
+  const currentPrice = (apiDcf as any)?.result?.currentPrice ?? companyPrice;
 
   // [Bug 82 fix] — Wire peer valuation table to API data
   const activePeerValuation = useMemo(() => {
     if (apiPeers && Array.isArray(apiPeers)) {
       return apiPeers;
     }
-    return MOCK_PEER_VALUATION;
+    return EMPTY_PEER_VALUATION;
   }, [apiPeers]);
 
   // Editable DCF inputs
@@ -280,7 +281,7 @@ export default function ValuationDashboard() {
 
       {/* DuPont Decomposition + Multiples History via RatioDashboard */}
       <div style={{ marginBottom: 'var(--panel-gap)' }}>
-        <RatioDashboard dupont={activeDupont} multiplesHistory={activeMultiplesHistory} />
+        {apiDupont ? <RatioDashboard dupont={activeDupont} multiplesHistory={activeMultiplesHistory} /> : <p style={labelStyle}>DuPont analysis is unavailable for this entity.</p>}
       </div>
 
       {/* MultiplesOverTime (5Y history) — [Bug 79 fix] wired to API data */}
@@ -359,7 +360,7 @@ export default function ValuationDashboard() {
 
         {/* DCFPanel Component */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} onRecalculate={handleDCFRecalculate} />
+          {hasDcfModel ? <DCFPanel assumptions={activeDcfAssumptions} result={activeDcfResult} onRecalculate={handleDCFRecalculate} /> : <div style={panelStyle}>No DCF model has been calculated for this entity.</div>}
         </div>
 
         {/* Football Field — [Bug 80 fix] the fetched-but-never-rendered football
@@ -375,12 +376,7 @@ export default function ValuationDashboard() {
         {/* SensitivityMatrix — [Bug 81 fix] wired to API data */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>WACC / Terminal Growth Sensitivity ($)</h2>
-          <SensitivityMatrix
-            waccValues={activeWaccValues}
-            growthValues={activeGrowthValues}
-            priceMatrix={activePriceMatrix}
-            currentPrice={currentPrice}
-          />
+          {activeWaccValues.length && activeGrowthValues.length && activePriceMatrix.length ? <SensitivityMatrix waccValues={activeWaccValues} growthValues={activeGrowthValues} priceMatrix={activePriceMatrix} currentPrice={currentPrice} /> : <p style={labelStyle}>No DCF sensitivity grid is available.</p>}
         </div>
 
         {/* Peer Valuation Table — [Bug 82 fix] wired to API data */}

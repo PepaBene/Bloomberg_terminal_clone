@@ -41,8 +41,6 @@ function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?:
   );
 }
 
-// --- Mock Data (fallback) ----------------------------------------------------
-
 interface PortfolioRow {
   id: string;
   name: string;
@@ -53,16 +51,6 @@ interface PortfolioRow {
   positions: number;
   status: 'Active' | 'Paper' | 'Archived';
 }
-
-const MOCK_PORTFOLIOS: PortfolioRow[] = [
-  { id: 'p1', name: 'Core Growth',         nav: 2_458_320, dayChange: 0.34,  mtdReturn: 1.82,  ytdReturn: 8.42,  positions: 24, status: 'Active' },
-  { id: 'p2', name: 'Value Opportunities', nav: 1_234_780, dayChange: -0.18, mtdReturn: -0.72, ytdReturn: 3.15,  positions: 18, status: 'Active' },
-  { id: 'p3', name: 'Tech Alpha',          nav: 876_540,   dayChange: 0.92,  mtdReturn: 3.41,  ytdReturn: 14.28, positions: 12, status: 'Active' },
-  { id: 'p4', name: 'Dividend Income',     nav: 3_125_600, dayChange: 0.08,  mtdReturn: 0.62,  ytdReturn: 4.87,  positions: 32, status: 'Active' },
-  { id: 'p5', name: 'Small Cap Ideas',     nav: 425_180,   dayChange: -0.45, mtdReturn: -1.24, ytdReturn: -2.38, positions: 15, status: 'Paper' },
-  { id: 'p6', name: 'ESG Focus',           nav: 685_200,   dayChange: 0.22,  mtdReturn: 0.95,  ytdReturn: 6.12,  positions: 20, status: 'Active' },
-  { id: 'p7', name: 'Macro Hedge',         nav: 1_892_400, dayChange: -0.62, mtdReturn: 0.14,  ytdReturn: 1.88,  positions: 8,  status: 'Active' },
-];
 
 function statusBadgeClass(status: PortfolioRow['status']): string {
   switch (status) {
@@ -84,7 +72,7 @@ export default function PortfolioList() {
     queryFn: () => api.get('/v4/portfolios'),
     retry: 0,
   });
-  const portfolios = portfolioData ?? MOCK_PORTFOLIOS;
+  const portfolios = portfolioData ?? [];
 
   // Create portfolio mutation
   const createMutation = useMutation({
@@ -234,7 +222,9 @@ export default function PortfolioList() {
               </tr>
             </thead>
             <tbody>
-              {portfolios.map((p) => (
+              {portfolios.length === 0 ? (
+                <tr><td colSpan={7} className="terminal-label" style={{ textAlign: 'center', padding: '20px' }}>No portfolios available.</td></tr>
+              ) : portfolios.map((p) => (
                 <tr
                   key={p.id}
                   style={{ cursor: 'pointer' }}

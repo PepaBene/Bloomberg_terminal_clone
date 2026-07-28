@@ -29,10 +29,9 @@ interface ApiVaR {
   var_10d_95: number | null;
 }
 
-// No GET /risk/cvar route exists anywhere in src/api/routers/portfolio_risk.py
-// (verified by grep) -- a missing feature, not a wiring bug. Kept loosely
-// typed (rather than fabricating a contract for a field that will never
-// arrive) and always falls back to mock.
+// No GET /risk/cvar route exists anywhere in src/api/routers/portfolio_risk.py.
+// Keep the optional field so the UI renders an honest unavailable value if a
+// deployment adds it later.
 interface ApiCVaR {
   cvar95?: number;
 }
@@ -119,66 +118,6 @@ function titleCaseStatus(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 }
 
-const mockRiskKPIs = [
-  { label: '1D VaR (95%)', value: '$385K' },
-  { label: '1D VaR (99%)', value: '$620K' },
-  { label: '10D VaR (95%)', value: '$1.22M' },
-  { label: 'CVaR (95%)', value: '$580K' },
-  { label: 'Tracking Error', value: '2.8%' },
-  { label: 'Active Share', value: '42.5%' },
-];
-
-const mockConcentrationRisk = [
-  { name: 'Top 1 Holding', weight: 8.2, ticker: 'NVDA', varContribution: 18.5 },
-  { name: 'Top 5 Holdings', weight: 32.8, ticker: 'Various', varContribution: 52.1 },
-  { name: 'Top 10 Holdings', weight: 55.2, ticker: 'Various', varContribution: 72.8 },
-  { name: 'Top Sector (Tech)', weight: 38.5, ticker: 'XLK', varContribution: 45.2 },
-  { name: 'Top Country (US)', weight: 82.3, ticker: 'US', varContribution: 78.5 },
-];
-
-const mockStressResults = [
-  { scenario: 'Equity -20%', portfolioPnL: -8.82, spxPnL: -20.0, relative: 11.18 },
-  { scenario: 'Rates +200bps', portfolioPnL: -3.45, spxPnL: -5.2, relative: 1.75 },
-  { scenario: 'USD +10%', portfolioPnL: -1.82, spxPnL: -2.1, relative: 0.28 },
-  { scenario: 'Credit Crisis', portfolioPnL: -12.50, spxPnL: -18.5, relative: 6.0 },
-  { scenario: 'Stagflation', portfolioPnL: -6.20, spxPnL: -12.0, relative: 5.8 },
-  { scenario: 'Risk-Off Rotation', portfolioPnL: -5.15, spxPnL: -8.5, relative: 3.35 },
-];
-
-const mockComplianceChecks = [
-  { rule: 'Max single position', limit: '10%', current: '8.2%', status: 'Pass' },
-  { rule: 'Max sector weight', limit: '40%', current: '38.5%', status: 'Pass' },
-  { rule: 'Min positions', limit: '25', current: '42', status: 'Pass' },
-  { rule: 'Max leverage', limit: '1.0x', current: '0.95x', status: 'Warning' },
-  { rule: 'Max VaR (95%)', limit: '$500K', current: '$385K', status: 'Pass' },
-];
-
-const mockFactorExposure = [
-  { factor: 'Market', exposure: 1.08, benchmark: 1.0, active: 0.08 },
-  { factor: 'Size', exposure: 0.35, benchmark: 0.15, active: 0.20 },
-  { factor: 'Value', exposure: -0.22, benchmark: 0.0, active: -0.22 },
-  { factor: 'Momentum', exposure: 0.45, benchmark: 0.10, active: 0.35 },
-  { factor: 'Quality', exposure: 0.62, benchmark: 0.20, active: 0.42 },
-  { factor: 'Low Vol', exposure: -0.18, benchmark: 0.05, active: -0.23 },
-];
-
-const mockCorrelationTickers = ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL'];
-const mockCorrelationMatrix = [
-  [1.0, 0.72, 0.68, 0.55, 0.61],
-  [0.72, 1.0, 0.78, 0.60, 0.65],
-  [0.68, 0.78, 1.0, 0.62, 0.70],
-  [0.55, 0.60, 0.62, 1.0, 0.58],
-  [0.61, 0.65, 0.70, 0.58, 1.0],
-];
-
-const mockDriftData = [
-  { asset: 'US Equity', target: 40.0, actual: 42.5, drift: 2.5, status: 'Warning' },
-  { asset: 'Intl Equity', target: 20.0, actual: 18.2, drift: -1.8, status: 'OK' },
-  { asset: 'Fixed Income', target: 25.0, actual: 24.1, drift: -0.9, status: 'OK' },
-  { asset: 'Alternatives', target: 10.0, actual: 11.8, drift: 1.8, status: 'Warning' },
-  { asset: 'Cash', target: 5.0, actual: 3.4, drift: -1.6, status: 'OK' },
-];
-
 export default function RiskPage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
 
@@ -192,19 +131,14 @@ export default function RiskPage() {
   const { data: apiCorrelation } = usePortfolioCorrelation(portfolioId) as { data: ApiCorrelation | undefined };
   const { data: apiDrift } = usePortfolioDrift(portfolioId) as { data: ApiDrift | null | undefined };
 
-  // Merge API data with mock fallbacks (P4-F-022)
-  const riskKPIs = (apiVaR && apiCVaR) ? [
-    { label: '1D VaR (95%)', value: apiVaR.var_1d_95 != null ? formatMoney(apiVaR.var_1d_95) : '$385K' },
-    { label: '1D VaR (99%)', value: apiVaR.var_1d_99 != null ? formatMoney(apiVaR.var_1d_99) : '$620K' },
-    { label: '10D VaR (95%)', value: apiVaR.var_10d_95 != null ? formatMoney(apiVaR.var_10d_95) : '$1.22M' },
-    // No GET /risk/cvar endpoint exists on the backend (see ApiCVaR above) --
-    // stays mock until one does.
-    { label: 'CVaR (95%)', value: apiCVaR.cvar95 != null ? formatMoney(apiCVaR.cvar95) : '$580K' },
-    // Tracking Error / Active Share aren't fields on VaRResponse at all --
-    // left as honest mock rather than reading nonexistent camelCase keys.
-    { label: 'Tracking Error', value: '2.8%' },
-    { label: 'Active Share', value: '42.5%' },
-  ] : mockRiskKPIs;
+  const riskKPIs = [
+    { label: '1D VaR (95%)', value: apiVaR?.var_1d_95 != null ? formatMoney(apiVaR.var_1d_95) : 'â€”' },
+    { label: '1D VaR (99%)', value: apiVaR?.var_1d_99 != null ? formatMoney(apiVaR.var_1d_99) : 'â€”' },
+    { label: '10D VaR (95%)', value: apiVaR?.var_10d_95 != null ? formatMoney(apiVaR.var_10d_95) : 'â€”' },
+    { label: 'CVaR (95%)', value: apiCVaR?.cvar95 != null ? formatMoney(apiCVaR.cvar95) : 'â€”' },
+    { label: 'Tracking Error', value: 'â€”' },
+    { label: 'Active Share', value: 'â€”' },
+  ];
 
   // ConcentrationResponse (real GET /risk/concentration) is a single summary
   // object, not a list of dimensions with a per-dimension VaR contribution
@@ -224,7 +158,7 @@ export default function RiskPage() {
           varContribution: null as number | null,
         })),
       ]
-    : mockConcentrationRisk;
+    : [];
 
   // Now a genuine list (endpoints.ts repoints stressHistorical at the real
   // GET /risk/stress/results, which returns list[StressTestResponse] --
@@ -239,7 +173,7 @@ export default function RiskPage() {
         spxPnL: null as number | null,
         relative: null as number | null,
       }))
-    : mockStressResults;
+    : [];
 
   // ComplianceSummaryResponse is a single object with `rules`/
   // `latest_results` arrays that need joining by rule_id, not itself a
@@ -254,7 +188,7 @@ export default function RiskPage() {
           status: result ? titleCaseStatus(result.status) : 'Unknown',
         };
       })
-    : mockComplianceChecks;
+    : [];
 
   // FactorExposureResponse (real GET /risk/factors) is a single object with
   // 6 named exposure fields + matching benchmark_* fields, not a list of
@@ -273,10 +207,10 @@ export default function RiskPage() {
         benchmark: benchmark ?? 0,
         active: (exposure ?? 0) - (benchmark ?? 0),
       }))
-    : mockFactorExposure;
+    : [];
 
-  const correlationTickers = apiCorrelation?.tickers ?? mockCorrelationTickers;
-  const correlationMatrix = apiCorrelation?.matrix ?? mockCorrelationMatrix;
+  const correlationTickers = apiCorrelation?.tickers ?? [];
+  const correlationMatrix = apiCorrelation?.matrix ?? [];
 
   // DriftResponse (real GET /drift) is a single object; its `sector_drifts`
   // array is the closest real analog to the mock's per-asset-class rows
@@ -290,7 +224,7 @@ export default function RiskPage() {
         drift: d.drift_pct * 100,
         status: Math.abs(d.drift_pct) >= 0.02 ? 'Warning' : 'OK',
       }))
-    : mockDriftData;
+    : [];
 
   // Custom stress test state
   const [customScenarioName, setCustomScenarioName] = useState('');

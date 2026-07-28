@@ -71,6 +71,7 @@ export default function IssuanceMonitor() {
   const { data: apiIssues } = useNewIssuance();
   const { data: apiPipeline } = useNewIssuancePipeline();
   const { data: apiBriefing } = useFIBriefing();
+  void apiBriefing;
 
   const liveWeeklyStats = (apiIssues as any)?.stats ?? weeklyStats;
   const liveRecentIssues = (apiIssues as any[]) ?? recentIssues;
@@ -87,7 +88,7 @@ export default function IssuanceMonitor() {
 
       {/* Weekly Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {liveWeeklyStats.map((s) => (
+        {liveWeeklyStats.map((s: any) => (
           <div key={s.label} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{s.label}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{s.value}</div>

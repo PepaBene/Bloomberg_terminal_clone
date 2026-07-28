@@ -49,46 +49,13 @@ function chgColor(v: number): string {
   return v >= 0 ? 'var(--color-signal-negative)' : 'var(--color-signal-positive)';
 }
 
-// --- Mock Data ---------------------------------------------------------------
-
-const curveComparison = [
-  { tenor: '3M', today: 5.28, w1Ago: 5.30, m1Ago: 5.32, m3Ago: 5.35, y1Ago: 5.40 },
-  { tenor: '6M', today: 5.12, w1Ago: 5.15, m1Ago: 5.20, m3Ago: 5.28, y1Ago: 5.38 },
-  { tenor: '1Y', today: 4.85, w1Ago: 4.90, m1Ago: 4.98, m3Ago: 5.10, y1Ago: 5.25 },
-  { tenor: '2Y', today: 4.52, w1Ago: 4.56, m1Ago: 4.68, m3Ago: 4.85, y1Ago: 5.05 },
-  { tenor: '5Y', today: 4.18, w1Ago: 4.21, m1Ago: 4.30, m3Ago: 4.45, y1Ago: 4.65 },
-  { tenor: '10Y', today: 4.28, w1Ago: 4.31, m1Ago: 4.38, m3Ago: 4.50, y1Ago: 4.55 },
-  { tenor: '30Y', today: 4.52, w1Ago: 4.54, m1Ago: 4.58, m3Ago: 4.65, y1Ago: 4.60 },
-];
-
-const keySpreads = [
-  { spread: '2s10s', value: -24, chg1w: 1, chg1m: 6, chg3m: 11, chg1y: 26 },
-  { spread: '2s30s', value: 0, chg1w: 2, chg1m: 10, chg3m: 20, chg1y: 45 },
-  { spread: '5s30s', value: 34, chg1w: 1, chg1m: 4, chg3m: 6, chg1y: 5 },
-  { spread: '3m10y', value: -100, chg1w: 2, chg1m: 6, chg3m: 15, chg1y: 15 },
-];
-
-const realYields = [
-  { tenor: '5Y TIPS', nominal: 4.18, breakeven: 2.28, realYield: 1.90 },
-  { tenor: '10Y TIPS', nominal: 4.28, breakeven: 2.32, realYield: 1.96 },
-  { tenor: '30Y TIPS', nominal: 4.52, breakeven: 2.35, realYield: 2.17 },
-];
-
-// --- Yield Curve Data (current + 3 historical) ------------------------------
-
-const TENORS = ['3M', '6M', '1Y', '2Y', '5Y', '10Y', '30Y'];
-
-const CURVE_TODAY: YieldCurvePoint[] = TENORS.map((t, i) => ({
-  tenor: t,
-  rate: [5.28, 5.12, 4.85, 4.52, 4.18, 4.28, 4.52][i]!,
-}));
-
-const CURVE_1M: YieldCurvePoint[] = TENORS.map((t, i) => ({
-  tenor: t,
-  rate: [5.32, 5.20, 4.98, 4.68, 4.30, 4.38, 4.58][i]!,
-}));
-
-// Additional historical curves available via curveComparison table below
+// Every panel below is API-backed. Missing data is shown as an empty state,
+// never as a static rate curve or sample spread series.
+const curveComparison: unknown[] = [];
+const keySpreads: unknown[] = [];
+const realYields: unknown[] = [];
+const CURVE_TODAY: YieldCurvePoint[] = [];
+const CURVE_1M: YieldCurvePoint[] = [];
 
 // --- 2s10s Spread History — real GET /v1/analytics/yield-curve/spreads/history
 
@@ -126,24 +93,8 @@ function SpreadHistoryChart() {
 
 // --- Component ---------------------------------------------------------------
 
-// --- Mock Forward Rates (fallback) -------------------------------------------
-
-const mockForwardRates = [
-  { horizon: '1Y1Y', rate: 4.15 },
-  { horizon: '1Y2Y', rate: 4.08 },
-  { horizon: '2Y1Y', rate: 3.95 },
-  { horizon: '1Y5Y', rate: 4.22 },
-  { horizon: '5Y5Y', rate: 4.48 },
-];
-
-// --- Mock Swap Rates (fallback) ----------------------------------------------
-
-const mockSwapRates = [
-  { tenor: '2Y', rate: 4.48 },
-  { tenor: '5Y', rate: 4.12 },
-  { tenor: '10Y', rate: 4.25 },
-  { tenor: '30Y', rate: 4.50 },
-];
+const mockForwardRates: unknown[] = [];
+const mockSwapRates: unknown[] = [];
 
 export default function YieldCurveDeepDive() {
   const { data: apiCurve } = useYieldCurve();

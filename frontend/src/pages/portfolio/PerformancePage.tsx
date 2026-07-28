@@ -123,74 +123,38 @@ function formatCurrency(v: number): string {
   return `$${v.toFixed(2)}`;
 }
 
-const perfKPIs = [
-  { label: 'Portfolio Value', value: '$48.2M' },
-  { label: 'MTD Return', value: '+2.85%' },
-  { label: 'YTD Return', value: '+8.42%' },
-  { label: '1Y Return', value: '+18.6%' },
-  { label: 'Sharpe (1Y)', value: '1.42' },
-  { label: 'Max Drawdown', value: '-8.2%' },
-];
+interface CalendarReturnRow {
+  year: string;
+  jan: number; feb: number; mar: number; apr: number; may: number; jun: number;
+  jul: number; aug: number; sep: number; oct: number; nov: number; dec: number; ytd: number;
+}
 
-const calendarReturns = [
-  { year: '2025', jan: 2.1, feb: -0.8, mar: 3.2, apr: -1.5, may: 1.8, jun: 2.4, jul: -0.3, aug: 1.2, sep: -2.8, oct: 3.5, nov: 2.1, dec: 1.5, ytd: 12.8 },
-  { year: '2024', jan: 1.5, feb: 3.2, mar: -0.5, apr: -2.1, may: 4.2, jun: 1.8, jul: 2.5, aug: -1.2, sep: 0.8, oct: -0.5, nov: 5.2, dec: 2.8, ytd: 18.5 },
-];
+interface RiskMetricRow {
+  metric: string;
+  portfolio: string;
+  benchmark: string;
+}
 
-const riskMetrics = [
-  { metric: 'Volatility (Ann.)', portfolio: '14.2%', benchmark: '15.8%' },
-  { metric: 'Tracking Error', portfolio: '2.8%', benchmark: '-' },
-  { metric: 'Information Ratio', portfolio: '1.15', benchmark: '-' },
-  { metric: 'Sortino Ratio', portfolio: '2.05', benchmark: '1.72' },
-  { metric: 'Beta', portfolio: '1.08', benchmark: '1.00' },
-  { metric: 'Alpha (Ann.)', portfolio: '+2.4%', benchmark: '-' },
-];
+interface AttributionRow {
+  sector: string;
+  allocation: number;
+  selection: number;
+  interaction: number;
+  total: number;
+}
+
+interface FactorAttributionRow {
+  factor: string;
+  exposure: number;
+  return: number;
+  contribution: number;
+}
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'YTD'];
 
 // --- Calendar Heatmap Data ---------------------------------------------------
 
 const HEATMAP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const HEATMAP_YEARS = ['2024', '2025'];
-
-const HEATMAP_DATA: HeatmapDataPoint[] = [
-  // 2025
-  { row: '2025', col: 'Jan', value: 2.1 },  { row: '2025', col: 'Feb', value: -0.8 },
-  { row: '2025', col: 'Mar', value: 3.2 },  { row: '2025', col: 'Apr', value: -1.5 },
-  { row: '2025', col: 'May', value: 1.8 },  { row: '2025', col: 'Jun', value: 2.4 },
-  { row: '2025', col: 'Jul', value: -0.3 }, { row: '2025', col: 'Aug', value: 1.2 },
-  { row: '2025', col: 'Sep', value: -2.8 }, { row: '2025', col: 'Oct', value: 3.5 },
-  { row: '2025', col: 'Nov', value: 2.1 },  { row: '2025', col: 'Dec', value: 1.5 },
-  // 2024
-  { row: '2024', col: 'Jan', value: 1.5 },  { row: '2024', col: 'Feb', value: 3.2 },
-  { row: '2024', col: 'Mar', value: -0.5 }, { row: '2024', col: 'Apr', value: -2.1 },
-  { row: '2024', col: 'May', value: 4.2 },  { row: '2024', col: 'Jun', value: 1.8 },
-  { row: '2024', col: 'Jul', value: 2.5 },  { row: '2024', col: 'Aug', value: -1.2 },
-  { row: '2024', col: 'Sep', value: 0.8 },  { row: '2024', col: 'Oct', value: -0.5 },
-  { row: '2024', col: 'Nov', value: 5.2 },  { row: '2024', col: 'Dec', value: 2.8 },
-];
-
-// --- Attribution Mock Data ----------------------------------------------------
-
-const mockAttribution = [
-  { sector: 'Technology', allocation: 0.42, selection: 1.15, interaction: 0.08, total: 1.65 },
-  { sector: 'Healthcare', allocation: -0.18, selection: 0.52, interaction: -0.03, total: 0.31 },
-  { sector: 'Financials', allocation: 0.25, selection: -0.30, interaction: 0.05, total: 0.00 },
-  { sector: 'Consumer Disc.', allocation: -0.10, selection: 0.68, interaction: -0.02, total: 0.56 },
-  { sector: 'Industrials', allocation: 0.15, selection: 0.22, interaction: 0.01, total: 0.38 },
-  { sector: 'Energy', allocation: -0.35, selection: -0.12, interaction: 0.04, total: -0.43 },
-  { sector: 'Communication', allocation: 0.08, selection: 0.45, interaction: 0.02, total: 0.55 },
-  { sector: 'Materials', allocation: -0.05, selection: -0.08, interaction: -0.01, total: -0.14 },
-];
-
-const mockFactorAttribution = [
-  { factor: 'Market', exposure: 1.08, return: 12.5, contribution: 13.50 },
-  { factor: 'Size', exposure: -0.22, return: 3.2, contribution: -0.70 },
-  { factor: 'Value', exposure: 0.35, return: 5.8, contribution: 2.03 },
-  { factor: 'Momentum', exposure: 0.48, return: 8.1, contribution: 3.89 },
-  { factor: 'Quality', exposure: 0.62, return: 4.5, contribution: 2.79 },
-  { factor: 'Low Volatility', exposure: -0.15, return: 2.3, contribution: -0.35 },
-];
 
 function CumulativeReturnChart({ data }: { data?: { date: string; value: number; portfolio: number; benchmark: number }[] }) {
   // P4-F-014: don't fabricate a Math.random() walk when the API hasn't
@@ -215,7 +179,7 @@ function CumulativeReturnChart({ data }: { data?: { date: string; value: number;
 export default function PerformancePage() {
   const { portfolioId } = useParams<{ portfolioId: string }>();
 
-  // --- API hooks with fallback to mock data ---
+  // --- API hooks ------------------------------------------------------------
   const { data: apiNav } = usePortfolioNav(portfolioId) as { data: ApiNav | undefined };
   const { data: apiPerformance } = usePortfolioPerformance(portfolioId) as { data: ApiPerformance | null | undefined };
   const { data: apiReturns } = usePortfolioReturns(portfolioId) as { data: ApiReturnSeriesResponse | undefined };
@@ -232,25 +196,19 @@ export default function PerformancePage() {
   // series endpoint exists.
   usePortfolioDrawdown(portfolioId);
 
-  // --- Wire API data with mock fallback (P4-F-014) ---
-  // KPIs are merged per-field (same pattern RiskPage.tsx uses for its VaR
-  // row) rather than swapped as a whole array, since "Portfolio Value" (NAV)
-  // and the 4 performance-derived cells come from two different real
-  // endpoints while MTD/1Y Return have no real per-period source yet (the
-  // backend's /performance endpoint always computes a single
-  // since-inception snapshot regardless of the `period` query param -- see
-  // that endpoint's docstring).
+  // Some period-specific metrics are not supplied by the backend. They remain
+  // explicitly unavailable instead of inheriting an unrelated sample return.
   const kpis = [
-    { label: 'Portfolio Value', value: apiNav?.nav != null ? formatCurrency(apiNav.nav) : perfKPIs[0]!.value },
-    { label: 'MTD Return', value: perfKPIs[1]!.value },
-    { label: 'YTD Return', value: apiPerformance?.twr_return != null ? formatSignedPct(apiPerformance.twr_return * 100) : perfKPIs[2]!.value },
-    { label: '1Y Return', value: perfKPIs[3]!.value },
-    { label: 'Sharpe (1Y)', value: apiPerformance?.sharpe_ratio != null ? apiPerformance.sharpe_ratio.toFixed(2) : perfKPIs[4]!.value },
-    { label: 'Max Drawdown', value: apiPerformance?.max_drawdown != null ? formatSignedPct(-Math.abs(apiPerformance.max_drawdown) * 100) : perfKPIs[5]!.value },
+    { label: 'Portfolio Value', value: apiNav?.nav != null ? formatCurrency(apiNav.nav) : 'â€”' },
+    { label: 'MTD Return', value: 'â€”' },
+    { label: 'YTD Return', value: apiPerformance?.twr_return != null ? formatSignedPct(apiPerformance.twr_return * 100) : 'â€”' },
+    { label: '1Y Return', value: 'â€”' },
+    { label: 'Sharpe (1Y)', value: apiPerformance?.sharpe_ratio != null ? apiPerformance.sharpe_ratio.toFixed(2) : 'â€”' },
+    { label: 'Max Drawdown', value: apiPerformance?.max_drawdown != null ? formatSignedPct(-Math.abs(apiPerformance.max_drawdown) * 100) : 'â€”' },
   ];
 
-  const calReturns = useMemo(() => {
-    if (!apiCalendarReturns?.years?.length) return calendarReturns;
+  const calReturns = useMemo<CalendarReturnRow[]>(() => {
+    if (!apiCalendarReturns?.years?.length) return [];
     return apiCalendarReturns.years.map((y) => {
       const months = [y.jan, y.feb, y.mar, y.apr, y.may, y.jun, y.jul, y.aug, y.sep, y.oct, y.nov, y.dec];
       // Real CalendarReturnEntry.ytd is never populated by the backend
@@ -270,11 +228,11 @@ export default function PerformancePage() {
   }, [apiCalendarReturns]);
 
   const heatmapYears = useMemo(
-    () => (apiCalendarReturns?.years?.length ? apiCalendarReturns.years.map((y) => String(y.year)) : HEATMAP_YEARS),
+    () => (apiCalendarReturns?.years?.length ? apiCalendarReturns.years.map((y) => String(y.year)) : []),
     [apiCalendarReturns],
   );
   const heatmapData = useMemo<HeatmapDataPoint[]>(() => {
-    if (!apiCalendarReturns?.years?.length) return HEATMAP_DATA;
+    if (!apiCalendarReturns?.years?.length) return [];
     const points: HeatmapDataPoint[] = [];
     for (const y of apiCalendarReturns.years) {
       for (const [col, val] of HEATMAP_MONTHS.map((m, i) => [m, [y.jan, y.feb, y.mar, y.apr, y.may, y.jun, y.jul, y.aug, y.sep, y.oct, y.nov, y.dec][i]] as const)) {
@@ -297,7 +255,14 @@ export default function PerformancePage() {
         { metric: 'Beta', portfolio: apiRiskMetrics.beta != null ? apiRiskMetrics.beta.toFixed(2) : '—', benchmark: '-' },
         { metric: 'Alpha (Ann.)', portfolio: apiRiskMetrics.alpha != null ? formatSignedPct(apiRiskMetrics.alpha * 100) : '—', benchmark: '-' },
       ]
-    : riskMetrics;
+    : ([
+        { metric: 'Volatility (Ann.)', portfolio: 'â€”', benchmark: 'â€”' },
+        { metric: 'Tracking Error', portfolio: 'â€”', benchmark: 'â€”' },
+        { metric: 'Information Ratio', portfolio: 'â€”', benchmark: 'â€”' },
+        { metric: 'Sortino Ratio', portfolio: 'â€”', benchmark: 'â€”' },
+        { metric: 'Beta', portfolio: 'â€”', benchmark: 'â€”' },
+        { metric: 'Alpha (Ann.)', portfolio: 'â€”', benchmark: 'â€”' },
+      ] satisfies RiskMetricRow[]);
 
   const returnsData = useMemo(() => {
     if (!apiReturns?.entries?.length) return undefined;
@@ -312,7 +277,7 @@ export default function PerformancePage() {
     }));
   }, [apiReturns]);
 
-  const attributionData = useMemo(
+  const attributionData = useMemo<AttributionRow[]>(
     () =>
       apiAttribution?.brinson?.sector_detail?.length
         ? apiAttribution.brinson.sector_detail.map((s) => ({
@@ -322,11 +287,11 @@ export default function PerformancePage() {
             interaction: s.interaction_effect * 100,
             total: s.total_effect * 100,
           }))
-        : mockAttribution,
+        : [],
     [apiAttribution],
   );
 
-  const factorData = useMemo(
+  const factorData = useMemo<FactorAttributionRow[]>(
     () =>
       apiFactorAttribution?.length
         ? apiFactorAttribution.map((f) => ({
@@ -335,7 +300,7 @@ export default function PerformancePage() {
             return: f.factor_return * 100,
             contribution: f.contribution * 100,
           }))
-        : mockFactorAttribution,
+        : [],
     [apiFactorAttribution],
   );
 
@@ -397,7 +362,7 @@ export default function PerformancePage() {
               ))}
             </tr></thead>
             <tbody>
-              {calReturns.map((r: typeof calendarReturns[0]) => (
+              {calReturns.map((r) => (
                 <tr key={r.year} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{r.year}</td>
                   {[r.jan, r.feb, r.mar, r.apr, r.may, r.jun, r.jul, r.aug, r.sep, r.oct, r.nov, r.dec, r.ytd].map((v, i) => (
@@ -418,7 +383,7 @@ export default function PerformancePage() {
               ))}
             </tr></thead>
             <tbody>
-              {risk.map((r: typeof riskMetrics[0]) => (
+              {risk.map((r) => (
                 <tr key={r.metric} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.metric}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{r.portfolio}</td>
@@ -442,7 +407,7 @@ export default function PerformancePage() {
               ))}
             </tr></thead>
             <tbody>
-              {attributionData.map((r: typeof mockAttribution[0]) => (
+              {attributionData.map((r) => (
                 <tr key={r.sector} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.sector}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(r.allocation) }}>{r.allocation >= 0 ? '+' : ''}{r.allocation.toFixed(2)}%</td>
@@ -464,7 +429,7 @@ export default function PerformancePage() {
               ))}
             </tr></thead>
             <tbody>
-              {factorData.map((r: typeof mockFactorAttribution[0]) => (
+              {factorData.map((r) => (
                 <tr key={r.factor} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{r.factor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: signalColor(r.exposure) }}>{r.exposure >= 0 ? '+' : ''}{r.exposure.toFixed(2)}</td>

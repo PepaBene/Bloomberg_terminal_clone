@@ -98,7 +98,7 @@ export default function IndustryDetail() {
 
       {/* Economics KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {activeEconomics.map((e) => (
+        {activeEconomics.map((e: any) => (
           <div key={e.metric} style={{ ...panelStyle, textAlign: 'center', padding: '10px' }}>
             <div style={{ ...labelStyle, marginBottom: '4px' }}>{e.metric}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)' }}>{e.value}</div>
@@ -119,7 +119,7 @@ export default function IndustryDetail() {
               </tr>
             </thead>
             <tbody>
-              {activeTopCompanies.map((c) => (
+              {activeTopCompanies.map((c: any) => (
                 <tr key={c.ticker} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600, color: 'var(--color-accent-primary)' }}>{c.ticker}</td>
                   <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{c.name}</td>
@@ -138,7 +138,7 @@ export default function IndustryDetail() {
           <h2 style={sectionTitle}>Competitive Structure</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
-              {activeCompetitiveMetrics.map((m) => (
+              {activeCompetitiveMetrics.map((m: any) => (
                 <tr key={m.factor} style={{ height: 'var(--table-row-height)', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{m.factor}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{m.value}</td>
@@ -147,7 +147,7 @@ export default function IndustryDetail() {
             </tbody>
           </table>
           <div style={{ marginTop: '8px' }}>
-            {activeCompetitiveMetrics.map((m) => (
+            {activeCompetitiveMetrics.map((m: any) => (
               <div key={m.factor} style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
                 {m.factor}: {m.assessment}
               </div>

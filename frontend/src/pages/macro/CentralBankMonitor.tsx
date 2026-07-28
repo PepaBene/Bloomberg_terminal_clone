@@ -121,7 +121,7 @@ export default function CentralBankMonitor() {
 
       {/* Central Bank Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
-        {activeBanks.map((cb) => (
+        {activeBanks.map((cb: any) => (
           <div key={cb.bank} style={panelStyle}>
             <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>{cb.bank}</div>
             <div style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '8px' }}>{cb.rate}</div>
@@ -160,7 +160,7 @@ export default function CentralBankMonitor() {
               </tr>
             </thead>
             <tbody>
-              {activeDotPlot.map((d) => (
+              {activeDotPlot.map((d: any) => (
                 <tr key={d.year} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 500 }}>{d.year}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{d.median.toFixed(3)}%</td>
@@ -184,7 +184,7 @@ export default function CentralBankMonitor() {
               </tr>
             </thead>
             <tbody>
-              {activePricing.map((m) => (
+              {activePricing.map((m: any) => (
                 <tr key={m.meeting} style={{ height: 'var(--table-row-height)' }}>
                   <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{m.meeting}</td>
                   <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-signal-positive)' }}>{m.prob25Cut}%</td>

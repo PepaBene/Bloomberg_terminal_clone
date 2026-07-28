@@ -10,7 +10,6 @@ import {
   Legend,
   ReferenceLine,
 } from 'recharts';
-import type { CategoricalChartState } from 'recharts/types/chart/types';
 import { CHART_THEME, seriesColor } from './chartTheme';
 import { ChartTooltip } from './ChartTooltip';
 import type { ChartTooltipSeriesItem } from './ChartTooltip';
@@ -207,7 +206,7 @@ export function TimeSeriesChart({
   );
 
   const handleClick = useCallback(
-    (state: CategoricalChartState) => {
+    (state: any) => {
       if (onPointClick && state?.activePayload?.[0]) {
         onPointClick(state.activePayload[0].payload as unknown);
       }

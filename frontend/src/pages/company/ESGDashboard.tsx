@@ -142,7 +142,12 @@ export default function ESGDashboard() {
       </div>
 
       {/* Score Gauges */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
+      {!latestScore && (
+        <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+          <p style={labelStyle}>No ESG score is available for this entity.</p>
+        </div>
+      )}
+      {latestScore && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>
         <div style={{ ...panelStyle, textAlign: 'center' }}>
           <GaugeChart value={esg.overall} max={100} label="Overall ESG" />
           <div style={{ marginTop: '8px' }}>
@@ -164,7 +169,7 @@ export default function ESGDashboard() {
             <GaugeChart value={pillar.value} max={100} label={pillar.label} />
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* ESG Metrics by Category */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--panel-gap)', marginBottom: 'var(--panel-gap)' }}>

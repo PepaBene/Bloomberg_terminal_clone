@@ -120,7 +120,7 @@ export default function ResearchHub() {
   const activeSecurity = useSecurityStore((s) => s.primary);
   const activeEntityId = activeSecurity?.entity_id;
   const activeTicker = activeSecurity?.ticker ?? '--';
-  const { data: apiIntel, isLoading: intelLoading } = useCompanyIntelligence(activeEntityId);
+  const { data: apiIntel, isLoading: intelLoading } = useCompanyIntelligence(activeEntityId ?? undefined);
 
   const activeModules = (apiIntel as Record<string, any>)?.modules as IntelModule[] | undefined;
 

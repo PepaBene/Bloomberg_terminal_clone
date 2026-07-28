@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   ResponsiveContainer,
   PieChart,
@@ -6,9 +6,7 @@ import {
   Cell,
   Tooltip as RechartsTooltip,
   Legend,
-  Sector,
 } from 'recharts';
-import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
 import { CHART_THEME, seriesColor } from './chartTheme';
 import { ChartTooltip } from './ChartTooltip';
 
@@ -30,52 +28,6 @@ export interface DonutChartProps {
   centerLabel?: string;
   centerValue?: string;
   showLegend?: boolean;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Active sector shape — expansion + accent glow                     */
-/* ------------------------------------------------------------------ */
-
-interface ActiveShapeProps extends PieSectorDataItem {
-  fill?: string;
-}
-
-function renderActiveShape(props: ActiveShapeProps) {
-  const {
-    cx = 0,
-    cy = 0,
-    innerRadius = 0,
-    outerRadius = 0,
-    startAngle = 0,
-    endAngle = 0,
-    fill = CHART_THEME.colors.accent,
-  } = props;
-
-  return (
-    <g>
-      {/* Accent glow ring */}
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius - 2}
-        outerRadius={outerRadius + 6}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
-        opacity={0.2}
-      />
-      {/* Expanded sector (+4px outerRadius) */}
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius + 4}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
-      />
-    </g>
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,16 +86,6 @@ export function DonutChart({
   centerValue,
   showLegend = false,
 }: DonutChartProps) {
-  const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
-
-  const onEnter = useCallback((_: unknown, index: number) => {
-    setActiveIndex(index);
-  }, []);
-
-  const onLeave = useCallback(() => {
-    setActiveIndex(undefined);
-  }, []);
-
   /* Compute radii relative to available space */
   const outerRadius = outerRadiusProp ?? Math.round(height * 0.38);
   const innerRadius = innerRadiusProp ?? Math.round(outerRadius * 0.6);
@@ -172,10 +114,6 @@ export function DonutChart({
           innerRadius={innerRadius}
           outerRadius={outerRadius}
           paddingAngle={1}
-          activeIndex={activeIndex}
-          activeShape={renderActiveShape}
-          onMouseEnter={onEnter}
-          onMouseLeave={onLeave}
           stroke={CHART_THEME.colors.surfaceBase}
           strokeWidth={2}
         >

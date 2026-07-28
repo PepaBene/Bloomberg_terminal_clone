@@ -50,7 +50,7 @@ function groupByTheme(rows: ThemeScoreRow[]): ThemeSummary[] {
     .map(([theme, items]) => {
       const scores = items.map((i) => i.exposure_score).filter((v): v is number => v != null);
       const avgExposure = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-      const latestAsOf = items.map((i) => i.as_of_date).sort().slice(-1)[0];
+      const latestAsOf = items.map((i) => i.as_of_date).sort().slice(-1)[0] ?? '';
       return { theme, entityCount: items.length, avgExposure, latestAsOf };
     })
     .sort((a, b) => (b.avgExposure ?? -Infinity) - (a.avgExposure ?? -Infinity));
