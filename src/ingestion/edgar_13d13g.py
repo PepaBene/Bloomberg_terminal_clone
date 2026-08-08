@@ -311,10 +311,26 @@ class Edgar13D13GConnector(BaseConnector):
         days_back: int = 10,
         forms: tuple[str, ...] = ALL_SCHEDULE_13_FORMS,
         max_filings: int | None = None,
+        target_date: date | str | None = None,
     ):
+        """
+        Args:
+            days_back: sweep window ending today (used by the scheduled daily
+                job -- see scripts/ingest_sc13.py). Ignored when
+                ``target_date`` is set.
+            target_date: sweep exactly this single calendar day instead of a
+                rolling window ending today. Mirrors
+                ``PolygonEODConnector(target_date=...)`` -- lets a resumable,
+                per-day backfill driver (scripts/backfill.py) march through
+                history one day at a time rather than always re-sweeping the
+                last N days.
+        """
         self.days_back = days_back
         self.forms = forms
         self.max_filings = max_filings
+        self.target_date = (
+            _parse_date(target_date) if isinstance(target_date, str) else target_date
+        )
         self.rate_limiter = RateLimiter(max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
@@ -350,8 +366,11 @@ class Edgar13D13GConnector(BaseConnector):
             return None
 
     async def extract(self) -> list[dict[str, Any]]:
-        end = date.today()
-        start = end - timedelta(days=self.days_back)
+        if self.target_date is not None:
+            start = end = self.target_date
+        else:
+            end = date.today()
+            start = end - timedelta(days=self.days_back)
 
         stubs: list[dict[str, Any]] = []
         seen_files: set[str] = set()

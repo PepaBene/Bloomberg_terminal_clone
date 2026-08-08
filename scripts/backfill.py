@@ -18,6 +18,7 @@ Usage:
     python -m scripts.backfill --status
     python -m scripts.backfill --type xbrl --batch-size 25 --max-minutes 8
     python -m scripts.backfill --type prices --batch-size 6
+    python -m scripts.backfill --type sc13 --batch-size 10 --max-minutes 8
     python -m scripts.backfill --all --max-minutes 20
 """
 
@@ -44,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.database import get_session_factory
+from src.ingestion.edgar_13d13g import Edgar13D13GConnector
 from src.ingestion.edgar_13f import Edgar13FConnector
 from src.ingestion.edgar_8k import Edgar8KConnector
 from src.ingestion.edgar_capital_structure import EdgarCapitalStructureConnector
@@ -221,7 +223,7 @@ FILER_TYPES: dict[str, FilerCikType] = {
     ),
 }
 
-DATE_TYPES = {"prices"}
+DATE_TYPES = {"prices", "sc13"}
 # Explicit round-robin order (NOT dict-derived). A single turn has no
 # internal deadline check (prices excepted), so a type positioned late can be
 # starved entirely if the types ahead of it in rotation are individually
@@ -236,7 +238,7 @@ ALL_TYPES = [
     "ownership_13f",
     "capital_structure", "credit_ratings", "executives", "guidance",
     "esg_environmental", "subsidiaries", "segments",
-    "prices",
+    "prices", "sc13",
 ]
 assert set(ALL_TYPES) == set(ENTITY_TYPES) | set(FILER_TYPES) | DATE_TYPES, (
     "ALL_TYPES must list every registered type exactly once -- "
@@ -590,6 +592,77 @@ async def _run_price_batch(
     return processed
 
 
+async def _pending_sc13_dates(
+    session: AsyncSession, limit: int, lookback_days: int
+) -> list[str]:
+    """Next batch of trading days (most recent first) with no Schedule
+    13D/13G sweep yet. Reuses ``trading_days`` as the "did SEC EDGAR accept
+    filings that day" calendar -- close enough to EDGAR's own business-day
+    calendar (both are closed weekends/federal holidays); a mismatched day
+    just means ``Edgar13D13GConnector`` sees a 404 and records zero filings,
+    which is harmless.
+    """
+    yesterday = date.today() - timedelta(days=1)
+    earliest = date.today() - timedelta(days=lookback_days)
+    rows = await session.execute(
+        text(
+            """
+            SELECT DISTINCT td.date::text AS d
+            FROM trading_days td
+            LEFT JOIN ingestion_progress ip
+              ON ip.data_type = 'sc13' AND ip.subject_key = td.date::text
+            WHERE td.is_trading_day = true
+              AND td.date <= :yst AND td.date >= :earliest
+              AND (ip.id IS NULL OR (ip.status = 'PENDING' AND ip.attempts < :max))
+            ORDER BY d DESC
+            LIMIT :n
+            """
+        ),
+        {"yst": yesterday, "earliest": earliest, "max": MAX_ATTEMPTS, "n": limit},
+    )
+    return [r[0] for r in rows.all()]
+
+
+async def _run_sc13_batch(
+    session: AsyncSession, batch_size: int, lookback_days: int, deadline: float
+) -> int:
+    """Sweep Schedule 13D/13G filings for the next un-done days.
+
+    One day per ``Edgar13D13GConnector(target_date=...)`` call, same shape as
+    ``_run_price_batch``. No inter-day sleep needed (unlike Polygon's 5/min
+    free-tier cap) -- the connector's own ``RateLimiter`` already paces every
+    HTTP call against ``SEC_RATE_LIMIT``.
+    """
+    dates = await _pending_sc13_dates(session, batch_size, lookback_days)
+    if not dates:
+        return 0
+
+    processed = 0
+    for d in dates:
+        if time.monotonic() > deadline:
+            break
+        err: str | None = None
+        try:
+            connector = Edgar13D13GConnector(target_date=d)
+            await connector.run(session)
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            err = f"{type(e).__name__}: {e}"[:400]
+            logger.warning("[sc13] %s failed: %s", d, err)
+
+        has = False if err else bool(
+            await session.scalar(
+                text("SELECT EXISTS(SELECT 1 FROM beneficial_ownership_filings WHERE filing_date = :d)"),
+                {"d": date.fromisoformat(d)},
+            )
+        )
+        await _record(session, "sc13", d, entity_id=None, has_data=has, error=err)
+        await session.commit()
+        processed += 1
+    return processed
+
+
 # --------------------------------------------------------------------------- #
 # Reconcile — mark subjects that already have data as SUCCESS (no fetching)
 # --------------------------------------------------------------------------- #
@@ -636,6 +709,19 @@ async def reconcile(session: AsyncSession) -> None:
             SELECT gen_random_uuid(), 'prices', d.pd::text, NULL, 'SUCCESS', 1, 0,
                    now(), now(), now(), now()
             FROM (SELECT DISTINCT price_date AS pd FROM eod_prices) d
+            ON CONFLICT (data_type, subject_key) DO NOTHING
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO ingestion_progress
+                (id, data_type, subject_key, entity_id, status, attempts,
+                 rows_ingested, last_attempt_at, last_success_at, created_at, updated_at)
+            SELECT gen_random_uuid(), 'sc13', d.fd::text, NULL, 'SUCCESS', 1, 0,
+                   now(), now(), now(), now()
+            FROM (SELECT DISTINCT filing_date AS fd FROM beneficial_ownership_filings) d
             ON CONFLICT (data_type, subject_key) DO NOTHING
             """
         )
@@ -711,6 +797,13 @@ async def print_status(session: AsyncSession) -> None:
     )
     print(f"{'prices (days)':20} {priced or 0:>9} {'-':>9} {'-':>9} {'-':>10} "
           f"{'(recent window)':>9}")
+
+    # SC 13D/13G coverage (date-based, same shape as prices)
+    sc13_done = await session.scalar(
+        text("SELECT count(*) FROM ingestion_progress WHERE data_type='sc13' AND status='SUCCESS'")
+    )
+    print(f"{'sc13 (days)':20} {sc13_done or 0:>9} {'-':>9} {'-':>9} {'-':>10} "
+          f"{'(recent window)':>9}")
     print()
 
 
@@ -757,6 +850,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-minutes", type=float, default=8.0, help="Wall-clock budget")
     p.add_argument("--prices-lookback-days", type=int, default=120,
                    help="How far back to backfill daily prices")
+    p.add_argument("--sc13-lookback-days", type=int, default=180,
+                   help="How far back to backfill Schedule 13D/13G filings")
     p.add_argument("--refresh-days", type=int, default=0,
                    help="Before running, re-queue companies last refreshed more "
                         "than N days ago (0 = disabled)")
@@ -767,6 +862,10 @@ async def _backfill_type(session, key, args, deadline) -> int:
     if key == "prices":
         return await _run_price_batch(
             session, args.batch_size, args.prices_lookback_days, deadline
+        )
+    if key == "sc13":
+        return await _run_sc13_batch(
+            session, args.batch_size, args.sc13_lookback_days, deadline
         )
     if key in FILER_TYPES:
         return await _run_filer_batch(session, FILER_TYPES[key], args.batch_size)
