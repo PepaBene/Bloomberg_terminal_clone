@@ -315,7 +315,9 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
   retry+backoff, prompt-cache markers, model tiering, telemetry), `router.py`
   (feature→tier), `prompts/` (YAML versioned registry + `analyst_qa`,
   `sentiment_score`, `interpret_metric` v1).
-- Telemetry: `telemetry.py` + `ai_call_log` model + migration `084_ai_call_log.py`
+- Telemetry: `telemetry.py` + `ai_call_log` model + migration `092_ai_call_log.py`
+  (corrected from an earlier `084` reference in this log — that was the wrong
+  number; migrations landed around/after it in the meantime)
   + daily-token-usage helper (for the budget guardrail).
 - `src/ai/llm_client.py` rewritten as a **compatibility shim** over the new core:
   preserves `get_llm_client()` / `.enabled` / `generate(system, user, max_tokens)`
@@ -324,12 +326,41 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
   graceful degradation holds (no `anthropic` pkg / no key → `enabled=False`,
   helpers no-op) exactly as before.
 
+**Done & tested (2026-08-08):**
+- Retrieval/RAG: `src/ai/retrieval/{chunker,embedder,store,retriever}.py`.
+  - `chunker.py` — paragraph→sentence→hard-char cascade chunker with **real**
+    overlap (the legacy `vector_search.chunk_text` accepted an `overlap` param
+    but never applied it) and per-chunk char-offset provenance.
+  - `embedder.py` — wraps the existing `EmbeddingClient` (Gemini
+    `gemini-embedding-002`), standardized on a new `INDEXED_DIMENSIONS = 1536`
+    (requested server-side via the API's `output_dimensionality`, not a
+    client-side truncation) — the legacy `embedding` column is 3072-dim, which
+    pgvector cannot index (HNSW/IVFFlat cap at 2000 dims; see migration 087's
+    own comment on why no index was built then).
+  - Migration `094_search_documents_embedding_1536.py` adds
+    `search_documents.embedding_1536 vector(1536)` **with a real HNSW cosine
+    index** — the first actual ANN index on this table. Legacy `embedding`
+    (3072, unindexed) and `embedding_vector` (JSONB) columns untouched.
+  - `store.py` — `upsert_chunks` (full-replace per `(source_type, source_id)`,
+    ORM insert/delete) + `vector_search` (ORM `.cosine_distance()` against
+    `embedding_1536`) + `fetch_candidate_pool` (dialect-agnostic lexical pool).
+  - `retriever.py` — hybrid: independent vector-KNN and BM25 (`rank_bm25`)
+    rankings fused via Reciprocal Rank Fusion, not a rerank-within-vector-hits
+    pass (a ticker/exact-figure query can be a strong lexical match with
+    mediocre cosine similarity). `bm25_rank`/`reciprocal_rank_fusion` are pure
+    and fully unit-tested; `hybrid_search`/`vector_search` need live
+    Postgres+pgvector and a configured `GOOGLE_API_KEY` — **not exercised
+    against either in this sandbox** (SQLite test engine remaps `Vector` →
+    plain `JSON`, which has no `cosine_distance` comparator at all).
+  - Added missing deps to `pyproject.toml`: `anthropic`, `google-genai`,
+    `rank-bm25` (used directly), `sse-starlette` (for the next item, SSE
+    streaming).
+  - 14 new unit tests, all passing (chunker incl. the overlap-actually-works
+    regression test, BM25 ranking, RRF fusion, `upsert_chunks` against the
+    SQLite test engine). Full `tests/test_ai/` + `tests/test_models/` +
+    `tests/test_api/test_research_search_api.py` suites re-verified green.
+
 **Next in Phase 0:**
-- Retrieval/RAG: add `pgvector` dep, migration to `VECTOR(3072)` + HNSW on
-  `search_documents`, `retrieval/{chunker,embedder,store,retriever}.py` (hybrid
-  vector+BM25). *(Requires the `pgvector` Python package and `CREATE EXTENSION
-  vector` on the live Postgres — code + migration buildable now, DB run needs the
-  extension.)*
 - Tool-use agent loop (`agents/loop.py`) + first tools (`data_query`,
   `web_search`, `citation_check`).
 - Guardrails (`citations`, `dates`, `redaction`) + cost-budget enforcement.
