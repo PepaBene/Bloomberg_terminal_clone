@@ -391,8 +391,37 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
     Phase 0 tests were limited to. `data_query`/`citation_check` DB paths
     verified against the SQLite test engine.
 
+- Guardrails (`guardrails/{citations,dates,redaction,budget}.py`), all pure
+  except `budget.check_budget` (DB-backed, reuses the existing
+  `telemetry.daily_token_usage`).
+  - `citations.py` — `find_uncited_numeric_claims` (any sentence with a
+    digit needs *some* `[marker]` citation) + `verify_citations` (for cited
+    sentences, does the claim actually hold up against the source text
+    behind its marker(s)? reuses `tools/citation_check.py`'s
+    `check_claim_support`). Deliberately agnostic to the citation marker
+    format — callers supply a `{marker: source_text}` map built from
+    whatever they already retrieved, rather than this module assuming
+    `search_documents.id` UUIDs appear verbatim in the model's prose.
+  - `dates.py` — `find_future_dated_claims` catches the "by 2027"
+    hallucination pattern (ISO dates, "Month DD, YYYY", and a conservative
+    bare-year fallback), one issue per sentence.
+  - `redaction.py` — `redact_names` hashes named individuals (e.g. an
+    insider discussed in a Form-4-grounded answer) before telemetry
+    persists prompt/response text; same name always redacts to the same
+    token, longest-name-first so full names aren't partially clobbered by a
+    shorter substring match.
+  - `budget.py` — `check_budget` raises `BudgetExceededError` (for an API
+    route to turn into 429 + `Retry-After`) once a user crosses
+    `DEFAULT_DAILY_TOKEN_BUDGET = 10_000_000`; light-tier calls and
+    no-user-context (batch jobs) are exempt; fails open (never raises) if
+    the usage lookup itself errors, matching `daily_token_usage`'s own
+    fail-to-0 contract — a telemetry outage must not take down the features
+    it observes.
+  - 23 new tests, all passing (pure-function coverage for citations/dates/
+    redaction; `budget` exercised against real `ai_call_log` rows written
+    via `record_call` on the SQLite test engine).
+
 **Next in Phase 0:**
-- Guardrails (`citations`, `dates`, `redaction`) + cost-budget enforcement.
 - SSE streaming helper (`streaming.py`) for chat/briefings/deep-research.
 - Eval harness skeleton (golden examples + LLM-as-judge).
 - Then migrate the 9 legacy narrative features off inline prompts onto the
