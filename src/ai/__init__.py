@@ -4,6 +4,7 @@ Public surface:
     from src.ai import get_ai_client, Tier, tier_for, load_prompt
     from src.ai import get_llm_client   # legacy compatibility facade
     from src.ai.retrieval import chunk_text, embed_documents, hybrid_search
+    from src.ai.streaming import stream_tokens_as_sse, sse_response
 """
 from src.ai.client import AIClient, AIResponse, get_ai_client
 from src.ai.llm_client import LLMClient, get_llm_client

@@ -421,8 +421,18 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
     redaction; `budget` exercised against real `ai_call_log` rows written
     via `record_call` on the SQLite test engine).
 
+- SSE streaming helper (`streaming.py`): `format_sse`/`stream_tokens_as_sse`
+  wrap `AIClient.stream()`'s plain text-delta iterator into SSE wire format
+  (multi-line data correctly split across repeated `data:` lines, always
+  terminated by a `done` or `error` event so the client has a definitive
+  end signal even on mid-stream failure). `stream_sections_as_sse` adds
+  `section_start`/`section_end` brackets for briefings. `sse_response`
+  wraps either in a plain FastAPI `StreamingResponse` (no `sse-starlette`
+  dependency needed for the core path — that package stays available in
+  pyproject for later if an endpoint wants its ping/reconnect-id support).
+  10 new tests, all passing.
+
 **Next in Phase 0:**
-- SSE streaming helper (`streaming.py`) for chat/briefings/deep-research.
 - Eval harness skeleton (golden examples + LLM-as-judge).
 - Then migrate the 9 legacy narrative features off inline prompts onto the
   registry + structured output, and retire `src/services/ai/*`.
