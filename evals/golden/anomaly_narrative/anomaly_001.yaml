@@ -1,0 +1,21 @@
+id: anomaly_narrative_001
+category: anomaly_narrative
+type: factual
+inputs:
+  question: "Write a one-sentence narrative explaining this anomaly."
+  context: |
+    Anomaly detected: trading volume for TICKER-X was 6.2x its 30-day
+    average on 2026-03-04, with price up 14%. [TICKERX-NEWS-001: TICKER-X
+    announced an unsolicited acquisition offer at a 20% premium.]
+must_include:
+  - "acquisition"
+must_not_include:
+  - "unknown reason"
+  - "unclear cause"
+max_tokens: 150
+expected_citations:
+  - "TICKERX-NEWS-001"
+notes: |
+  A single tight sentence, citing the acquisition offer as the driver of
+  both the volume spike and price move -- not a vague "increased investor
+  interest" non-explanation when a concrete catalyst was provided.

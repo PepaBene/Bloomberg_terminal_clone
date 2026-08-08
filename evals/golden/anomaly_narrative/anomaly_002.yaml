@@ -1,0 +1,20 @@
+id: anomaly_narrative_002
+category: anomaly_narrative
+type: factual
+inputs:
+  question: "Write a one-sentence narrative explaining this anomaly."
+  context: |
+    Anomaly detected: trading volume for TICKER-Y was 3.1x its 30-day
+    average on 2026-03-04, with price down 9%. No corroborating news,
+    filing, or macro event was found for this ticker on this date.
+must_include:
+  - "no"
+must_not_include:
+  - "earnings beat"
+  - "acquisition"
+  - "merger"
+max_tokens: 150
+notes: |
+  When no real catalyst is found, the narrative must say so honestly
+  (e.g. "no corroborating catalyst identified") rather than fabricating a
+  plausible-sounding cause to fill the sentence.

@@ -1,0 +1,23 @@
+id: investment_thesis_002
+category: investment_thesis
+type: scenario
+inputs:
+  question: "Build a brief bear-case thesis with key drivers and the main risk to the thesis."
+  context: |
+    [BETACORP-10K-FY2025] BetaCorp's revenue declined 4% YoY as its legacy
+    hardware segment (60% of revenue) faces share loss to a lower-cost
+    competitor. Inventory days rose from 45 to 71 over the year.
+    [BETACORP-10K-FY2025-ITEM1A] Item 1A: "We may be unable to reduce
+    inventory levels without significant price concessions."
+must_include:
+  - "inventory"
+  - "hardware"
+max_tokens: 500
+expected_citations:
+  - "BETACORP-10K-FY2025"
+  - "BETACORP-10K-FY2025-ITEM1A"
+notes: |
+  Bear drivers: legacy hardware share loss, rising inventory days (a
+  concrete working-capital red flag). Main risk to the thesis (i.e. what
+  would prove the bear case wrong) should be grounded in the given facts,
+  not invented.

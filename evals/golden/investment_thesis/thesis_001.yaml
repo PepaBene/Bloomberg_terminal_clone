@@ -1,0 +1,22 @@
+id: investment_thesis_001
+category: investment_thesis
+type: scenario
+inputs:
+  question: "Build a brief bull-case thesis with key drivers and the main risk to the thesis."
+  context: |
+    [ALPHACO-10K-FY2025] AlphaCo grew revenue 22% YoY driven by cloud
+    segment expansion (now 55% of revenue, up from 40%). Gross margin
+    expanded 300bps to 68% on mix shift. [ALPHACO-10K-FY2025-ITEM1A] Item
+    1A: "Our top three cloud customers represent 35% of cloud segment
+    revenue; loss of any one could materially affect results."
+must_include:
+  - "cloud"
+  - "35"
+max_tokens: 500
+expected_citations:
+  - "ALPHACO-10K-FY2025"
+  - "ALPHACO-10K-FY2025-ITEM1A"
+notes: |
+  Bull drivers: cloud mix shift, margin expansion. Main risk: customer
+  concentration (35% from top 3) explicitly disclosed in Item 1A -- not a
+  generic macro risk substituted for the specific one given.

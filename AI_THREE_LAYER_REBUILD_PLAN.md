@@ -432,7 +432,37 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
   pyproject for later if an endpoint wants its ping/reconnect-id support).
   10 new tests, all passing.
 
+- Eval harness skeleton (`evals/{schema,judge,runner}.py` + `evals/golden/`),
+  at repo root per this plan's own layout (not under `src/ai/`).
+  - `schema.py` — `GoldenExample` (Pydantic) + `load_golden_examples(category)`
+    loader; unknown/empty category returns `[]` rather than raising (most
+    categories start empty and grow 3-5 examples per feature migration, per
+    §2's own convention — not fully authored upfront).
+  - `judge.py` — `judge_response()` scores a generated response 0-10 on
+    faithfulness / citation correctness / hallucination / date awareness /
+    tone via `AIClient.complete_structured` (validated `JudgeScore`, not
+    parsed free text). `build_judge_prompt()` is split out pure so the exact
+    wording fed to the judge is reviewable/testable without a live call.
+  - `runner.py` — `check_deterministic()` (pure: must_include/
+    must_not_include/max_tokens) always runs; `run_category()` additionally
+    judges each example when a live, enabled client is passed (skips
+    gracefully otherwise — usable with no Anthropic key, this sandbox
+    included). `save_baseline`/`load_baseline`/`check_regression()` diff a
+    run's `avg_judge_overall` against a stored baseline, flagging a
+    regression `> 0.5` — the CI gate threshold the superseded plan's
+    Phase 0.2 decided on.
+  - Seed corpus: 13 real golden examples across all 6 categories (3
+    analyst_qa across factual/comparative/scenario types, 2 each for the
+    rest) — a working starting corpus + test fixtures, not the plan's full
+    target counts (30/10/15/10/20/30 = 115), which are meant to grow
+    incrementally as each feature migrates in the next item, same as the
+    category-loader's own doc comment says.
+  - Fixed a latent gap while here: `PyYAML` was never declared in
+    `pyproject.toml` despite `src/ai/prompts/registry.py` already importing
+    `yaml` directly (only worked because something else pulled it in
+    transitively) — now declared explicitly.
+  - 26 new tests, all passing.
+
 **Next in Phase 0:**
-- Eval harness skeleton (golden examples + LLM-as-judge).
-- Then migrate the 9 legacy narrative features off inline prompts onto the
+- Migrate the 9 legacy narrative features off inline prompts onto the
   registry + structured output, and retire `src/services/ai/*`.

@@ -1,0 +1,22 @@
+id: analyst_qa_scenario_001
+category: analyst_qa
+type: scenario
+inputs:
+  question: "If the Fed cuts rates by 50bps, how would that likely affect this company's interest expense next year?"
+  context: |
+    [MEGACORP-10K-FY2025] MegaCorp carries $2.0 billion of floating-rate
+    term debt indexed to SOFR + 150bps, alongside $8.0 billion of fixed-rate
+    notes. The floating-rate tranche reprices quarterly.
+must_include:
+  - "floating"
+must_not_include:
+  - "no effect"
+  - "unrelated"
+max_tokens: 400
+expected_citations:
+  - "MEGACORP-10K-FY2025"
+notes: |
+  A 50bps cut reduces interest cost only on the $2.0B floating-rate
+  tranche (~$10M/year at 50bps), not the $8.0B fixed-rate notes. The
+  response should reason from the actual capital structure given, not
+  assume the whole debt load reprices.

@@ -1,0 +1,23 @@
+id: analyst_qa_comparative_001
+category: analyst_qa
+type: comparative
+inputs:
+  question: "Which of the two companies has the higher gross margin, and by how much?"
+  context: |
+    [ALPHACO-10Q-Q3-2025] AlphaCo reported gross profit of $420M on revenue
+    of $1,000M for Q3 2025 (gross margin 42.0%).
+    [BETACORP-10Q-Q3-2025] BetaCorp reported gross profit of $310M on
+    revenue of $1,000M for Q3 2025 (gross margin 31.0%).
+must_include:
+  - "alphaco"
+  - "11"
+must_not_include:
+  - "same margin"
+max_tokens: 300
+expected_citations:
+  - "ALPHACO-10Q-Q3-2025"
+  - "BETACORP-10Q-Q3-2025"
+notes: |
+  AlphaCo's margin (42.0%) exceeds BetaCorp's (31.0%) by 11.0 points.
+  The answer should name the higher-margin company and the correct
+  magnitude of the gap, citing both source documents.
