@@ -41,6 +41,7 @@ from src.models.estimates import (
     EstimateSurprise,
 )
 from src.models.ownership import (
+    BeneficialOwnershipFiling,
     InsiderHolding,
     InstitutionalHolding,
     InstitutionProfile,
@@ -143,6 +144,7 @@ __all__ = [
     "InsiderHolding",
     "OwnershipSummary",
     "ShortInterest",
+    "BeneficialOwnershipFiling",
     # Corporate Actions (D5)
     "CorporateAction",
     "DividendAction",

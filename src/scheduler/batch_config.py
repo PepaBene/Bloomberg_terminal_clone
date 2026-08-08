@@ -140,6 +140,20 @@ BATCH_JOBS: list[BatchJob] = [
         domain="D6",
         description="FINRA bi-weekly short interest data.",
     ),
+    BatchJob(
+        name="edgar_sc13_ingest",
+        cron="0 7 * * *",  # 7 AM daily
+        script="scripts/ingest_sc13.py",
+        sla_minutes=240,
+        domain="D6",
+        description=(
+            "SEC Schedule 13D/13G beneficial ownership filings -> "
+            "beneficial_ownership_filings. Discovers filers via EDGAR's daily "
+            "form index rather than a known CIK list (activist/passive 5%+ "
+            "holders are usually not pre-existing covered entities)."
+        ),
+        depends_on=("entity_master_edgar_ingest",),
+    ),
     # ── ESG (D9) ──────────────────────────────────────────────────────
     BatchJob(
         name="esg_ingest",

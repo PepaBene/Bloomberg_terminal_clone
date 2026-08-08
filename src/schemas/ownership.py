@@ -74,6 +74,33 @@ class OwnershipSummaryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Beneficial Ownership (Schedule 13D / 13G) ---
+class BeneficialOwnershipFilingResponse(BaseModel):
+    filing_id: uuid.UUID
+    issuer_entity_id: uuid.UUID
+    security_id: uuid.UUID | None = None
+    filer_entity_id: uuid.UUID | None = None
+    filer_name: str
+    filer_cik: str | None = None
+    reporting_person_type: str | None = None
+    schedule_type: str
+    is_activist: bool
+    is_amendment: bool
+    filing_date: date
+    event_date: date | None = None
+    shares_owned: float | None = None
+    percent_of_class: float | None = None
+    sole_voting_power: float | None = None
+    shared_voting_power: float | None = None
+    sole_dispositive_power: float | None = None
+    shared_dispositive_power: float | None = None
+    accession_number: str | None = None
+    filing_url: str | None = None
+    source: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 # --- Short Interest ---
 class ShortInterestResponse(BaseModel):
     security_id: uuid.UUID
