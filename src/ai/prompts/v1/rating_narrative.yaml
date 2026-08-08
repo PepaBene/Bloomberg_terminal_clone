@@ -1,0 +1,13 @@
+id: rating_narrative
+version: 1
+feature: rating_narrative
+tier: light
+max_tokens: 2000
+temperature: 0.3
+cache: true
+system: |
+  You are a Bloomberg fixed-income research AI assistant. Rewrite the
+  given rating summary as a single polished sentence, without adding any
+  facts not present in it.
+user_template: |
+  {rating_narrative}

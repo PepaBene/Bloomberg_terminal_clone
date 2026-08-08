@@ -463,6 +463,66 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
     transitively) — now declared explicitly.
   - 26 new tests, all passing.
 
-**Next in Phase 0:**
-- Migrate the 9 legacy narrative features off inline prompts onto the
-  registry + structured output, and retire `src/services/ai/*`.
+- Migrated all 9 legacy narrative routers (10 call sites) off inline
+  f-string prompts + `get_llm_client()` onto the registry + `AIClient`, and
+  retired what could safely be retired from `src/services/ai/*`.
+  - Ported each call site's exact existing system/user prompt text verbatim
+    into a new versioned YAML under `src/ai/prompts/v1/` -- this pass changes
+    *plumbing* (registry-backed, versioned, routed through `AIClient`'s
+    retries/telemetry/prompt-caching), not prompt *content*; rewriting
+    prompts with RAG-retrieved context, evals, and a `USE_AI_V2`-gated
+    rollout is genuinely Phase 2 work, not this item.
+  - `research_qa.py`'s prompt is `analyst_qa_legacy` (not the pre-existing
+    `analyst_qa` v1 prompt from Phase 0's first commit) -- that prompt already
+    demands `[doc_id]` citations against RAG-retrieved context research_qa.py
+    doesn't have yet, so reusing it now would silently change behavior
+    (and, unfulfillable, produce citations to nothing) ahead of the real
+    Phase 2 migration it was written for.
+  - `sentiment.py` moved to `complete_structured` (`SentimentClassification`
+    Pydantic model) instead of `complete_text` + the old
+    `_parse_llm_sentiment` regex/split parser on a `LABEL|SCORE|CONFIDENCE`
+    text line -- this is the "structured output" half of the item, and the
+    one call site with a real parser to eliminate. The `sentiment_score`
+    prompt got a new v2 (structured-classification framing; v1's
+    delimited-format instructions are moot once `complete_structured`
+    forces the shape via a tool schema) -- v1 had no production caller yet,
+    so nothing's behavior changed underneath it.
+  - `research_thesis.py`'s elevator-pitch call got its own new
+    `investment_thesis_pitch` feature/tier (SYNTHESIS) rather than reusing
+    the existing `investment_thesis` entry (DEEP/opus) -- that tier was
+    sized for full thesis generation/validation, not a `<400`-char one-liner;
+    forcing it through opus would have been a real, avoidable cost mismatch
+    introduced by the migration itself, not preserved legacy behavior.
+  - Every other call site reuses an existing `router.FEATURE_TIER` entry for
+    telemetry bucketing (`feature=`), with a distinct `prompt_id`/version
+    per call site (`AICallRecord` already carries both independently) --
+    e.g. `company_primer.py`'s two calls and `research_primers.py`'s one
+    all bucket under `feature="company_primer"` for cost tracking while
+    keeping separate prompt content.
+  - `src/services/ai/` retirement: `claude_client.py` was migrated too
+    (`src/ingestion/guidance_extraction.py`'s optional AI-augmentation pass
+    was its only other caller -- `client.generate_structured(prompt, model)`
+    → `AIClient.complete_structured(response_model=..., user=..., tier=...)`)
+    and then deleted, along with the already-dead `vector_search.py` (no
+    production caller at all, confirmed by the migration survey -- its
+    chunking/cosine-similarity role is now `src/ai/retrieval/`'s). Only
+    `embedding_client.py` remains, correctly -- both `src/ai/retrieval/
+    embedder.py` and `src/api/routers/research_search.py` still depend on
+    it directly, and it was never meant to be replaced (Phase 0's retrieval
+    item wraps it, doesn't reimplement it).
+  - `tests/test_services/test_ai_services.py` trimmed to just
+    `TestEmbeddingClient`; the retired modules' coverage already lives in
+    `tests/test_ai/test_retrieval.py` (chunking) and
+    `tests/test_ai/test_ai_core.py` (the Claude client).
+  - Verified: all 9 routers import cleanly; every new/changed prompt loads
+    and renders correctly via the registry; the 9 routers' own API test
+    suites pass (149/159 -- the 10 failures are a pre-existing,
+    unrelated `CompanyPrimer(primer_id=...)` test-fixture bug in
+    `test_research_primers_api.py`, confirmed via `git diff` touching
+    neither that test file nor the model, and the model has no `primer_id`
+    field at all); `tests/test_ai/` + `tests/test_evals/` + affected
+    ingestion/services suites all green.
+
+**Phase 0 complete.** Next: Phase 1 (Layer 1 — Interpreter), which is the
+first phase that actually builds on this core end-to-end (connection graph,
+per-metric interpretation, the `interpretations` table).

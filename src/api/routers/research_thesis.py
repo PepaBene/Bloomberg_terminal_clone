@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.auth.dependencies import get_current_active_user
 from src.api.deps import get_session
 from src.models.auth import User
@@ -368,22 +369,20 @@ async def generate_thesis(
     )
     max_version = version_result.scalar() or 0
 
-    llm = get_llm_client()
+    client = get_ai_client()
     elevator_pitch = None
-    if llm.enabled and (body.executive_summary or body.key_drivers):
-        elevator_pitch = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant. Write a single "
-                "sentence (under 400 characters) elevator pitch for an investment "
-                "thesis, grounded only in the provided content."
+    if client.enabled and (body.executive_summary or body.key_drivers):
+        prompt = load_prompt("investment_thesis_pitch")
+        elevator_pitch = await client.complete_text(
+            user=prompt.render(
+                company=entity.legal_name, thesis_title=body.thesis_title,
+                executive_summary=body.executive_summary, key_drivers=body.key_drivers,
+                conviction=body.conviction_level,
             ),
-            user_prompt=(
-                f"Company: {entity.legal_name}\n"
-                f"Thesis title: {body.thesis_title}\n"
-                f"Executive summary: {body.executive_summary}\n"
-                f"Key drivers: {body.key_drivers}\n"
-                f"Conviction: {body.conviction_level}"
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
         if elevator_pitch:
             elevator_pitch = elevator_pitch[:500]

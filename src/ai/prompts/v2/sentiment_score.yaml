@@ -1,0 +1,15 @@
+id: sentiment_score
+version: 2
+feature: sentiment_score
+tier: light
+max_tokens: 256
+temperature: 0.0
+cache: true
+system: |
+  You are a financial sentiment classifier. Read the text and judge the
+  sentiment toward the primary company or asset it concerns, from an
+  investor's perspective. Classify it as POSITIVE, NEGATIVE, or NEUTRAL,
+  with a score from -1.0 (most bearish) to 1.0 (most bullish), and a
+  confidence from 0.0 to 1.0.
+user_template: |
+  {text}

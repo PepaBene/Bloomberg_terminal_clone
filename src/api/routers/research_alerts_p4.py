@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.intelligent_alerts import ConsolidatedAlert, EarningsSurpriseIntelligence
@@ -477,24 +478,22 @@ async def analyze_earnings_event(
         takeaways.append(f"Stock moved {stock_reaction['price_change_pct']:+.1f}% around the report date")
     row.key_takeaways = takeaways or None
 
-    llm = get_llm_client()
-    if llm.enabled:
+    client = get_ai_client()
+    if client.enabled:
         entity = (
             await session.execute(select(Entity).where(Entity.entity_id == entity_id))
         ).scalar_one_or_none()
-        row.ai_narrative = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant summarizing a "
-                "post-earnings reaction. 2-3 sentences, grounded only in the provided data."
+        prompt = load_prompt("earnings_narrative")
+        row.ai_narrative = await client.complete_text(
+            user=prompt.render(
+                company=entity.legal_name if entity else entity_id,
+                eps_surprise=eps_surprise, rev_surprise=rev_surprise,
+                stock_reaction=stock_reaction, takeaways=takeaways,
             ),
-            user_prompt=(
-                f"Company: {entity.legal_name if entity else entity_id}\n"
-                f"EPS surprise: {eps_surprise}%\n"
-                f"Revenue surprise: {rev_surprise}%\n"
-                f"Stock reaction: {stock_reaction}\n"
-                f"Key takeaways: {takeaways}\n"
-                "Summarize this earnings event."
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
 
     await session.commit()

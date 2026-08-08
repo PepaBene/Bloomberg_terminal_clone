@@ -27,10 +27,10 @@ heterogeneous press-release prose (similar in spirit to ``edgar_esg.py``'s
 regex-based governance scoring): it is real, deterministic extraction — not
 fabricated data — but it will miss guidance phrased in unanticipated ways and
 can occasionally misattribute a figure. Filings with no matching guidance
-language are skipped, not guessed at. An optional second pass using the
-already-wired Claude client (``src/services/ai/claude_client.py``) can
-supplement the regex pass when ``ANTHROPIC_API_KEY`` is configured; it is
-best-effort only and any failure silently falls back to the regex result.
+language are skipped, not guessed at. An optional second pass using the AI
+core's Claude client (``src/ai/client.py``) can supplement the regex pass
+when ``ANTHROPIC_API_KEY`` is configured; it is best-effort only and any
+failure silently falls back to the regex result.
 """
 
 from __future__ import annotations
@@ -401,13 +401,13 @@ class GuidanceExtractionConnector(BaseConnector):
         ``ANTHROPIC_API_KEY`` isn't configured or the AI call fails —
         the regex-derived fields are always kept as the fallback.
         """
-        from src.services.ai.claude_client import get_claude_client
+        from src.ai.client import get_ai_client
 
-        client = get_claude_client()
+        client = get_ai_client()
         out: list[dict[str, Any]] = []
         for rec in records:
             text = rec.pop("_raw_text", None)
-            if client.is_configured and text:
+            if client.enabled and text:
                 try:
                     ai_result = await self._ai_extract_guidance(client, text)
                     if ai_result:
@@ -442,7 +442,10 @@ class GuidanceExtractionConnector(BaseConnector):
             "respond with your best null-filled guess rather than inventing figures.\n\n"
             f"{text[:8000]}"
         )
-        result = await client.generate_structured(prompt, _GuidanceExtraction)
+        result = await client.complete_structured(
+            response_model=_GuidanceExtraction, user=prompt,
+            tier="light", feature="guidance_extraction",
+        )
         return {k: v for k, v in result.model_dump().items() if v is not None}
 
     async def load(
