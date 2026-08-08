@@ -360,9 +360,38 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
     SQLite test engine). Full `tests/test_ai/` + `tests/test_models/` +
     `tests/test_api/test_research_search_api.py` suites re-verified green.
 
+- Tool-use agent loop (`agents/loop.py`) + first tools (`tools/{base,
+  data_query,web_search,citation_check}.py`).
+  - `agents/loop.py` — the multi-turn extension `AIClient.complete()` doesn't
+    have: calls the model, executes any client `tool_use` blocks via a
+    registry, feeds `tool_result`s back, repeats until a final text-only
+    answer or `max_iterations`. Duck-typed against an `AIClientLike`
+    protocol (not the concrete class) specifically so it's testable with a
+    fake client — real Anthropic responses aren't needed to verify the loop's
+    control flow.
+  - `tools/base.py` documents the split this loop depends on: **client
+    tools** (`BaseTool` subclasses, executed locally) vs **server tools**
+    (e.g. `web_search`, resolved by Anthropic itself within one response —
+    `AIResponse.from_raw()` only collects `type=="tool_use"` blocks, so
+    server-tool blocks never reach local dispatch; no special-casing needed).
+  - `tools/data_query.py` — one safe typed action (fetch an entity's
+    `analytics_results`), not a free-form SQL executor (an LLM-facing raw-SQL
+    tool is a real injection risk) — the pattern to extend, not the full
+    surface Layer 1's `fundamentals.py`/`analytics.py` will eventually need.
+  - `tools/web_search.py` — Anthropic's `web_search_20250305` server tool,
+    domain-allowlisted to the wires/regulators decided in §10/§11.
+  - `tools/citation_check.py` — `check_claim_support()` (pure token-overlap
+    heuristic, not a second LLM call) lets the agent self-check a claim
+    against its cited chunk(s) before finalizing; reused as-is by the
+    guardrails layer (next item) as a post-hoc enforcement gate.
+  - 20 new tests: the loop's control flow (tool execution, message
+    threading, unknown-tool/tool-exception handling, max-iterations,
+    disabled-client raise, server-tool pass-through) verified against a
+    hand-rolled fake client — not just the disabled-path check the earlier
+    Phase 0 tests were limited to. `data_query`/`citation_check` DB paths
+    verified against the SQLite test engine.
+
 **Next in Phase 0:**
-- Tool-use agent loop (`agents/loop.py`) + first tools (`data_query`,
-  `web_search`, `citation_check`).
 - Guardrails (`citations`, `dates`, `redaction`) + cost-budget enforcement.
 - SSE streaming helper (`streaming.py`) for chat/briefings/deep-research.
 - Eval harness skeleton (golden examples + LLM-as-judge).
