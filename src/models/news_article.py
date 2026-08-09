@@ -49,6 +49,18 @@ class NewsArticle(TimestampMixin, Base):
     is_non_consensus: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     corroboration_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    # ── Layer 2 §4.4: per-article AI analysis ──────────────────────────
+    # One JSONB blob rather than five+ ai_* columns -- matches how
+    # Interpretation.drivers/consequences/connections already store
+    # structured LLM output in this codebase. Shape:
+    # {summary, interpretation, non_consensus_angle, connections: [str],
+    #  confidence, model, prompt_id, prompt_version, analyzed_at}.
+    # NULL means "not yet analyzed" -- the compute-on-miss cache-miss
+    # state (src/ai/news/store.py); articles are immutable post-
+    # enrichment, so there's no separate freshness/version check the way
+    # Layer 1's interpretations need for changing analytics.
+    ai_analysis: Mapped[dict | None] = mapped_column(JSONB)
+
     __table_args__ = (
         Index("idx_news_type_date", "news_type", "publish_date"),
         Index("idx_news_materiality_date", "materiality", "publish_date"),

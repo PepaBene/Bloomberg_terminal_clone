@@ -554,6 +554,14 @@ def create_app() -> FastAPI:
         logger.warning(f"Failed to import router interpret: {e}")
         router_import_failures.append("interpret")
 
+    # AI Layer 2 — News analysis (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.4)
+    try:
+        from src.api.routers.news_analysis import router as news_analysis_router
+        app.include_router(news_analysis_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router news_analysis: {e}")
+        router_import_failures.append("news_analysis")
+
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
     # NOTE: Risk router must be registered BEFORE Performance and Portfolios

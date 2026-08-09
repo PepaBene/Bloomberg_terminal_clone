@@ -38,6 +38,18 @@ class NewsArticleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ArticleAnalysisResponse(BaseModel):
+    """Layer 2 §4.4: per-article AI analysis (trust-weighted summary,
+    interpretation, non-consensus angle, connections)."""
+
+    article_id: UUID
+    summary: str
+    interpretation: str
+    non_consensus_angle: str | None = None
+    connections: list[str] = []
+    confidence: float
+
+
 class NewsSearchRequest(BaseModel):
     query: str
     entities: list[UUID] | None = None
