@@ -174,6 +174,16 @@ async def _refresh_one(session, entity_id, data_type, cik, now) -> None:
         await Edgar8KConnector(ciks=[cik]).run(session)
         await session.commit()
         has = await _entity_has(session, "eight_k_events", entity_id)
+        if has:
+            # Layer 2 §4.1: bridge freshly-ingested 8-K events into the
+            # news feed too -- a small limit since this is a per-entity,
+            # request-triggered refresh, not the full-universe sweep the
+            # function is also designed for.
+            from src.ingestion.sec_filing_news_bridge import bridge_eight_k_events
+            try:
+                await bridge_eight_k_events(session, limit=20)
+            except Exception:  # noqa: BLE001 — never fail the corporate-actions refresh over this
+                logger.warning("sec_filing_news_bridge failed for entity %s", entity_id, exc_info=True)
     else:
         return
 

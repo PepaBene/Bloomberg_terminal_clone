@@ -1,4 +1,5 @@
 [
+  {"source_name": "SEC EDGAR", "domain": "sec.gov", "tier": "WIRE", "reliability_weight": 1.00, "region": "US", "is_paywalled": false, "notes": "Primary regulatory source, not a wire service -- filed directly by the issuer under penalty of law, so it gets the WIRE tier's max trust weight rather than a lesser one."},
   {"source_name": "Reuters", "domain": "reuters.com", "tier": "WIRE", "reliability_weight": 1.00, "region": "GLOBAL", "is_paywalled": false, "notes": "Wire service; AI_THREE_LAYER_REBUILD_PLAN.md §10 trusted-wire tier."},
   {"source_name": "Bloomberg", "domain": "bloomberg.com", "tier": "WIRE", "reliability_weight": 1.00, "region": "GLOBAL", "is_paywalled": true, "notes": "Wire service; primary namesake data source for this terminal."},
   {"source_name": "Associated Press", "domain": "apnews.com", "tier": "WIRE", "reliability_weight": 1.00, "region": "GLOBAL", "is_paywalled": false, "notes": "Wire service."},
