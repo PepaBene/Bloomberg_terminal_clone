@@ -105,6 +105,7 @@ import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.subsidiary  # noqa: F401  (Complex Structure data-source build)
 import src.models.interpretation  # noqa: F401  (AI Layer 1 — Interpreter, Phase 1)
 import src.models.research_report  # noqa: F401  (AI Layer 2 — Deep Research, Phase 2.7)
+import src.models.advice_recommendation  # noqa: F401  (AI Layer 3 — Financial Adviser, Phase 3.4)
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
