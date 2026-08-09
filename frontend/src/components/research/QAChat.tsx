@@ -51,16 +51,16 @@ export function QAChat({ ticker, initialQuestion }: QAChatProps) {
     }]);
 
     try {
-      const res = await api.post('/v3/research/qa/ask', {
+      const res = await api.post('/v4/research/qa/ask', {
         question,
         ticker,
         context: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
       });
 
-      const data = res as { answer?: string; citations?: string[] };
+      const data = res as { answer_text?: string; citations?: string[] };
       setMessages(prev => prev.map(m =>
         m.id === placeholderId
-          ? { ...m, content: data.answer ?? 'No response.', citations: data.citations ?? [], isStreaming: false }
+          ? { ...m, content: data.answer_text ?? 'No response.', citations: data.citations ?? [], isStreaming: false }
           : m
       ));
     } catch {

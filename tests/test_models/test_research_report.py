@@ -18,7 +18,7 @@ async def test_create_pending_report_defaults(session):
     await session.flush()
 
     fetched = (
-        await session.execute(select(ResearchReport).where(ResearchReport.subject_label == "Acme Corp"))
+        await session.execute(select(ResearchReport).where(ResearchReport.id == row.id))
     ).scalar_one()
     assert fetched.status == "PENDING"
     assert fetched.sections is None
@@ -72,6 +72,6 @@ async def test_failed_report_carries_error(session):
     await session.flush()
 
     fetched = (
-        await session.execute(select(ResearchReport).where(ResearchReport.status == "FAILED"))
+        await session.execute(select(ResearchReport).where(ResearchReport.id == row.id))
     ).scalar_one()
     assert fetched.error == "RuntimeError: AI disabled"

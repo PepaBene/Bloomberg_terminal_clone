@@ -62,7 +62,7 @@ async def run_and_persist_research(
     streaming against.
     """
     report.status = "RUNNING"
-    await session.flush()
+    await session.commit()
 
     try:
         output = await run_deep_research(
@@ -73,7 +73,7 @@ async def run_and_persist_research(
         logger.warning("deep research failed for report %s", report.id, exc_info=True)
         report.status = "FAILED"
         report.error = f"{type(e).__name__}: {e}"[:2000]
-        await session.flush()
+        await session.commit()
         return report
 
     report.sections = [s.model_dump() for s in output.sections]
@@ -82,5 +82,5 @@ async def run_and_persist_research(
     report.model = model_for_tier(RESEARCH_TIER)
     report.status = "COMPLETE"
     report.completed_at = datetime.now(timezone.utc)
-    await session.flush()
+    await session.commit()
     return report
