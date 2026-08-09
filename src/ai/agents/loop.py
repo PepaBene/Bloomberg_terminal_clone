@@ -17,6 +17,7 @@ sequences, without needing the real ``anthropic`` package or a live key.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -68,6 +69,7 @@ async def run_agent(
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     feature: str = "agent",
     user_id: str | None = None,
+    on_step: Callable[[AgentStep], Awaitable[None]] | None = None,
 ) -> AgentResult:
     """Run the tool-use loop until Claude emits a final text-only answer.
 
@@ -75,6 +77,11 @@ async def run_agent(
     raw Anthropic server-tool specs (e.g. ``web_search``) that Claude
     resolves itself -- see ``tools/base.py``'s module docstring for why
     these never reach local dispatch.
+
+    ``on_step``, when given, is awaited with each ``AgentStep`` right after
+    it's appended (including the final text-only one) -- the hook a caller
+    needs to stream per-step progress (e.g. over SSE) without this loop
+    knowing anything about HTTP/SSE itself.
     """
     if not client.enabled:
         raise RuntimeError("AI disabled: set ANTHROPIC_API_KEY and install 'anthropic'.")
@@ -100,7 +107,10 @@ async def run_agent(
         )
 
         if not resp.tool_uses:
-            steps.append(AgentStep(role="assistant", text=resp.text))
+            final_step = AgentStep(role="assistant", text=resp.text)
+            steps.append(final_step)
+            if on_step is not None:
+                await on_step(final_step)
             return AgentResult(
                 final_text=resp.text, steps=steps, iterations=i + 1,
                 stopped_reason="final_answer",
@@ -136,7 +146,7 @@ async def run_agent(
                 "is_error": result.is_error,
             })
 
-        steps.append(AgentStep(
+        step = AgentStep(
             role="assistant",
             text=resp.text or None,
             tool_calls=tool_calls,
@@ -144,7 +154,10 @@ async def run_agent(
                 {"tool_use_id": b["tool_use_id"], "content": b["content"], "is_error": b["is_error"]}
                 for b in tool_result_blocks
             ],
-        ))
+        )
+        steps.append(step)
+        if on_step is not None:
+            await on_step(step)
         messages.append({"role": "user", "content": tool_result_blocks})
 
     logger.warning("agent loop hit max_iterations=%d without a final answer (feature=%s)", max_iterations, feature)

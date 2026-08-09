@@ -156,3 +156,29 @@ async def test_run_agent_passes_server_tool_specs_through_untouched():
     spec = {"type": "web_search_20250305", "name": "web_search"}
     await run_agent(client=client, system="sys", user="hi", server_tools=[spec])
     assert spec in client.calls[0]["tools"]
+
+
+async def test_run_agent_on_step_hook_called_for_each_step_including_final():
+    tool = EchoTool()
+    client = FakeAIClient([
+        _tool_use_response(text="", tool_name="echo", tool_input={"value": "ping"}),
+        _final_response("done"),
+    ])
+    seen = []
+
+    async def on_step(step):
+        seen.append(step)
+
+    result = await run_agent(client=client, system="sys", user="hi", tools=[tool], on_step=on_step)
+
+    assert len(seen) == 2
+    assert seen[0].tool_calls[0]["name"] == "echo"
+    assert seen[1].text == "done"
+    assert seen == result.steps
+
+
+async def test_run_agent_no_on_step_hook_is_a_noop():
+    client = FakeAIClient([_final_response("ok")])
+    # Should not raise when on_step is omitted (the default path).
+    result = await run_agent(client=client, system="sys", user="hi")
+    assert result.stopped_reason == "final_answer"

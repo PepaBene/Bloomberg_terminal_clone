@@ -61,6 +61,7 @@ from src.models.relationships import (
 from src.models.auth import APIAuditLog, User
 from src.models.interpretation import Interpretation
 from src.models.quality import DataQualityIssue, DataQualityScore
+from src.models.research_report import ResearchReport
 from src.models.reference import (
     Country,
     Currency,
@@ -159,4 +160,5 @@ __all__ = [
     "APIAuditLog",
     # AI Layer 1 — Interpreter
     "Interpretation",
+    "ResearchReport",
 ]

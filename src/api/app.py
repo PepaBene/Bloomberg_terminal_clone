@@ -562,6 +562,14 @@ def create_app() -> FastAPI:
         logger.warning(f"Failed to import router news_analysis: {e}")
         router_import_failures.append("news_analysis")
 
+    # AI Layer 2 — on-demand Deep Research (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.6)
+    try:
+        from src.api.routers.research_deep import router as research_deep_router
+        app.include_router(research_deep_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router research_deep: {e}")
+        router_import_failures.append("research_deep")
+
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
     # NOTE: Risk router must be registered BEFORE Performance and Portfolios
