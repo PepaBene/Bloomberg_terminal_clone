@@ -622,6 +622,23 @@ BATCH_JOBS: list[BatchJob] = [
             "cadence."
         ),
     ),
+    BatchJob(
+        name="interpreter_batch",
+        cron="0 9 * * *",  # 9 AM daily, after the overnight analytics batches
+        script="scripts/interpret_batch.py",
+        sla_minutes=1440,
+        domain="AI",
+        description=(
+            "Layer 1 (Interpreter) -- AI_THREE_LAYER_REBUILD_PLAN.md Phase 1. "
+            "Compute-on-miss per-metric + connected-subject interpretations "
+            "for the watchlist universe (portfolio_watchlist_entries), "
+            "resumable via ingestion_progress. Metrics whose cached row is "
+            "already fresh for the current analytics_version are skipped "
+            "(no LLM call), so this is cheap on repeat runs -- it's really "
+            "sweeping for newly-stale/never-interpreted entities, not a full "
+            "recompute every night."
+        ),
+    ),
     # ── Pillar 4: Portfolio Backtesting ───────────────────────────────
     BatchJob(
         name="backtest_worker",

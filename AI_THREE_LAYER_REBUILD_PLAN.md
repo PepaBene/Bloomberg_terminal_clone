@@ -526,3 +526,112 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
 **Phase 0 complete.** Next: Phase 1 (Layer 1 — Interpreter), which is the
 first phase that actually builds on this core end-to-end (connection graph,
 per-metric interpretation, the `interpretations` table).
+
+### Phase 1 — complete
+
+- **`interpretations` table** (`src/models/interpretation.py`, migration
+  095): polymorphic `subject_type`/`subject_id` (plain strings, not a FK --
+  Phase 1 only populates ENTITY subjects, but SECTOR/MACRO/PORTFOLIO are
+  real future subject types per §3.1, so a hard FK to `entities` would have
+  to be undone later) plus `scope` (METRIC/GROUP/SUBJECT), nullable
+  `metric_key` (NULL for GROUP/SUBJECT rows), `as_of`, and
+  `analytics_version` -- the freshness fingerprint the cache keys off of.
+  Lookup index is intentionally non-unique: a unique index on a nullable
+  column doesn't enforce "one row per (subject, scope, as_of)" the way it
+  looks like it should (Postgres treats NULLs as distinct), so uniqueness
+  is enforced in application code (`store.py`'s upsert-by-lookup) instead
+  of being (incompletely) delegated to the schema.
+- **Connection graph** (`src/ai/interpret/graph.py`): a small, curated,
+  pure-Python graph of causal edges between financial/macro concepts
+  (macro rates → credit spreads → default risk → cost of debt → WACC →
+  DCF; DuPont ratios → ROE; ownership flows → conviction; sector cycle →
+  KPIs; country risk → valuation; ESG → governance → cost of equity) --
+  deliberately curated, not learned/inferred, per §3.2's design call: a
+  wrong causal edge silently asserted by a model is worse than a smaller
+  but trustworthy fixed set. `find_paths`/`connected_subgraph` let the
+  interpreter agent pull in only the neighborhood relevant to whatever
+  metric it's explaining, not the whole graph.
+- **Subject context assembly** (`src/ai/interpret/context.py`):
+  `assemble_entity_context` gathers "latest snapshot per metric" across the
+  6 of ~10 §3.1 input domains that have confirmed entity_id-direct schema
+  linkage (fundamentals/ratios + quality via `AnalyticsResult`, credit via
+  `DefaultRiskScore`, ownership via `InsiderSignal`, macro exposure via
+  `MacroThemeScore`, ESG/governance via `ESGTemperatureScore` +
+  `GovernanceAssessment`). Valuation, security-keyed risk/technical, and
+  SECTOR/MACRO/PORTFOLIO subject types are confirmed-real but not yet
+  wired -- mechanical follow-ups, not scoped out for design reasons.
+  **Design bug found and fixed here during testing:** `as_of` originally
+  defaulted to `date.today()`, but `as_of` is part of the cache key
+  `store.py` looks up on -- a "today" default would silently mint a
+  brand-new, always-a-cache-miss row every single day even when nothing
+  in the underlying analytics had changed, defeating compute-on-miss
+  entirely. Fixed to derive `as_of` from the data's own latest
+  `as_of_date` instead, so the cache key is stable for as long as the
+  data is; `analytics_version` (a `count:latest_date` fingerprint) is
+  what actually detects a real change and forces recomputation.
+- **Interpreter agent** (`src/ai/interpret/interpreter.py`):
+  `interpret_metric` (LIGHT tier, one metric + its 1-hop graph neighbors →
+  structured `MetricInterpretationOutput` via `complete_structured`) and
+  `synthesize_subject` (SYNTHESIS tier, all of an entity's metric
+  interpretations → a cross-metric `SubjectSynthesisOutput` narrative).
+  `interpret_metrics_batch` runs metrics concurrently
+  (`asyncio.gather` + semaphore, best-effort per metric so one bad
+  response doesn't sink the batch).
+- **Compute-on-miss store** (`src/ai/interpret/store.py`):
+  `get_or_compute_entity_interpretation` (full pipeline: reuse any metric
+  row whose `analytics_version` still matches, recompute only the
+  stale/missing ones, then synthesize the subject narrative once all
+  metric outputs are available) and `get_or_compute_metric_interpretation`
+  (the lightweight single-metric path for a per-figure "interpret this"
+  popover -- doesn't wait on every other metric or the subject synthesis).
+  **Second bug found and fixed here:** the single-metric path originally
+  fell back to serving the *stale* `existing` row when the AI client was
+  disabled or the call failed; that's inconsistent with the entity-level
+  path, which simply omits a metric it can't freshly compute rather than
+  risk serving a read that may now contradict the current analytics.
+  Fixed to return `None` in both cases, and locked in with a regression
+  test (`test_get_or_compute_metric_stale_cache_with_disabled_client_returns_none_not_stale_row`).
+- **API** (`src/api/routers/interpret.py`, registered at `/v5` in
+  `app.py` -- the plan's own version prefix for Three-Layer endpoints):
+  `GET /interpret/entities/{entity_id}` (full compute-on-miss sweep +
+  subject synthesis) and `GET /interpret/entities/{entity_id}/metrics/{metric_key}`
+  (single-metric popover; 404 for an unknown metric, 503 when nothing
+  cached and the AI client is unavailable to compute one).
+- **Nightly batch job** (`scripts/interpret_batch.py`, registered in
+  `src/scheduler/batch_config.py` as `interpreter_batch`, `0 9 * * *`,
+  domain `AI`, `sla_minutes=1440`): resumable via the same
+  `ingestion_progress` raw-SQL ledger pattern `scripts/backfill.py` already
+  established for every other resumable batch type (`data_type="interpreter"`,
+  `subject_key=str(entity_id)`). Universe defaults to every entity with at
+  least one `portfolio_watchlist_entries` row (the "active universe" §3.5
+  calls for), with `--entity-ids`/`--all`/`--limit` overrides for manual
+  runs and a small test universe respectively. Because
+  `get_or_compute_entity_interpretation` already skips the LLM entirely
+  for any metric whose cached row is still fresh, a nightly re-run against
+  an unchanged entity is cheap -- the job is really sweeping for
+  newly-stale or never-interpreted entities, not doing a full nightly
+  recompute of everything. Portfolio *holdings* (`positions`) are
+  confirmed NOT yet folded into the universe -- `Position` has no direct
+  `entity_id` column, only a ticker/security keyed to a portfolio, so
+  folding holdings in needs an extra `Security.issuer_entity_id` join this
+  pass doesn't do. `scripts/interpret_batch.py` itself, like
+  `scripts/backfill.py`, has no direct unit test coverage: its Postgres-only
+  raw SQL (`bindparam(expanding=True)`, `ON CONFLICT`, `CAST(... AS
+  timestamptz)`) doesn't compile against the SQLite test engine, so it was
+  verified via `py_compile` + `ast.parse` instead, consistent with the
+  precedent already set for `backfill.py`.
+- Verified: `tests/test_models/test_interpretation.py` (3),
+  `tests/test_ai/test_interpret_graph.py` (17),
+  `tests/test_ai/test_interpret_context.py` (14),
+  `tests/test_ai/test_interpreter.py` (21),
+  `tests/test_ai/test_interpret_store.py` (14, including the two
+  regression tests for the caching bugs above), and
+  `tests/test_api/test_interpret_api.py` (7) all green (76/76). The only
+  `tests/test_scheduler/test_batch_config.py` failures are the same
+  pre-existing, unrelated "missing analytics_* jobs" gaps already present
+  before this phase (confirmed via `git stash` diff -- untouched by the
+  `interpreter_batch` entry).
+
+**Phase 1 complete.** Next: Phase 2 (Layer 2 — News/Information), per the
+roadmap -- not started without explicit direction, matching how Phase 1
+itself waited for confirmation after the Phase 0 recap.
