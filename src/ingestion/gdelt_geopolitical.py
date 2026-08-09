@@ -173,13 +173,16 @@ class GdeltGeopoliticalConnector(BaseConnector):
         stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
         for row in records:
             try:
-                # De-dup against existing rows by title (no natural key/url column).
+                # De-dup by source_url when we have one (real GDELT
+                # articles always do); fall back to title for the rare
+                # row without a url, matching the old behavior.
+                dedup_filter = (
+                    GeopoliticalEvent.source_url == row["source_url"]
+                    if row.get("source_url")
+                    else GeopoliticalEvent.title == row["title"]
+                )
                 existing = (
-                    await session.execute(
-                        select(GeopoliticalEvent).where(
-                            GeopoliticalEvent.title == row["title"]
-                        )
-                    )
+                    await session.execute(select(GeopoliticalEvent).where(dedup_filter))
                 ).scalar_one_or_none()
                 if existing is not None:
                     stats["skipped"] += 1
@@ -193,6 +196,7 @@ class GdeltGeopoliticalConnector(BaseConnector):
                     severity=row["severity"],
                     status=row["status"],
                     start_date=row["start_date"],
+                    source_url=row.get("source_url"),
                     # No free keyless source for these impact dimensions.
                     commodity_impact=None,
                     sector_impact=None,

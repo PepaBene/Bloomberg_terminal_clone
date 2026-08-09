@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.database import get_session_factory
 from src.ingestion.gdelt_geopolitical import GdeltGeopoliticalConnector
+from src.ingestion.gdelt_news_bridge import bridge_geopolitical_events
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -44,6 +45,10 @@ async def main() -> None:
         # BaseConnector.run only flushes — commit or the data is rolled back.
         await session.commit()
         logger.info("GDELT ingestion complete: %s", stats)
+
+        # Layer 2 §4.1: bridge whatever just landed into the news feed too.
+        bridge_stats = await bridge_geopolitical_events(session)
+        logger.info("GDELT news bridge: %s", bridge_stats)
 
 
 if __name__ == "__main__":
