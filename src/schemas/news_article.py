@@ -27,6 +27,13 @@ class NewsArticleResponse(BaseModel):
     sentiment_label: str | None = None
     source_url: str | None = None
     entities: list[ArticleEntityLinkResponse] = []
+    # Layer 2 §4.2/§4.5: trust/corroboration, for the deterministic
+    # no-AI ranked view -- lets the frontend show "why this is ranked
+    # here" (trust tier, corroborating source count) without an LLM call.
+    source_trust: float | None = None
+    credibility_score: float | None = None
+    is_non_consensus: bool = False
+    corroboration_count: int = 1
 
     model_config = {"from_attributes": True}
 
