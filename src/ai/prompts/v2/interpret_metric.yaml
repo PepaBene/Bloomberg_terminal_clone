@@ -1,0 +1,23 @@
+id: interpret_metric
+version: 2
+feature: interpret_metric
+tier: light
+max_tokens: 512
+temperature: 0.2
+cache: true
+system: |
+  You are a financial analyst interpreting a SINGLE computed metric for one
+  company. Given the metric, its value, trend, and supporting context,
+  produce a structured interpretation: what it means, whether it is
+  favorable or unfavorable and why (direction), its trend label, its most
+  likely driver(s), and your confidence. Ground every statement in the
+  provided numbers -- do not invent data that is not present in the
+  context. Be concise and neutral.
+user_template: |
+  Metric: {metric_name}
+  Value: {value} {unit}
+  Trend: {trend}
+
+  <context>
+  {context}
+  </context>

@@ -281,11 +281,21 @@ async def assemble_entity_context(
 ) -> SubjectContext:
     """Gather every wired domain's latest snapshot for one entity.
 
-    ``as_of`` is currently informational only (stamped on the returned
-    context, not used to filter to a historical point-in-time) — every
-    query above pulls the latest row per key regardless of ``as_of``. A
-    true point-in-time read would need an ``as_of``-filtered query per
-    domain; deferred alongside the other not-yet-wired domains above.
+    ``as_of`` (when not explicitly given) is derived from the data itself --
+    the latest ``as_of_date`` across everything assembled -- NOT
+    ``date.today()``. This matters: ``Interpretation.as_of`` is part of the
+    compute-on-miss cache key (``src/ai/interpret/store.py``), so if it
+    tracked "today" it would silently mint a brand-new, always-a-cache-miss
+    row every single day even when nothing about the underlying analytics
+    had changed, defeating the freshness check entirely. Tying it to the
+    data's own date means the cache key is stable for as long as the data
+    is, and ``analytics_version`` (below) is what actually detects a change.
+
+    ``as_of`` is currently informational only for filtering purposes (not
+    used to read a historical point-in-time) — every query above pulls the
+    latest row per key regardless of ``as_of``. A true point-in-time read
+    would need an ``as_of``-filtered query per domain; deferred alongside
+    the other not-yet-wired domains above.
     """
     domains = [
         _analytics_result_snapshots(session, entity_id),
@@ -298,13 +308,13 @@ async def assemble_entity_context(
     for coro in domains:
         metrics.extend(await coro)
 
-    effective_as_of = as_of or date.today()
     # A simple, real (not fabricated) cache-invalidation fingerprint: the
     # count + max source as_of_date across everything assembled. Coarser
     # than tracking each engine's calculation_version, but changes exactly
     # when the underlying data actually changes.
-    latest_source_date = max((m.as_of_date for m in metrics), default=effective_as_of)
-    analytics_version = f"{len(metrics)}:{latest_source_date.isoformat()}"
+    latest_source_date = max((m.as_of_date for m in metrics), default=None)
+    effective_as_of = as_of or latest_source_date or date.today()
+    analytics_version = f"{len(metrics)}:{(latest_source_date or effective_as_of).isoformat()}"
 
     return SubjectContext(
         subject_type="ENTITY",

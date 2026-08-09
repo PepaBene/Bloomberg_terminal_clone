@@ -103,6 +103,7 @@ import src.models.attribution  # noqa: F401  (Pillar 4 Phase 2)
 import src.models.portfolio_risk  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.subsidiary  # noqa: F401  (Complex Structure data-source build)
+import src.models.interpretation  # noqa: F401  (AI Layer 1 — Interpreter, Phase 1)
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
