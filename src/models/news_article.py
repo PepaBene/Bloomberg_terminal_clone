@@ -61,6 +61,14 @@ class NewsArticle(TimestampMixin, Base):
     # Layer 1's interpretations need for changing analytics.
     ai_analysis: Mapped[dict | None] = mapped_column(JSONB)
 
+    # Populated ONLY on a cluster's representative row (cluster_id == id)
+    # -- src/ai/news/cluster_analyzer.py. Shape: {consensus_summary,
+    # divergent_views: [str], materiality_assessment, confidence, model,
+    # prompt_id, prompt_version}. A cluster has no owning row of its own
+    # (cluster_id is just a self-reference on the representative), so this
+    # rides on the representative article rather than a separate table.
+    cluster_analysis: Mapped[dict | None] = mapped_column(JSONB)
+
     __table_args__ = (
         Index("idx_news_type_date", "news_type", "publish_date"),
         Index("idx_news_materiality_date", "materiality", "publish_date"),

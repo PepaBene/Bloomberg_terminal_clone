@@ -50,6 +50,18 @@ class ArticleAnalysisResponse(BaseModel):
     confidence: float
 
 
+class ClusterAnalysisResponse(BaseModel):
+    """Layer 2 §4.4: per-cluster AI synthesis across corroborating
+    coverage (consensus view, divergent views, materiality)."""
+
+    representative_article_id: UUID
+    corroboration_count: int
+    consensus_summary: str
+    divergent_views: list[str] = []
+    materiality_assessment: str
+    confidence: float
+
+
 class NewsSearchRequest(BaseModel):
     query: str
     entities: list[UUID] | None = None
