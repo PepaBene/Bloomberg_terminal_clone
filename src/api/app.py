@@ -570,6 +570,14 @@ def create_app() -> FastAPI:
         logger.warning(f"Failed to import router research_deep: {e}")
         router_import_failures.append("research_deep")
 
+    # AI Layer 3 — Financial Adviser: portfolio advisor tools (AI_THREE_LAYER_REBUILD_PLAN.md Phase 3 §5.1)
+    try:
+        from src.api.routers.portfolio_advisor import router as portfolio_advisor_router
+        app.include_router(portfolio_advisor_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router portfolio_advisor: {e}")
+        router_import_failures.append("portfolio_advisor")
+
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
     # NOTE: Risk router must be registered BEFORE Performance and Portfolios

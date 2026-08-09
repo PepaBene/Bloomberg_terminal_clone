@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
 from src.engines import e2_wacc, portfolio_risk_engine, treasury_analytics
+from src.services import portfolio_advisory
 from src.models.portfolio import Portfolio
 from src.models.position import Position
 from src.models.security import FixedIncomeDetails, Security
@@ -1024,120 +1025,22 @@ async def pre_trade_check(
     """Validate a proposed trade against compliance rules."""
     await _get_portfolio(session, portfolio_id)
 
-    # Fetch active rules
-    result = await session.execute(
-        select(ComplianceRule)
-        .where(
-            ComplianceRule.portfolio_id == portfolio_id,
-            ComplianceRule.is_active.is_(True),
-        )
+    # Shared with the Layer-3 adviser's PreTradeComplianceTool
+    # (src/ai/tools/portfolio.py) -- one rule-evaluation implementation,
+    # not two that could drift apart. See
+    # src/services/portfolio_advisory.py::check_pretrade_compliance.
+    result = await portfolio_advisory.check_pretrade_compliance(
+        session, portfolio_id, ticker=body.ticker, action=body.action,
+        shares=body.shares, price=body.price,
     )
-    rules = result.scalars().all()
-
-    violations: list[dict] = []
-    warnings: list[dict] = []
-
-    trade_value = body.shares * body.price
-
-    # Load NAV inputs for ratio-based checks (sector/single-security/leverage).
-    portfolio_obj = await _get_portfolio(session, portfolio_id)
-    pos_rows = await session.execute(
-        select(Position).where(
-            Position.portfolio_id == portfolio_id,
-            Position.status == "OPEN",
-        )
-    )
-    positions = list(pos_rows.scalars().all())
-    total_mv = sum(float(p.market_value) for p in positions if p.market_value is not None)
-    nav = float(portfolio_obj.current_cash or 0.0) + total_mv
-    proposed_nav = nav if nav > 0 else (trade_value if trade_value > 0 else 1.0)
-
-    def _record(rule, message: str, *, severity: str | None = None) -> None:
-        # Any matching rule blocks the trade (goes into violations).
-        # ``warnings`` is reserved for soft signals like "approaching
-        # limit" that we don't currently emit.
-        violations.append({
-            "rule_id": str(rule.rule_id),
-            "rule_name": rule.rule_name,
-            "rule_type": rule.rule_type,
-            "severity": severity or rule.severity,
-            "message": message,
-        })
-
-    for rule in rules:
-        if rule.threshold is None:
-            continue
-        threshold = float(rule.threshold)
-        rule_type = (rule.rule_type or "").upper()
-
-        if rule_type == "POSITION_LIMIT":
-            if trade_value > threshold:
-                _record(rule, f"Trade value {trade_value:.2f} exceeds limit {threshold:.2f}")
-
-        elif rule_type == "SINGLE_SECURITY_LIMIT":
-            existing_mv = sum(
-                float(p.market_value) for p in positions
-                if p.ticker == body.ticker and p.market_value is not None
-            )
-            new_mv = existing_mv + (trade_value if body.action.upper() == "BUY" else -trade_value)
-            ratio = new_mv / proposed_nav if proposed_nav > 0 else 0.0
-            if ratio > threshold:
-                _record(
-                    rule,
-                    f"{body.ticker} would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
-                )
-
-        elif rule_type == "CONCENTRATION_LIMIT":
-            # Largest single position weight (post-trade approximation).
-            weights = [
-                (p.ticker, float(p.market_value)) for p in positions
-                if p.market_value is not None
-            ]
-            top = max((mv for _, mv in weights), default=0.0)
-            if body.action.upper() == "BUY":
-                top = max(top, trade_value)
-            ratio = top / proposed_nav if proposed_nav > 0 else 0.0
-            if ratio > threshold:
-                _record(
-                    rule,
-                    f"Largest holding would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
-                )
-
-        elif rule_type == "SECTOR_LIMIT":
-            sector_target = (rule.rule_definition or {}).get("sector") if isinstance(rule.rule_definition, dict) else None
-            if sector_target:
-                same_sector_mv = sum(
-                    float(p.market_value) for p in positions
-                    if p.market_value is not None
-                    and (getattr(p, "sector", None) or "").lower() == sector_target.lower()
-                )
-                ratio = same_sector_mv / proposed_nav if proposed_nav > 0 else 0.0
-                if ratio > threshold:
-                    _record(
-                        rule,
-                        f"Sector {sector_target} would be {ratio*100:.1f}% of NAV (limit {threshold*100:.1f}%)",
-                    )
-
-        elif rule_type == "LEVERAGE_LIMIT":
-            cash_after = float(portfolio_obj.current_cash or 0.0)
-            if body.action.upper() == "BUY":
-                cash_after -= trade_value
-            leverage = (proposed_nav - cash_after) / proposed_nav if proposed_nav > 0 else 0.0
-            if leverage > threshold:
-                _record(
-                    rule,
-                    f"Leverage would be {leverage*100:.1f}% (limit {threshold*100:.1f}%)",
-                )
-
-    approved = len(violations) == 0
 
     return PreTradeCheckResponse(
         portfolio_id=portfolio_id,
         ticker=body.ticker,
         action=body.action,
-        approved=approved,
-        violations=violations,
-        warnings=warnings,
+        approved=result.approved,
+        violations=result.violations,
+        warnings=result.warnings,
     )
 
 
