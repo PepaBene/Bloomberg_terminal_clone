@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.database import get_session_factory
 from src.ingestion.regulatory_actions import RegulatoryActionsConnector
+from src.ingestion.regulatory_news_bridge import bridge_regulatory_actions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,6 +35,10 @@ async def main() -> None:
         stats = await connector.run(session, limit=args.limit)
         await session.commit()
         logger.info("Regulatory actions ingestion complete: %s", stats)
+
+        # Layer 2 §4.1: bridge whatever just landed into the news feed too.
+        bridge_stats = await bridge_regulatory_actions(session)
+        logger.info("Regulatory actions news bridge: %s", bridge_stats)
 
 
 if __name__ == "__main__":
