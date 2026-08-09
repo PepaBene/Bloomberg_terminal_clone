@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+import src.ingestion.news_enrichment as news_enrichment
 from src.ingestion.news_enrichment import (
     build_entity_lookup,
     enrich_article,
@@ -339,7 +340,9 @@ async def test_enrich_article_no_propagation_without_primary_entity(session):
 @pytest.mark.asyncio
 async def test_enrich_new_articles_enriches_and_commits(session):
     article = await _seed_article(session, source_url="https://reuters.com/batch-test")
-    count = await enrich_new_articles(session, [article.id])
+    # fetch_body_text=False: no live network calls in unit tests --
+    # covered separately (with a mocked fetch) below.
+    count = await enrich_new_articles(session, [article.id], fetch_body_text=False)
     assert count == 1
     assert article.credibility_score is not None
 
@@ -354,3 +357,75 @@ async def test_enrich_new_articles_skips_missing_ids(session):
 async def test_enrich_new_articles_empty_list_is_noop(session):
     count = await enrich_new_articles(session, [])
     assert count == 0
+
+
+# ── body_text fetch wiring ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_fetches_body_text_when_requested(session, monkeypatch):
+    async def _fake_fetch(url, **kwargs):
+        return "Full extracted article body text goes here for the enrichment pass."
+
+    monkeypatch.setattr(news_enrichment, "fetch_and_extract_body_text", _fake_fetch)
+
+    article = await _seed_article(session, source_url="https://reuters.com/fetch-body-test")
+    assert article.body_text is None
+
+    await enrich_article(
+        session, article, entity_lookup=await build_entity_lookup(session), fetch_body_text=True,
+    )
+    await session.flush()
+
+    assert article.body_text == "Full extracted article body text goes here for the enrichment pass."
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_does_not_fetch_by_default(session, monkeypatch):
+    async def _fail_if_called(url, **kwargs):
+        raise AssertionError("fetch_and_extract_body_text should not be called by default")
+
+    monkeypatch.setattr(news_enrichment, "fetch_and_extract_body_text", _fail_if_called)
+
+    article = await _seed_article(session, source_url="https://reuters.com/no-fetch-by-default")
+    await enrich_article(session, article, entity_lookup=await build_entity_lookup(session))
+    await session.flush()
+
+    assert article.body_text is None
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_skips_fetch_when_body_text_already_present(session, monkeypatch):
+    async def _fail_if_called(url, **kwargs):
+        raise AssertionError("fetch_and_extract_body_text should not be called when body_text is already set")
+
+    monkeypatch.setattr(news_enrichment, "fetch_and_extract_body_text", _fail_if_called)
+
+    article = await _seed_article(
+        session, source_url="https://reuters.com/already-has-body",
+        body_text="Already-extracted body text.",
+    )
+    await enrich_article(
+        session, article, entity_lookup=await build_entity_lookup(session), fetch_body_text=True,
+    )
+    await session.flush()
+
+    assert article.body_text == "Already-extracted body text."
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_handles_fetch_returning_none(session, monkeypatch):
+    async def _fake_fetch(url, **kwargs):
+        return None
+
+    monkeypatch.setattr(news_enrichment, "fetch_and_extract_body_text", _fake_fetch)
+
+    article = await _seed_article(session, source_url="https://reuters.com/fetch-fails")
+    await enrich_article(
+        session, article, entity_lookup=await build_entity_lookup(session), fetch_body_text=True,
+    )
+    await session.flush()
+
+    assert article.body_text is None
+    # Enrichment still completes using the summary/title fallback.
+    assert article.credibility_score is not None

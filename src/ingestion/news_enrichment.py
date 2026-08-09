@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engines import news_credibility
 from src.engines.finbert_sentiment import score_text
+from src.ingestion.article_extraction import fetch_and_extract_body_text
 from src.engines.news_entity_linker import (
     assess_materiality,
     classify_news_type,
@@ -283,12 +284,25 @@ async def enrich_article(
     *,
     entity_lookup: dict,
     primary_entity_id: uuid.UUID | None = None,
+    fetch_body_text: bool = False,
 ) -> None:
     """Full Layer 2 enrichment pass on one already-persisted article:
-    classification, multi-entity linking, corroboration clustering +
-    credibility, sentiment, propagation. Mutates ``article`` and adds any
-    new ``ArticleEntityLink``/``PropagationEvent`` rows -- caller commits.
+    optional body_text extraction, classification, multi-entity linking,
+    corroboration clustering + credibility, sentiment, propagation.
+    Mutates ``article`` and adds any new ``ArticleEntityLink``/
+    ``PropagationEvent`` rows -- caller commits.
+
+    ``fetch_body_text`` defaults to ``False`` -- it's the only network I/O
+    in this whole pass (everything else is DB + pure computation), so
+    tests and any other caller that doesn't want live HTTP calls get that
+    for free; ``enrich_new_articles`` (the production entry point) opts
+    it back in.
     """
+    if fetch_body_text and article.body_text is None:
+        fetched = await fetch_and_extract_body_text(article.source_url)
+        if fetched:
+            article.body_text = fetched
+
     text_for_nlp = article.body_text or article.summary or ""
 
     if article.news_type is None:
@@ -341,9 +355,16 @@ async def enrich_new_articles(
     article_ids: list[uuid.UUID],
     *,
     primary_entity_id: uuid.UUID | None = None,
+    fetch_body_text: bool = True,
 ) -> int:
     """Enrich a batch of newly-inserted articles (e.g. from one connector
     call) and commit. Returns the number successfully enriched.
+
+    This is the production entry point (called by ``finnhub_news.py``
+    after each fetch), so ``fetch_body_text`` defaults to ``True`` here --
+    opposite of ``enrich_article``'s own default -- opting into the one
+    piece of network I/O in the pipeline. Pass ``False`` to skip it (e.g.
+    a caller that already has full text, or wants a fast/offline pass).
     """
     if not article_ids:
         return 0
@@ -355,7 +376,8 @@ async def enrich_new_articles(
             continue
         try:
             await enrich_article(
-                session, article, entity_lookup=entity_lookup, primary_entity_id=primary_entity_id,
+                session, article, entity_lookup=entity_lookup,
+                primary_entity_id=primary_entity_id, fetch_body_text=fetch_body_text,
             )
             enriched += 1
         except Exception:  # noqa: BLE001
