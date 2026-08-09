@@ -391,6 +391,25 @@ BATCH_JOBS: list[BatchJob] = [
         description="SEC DEF 14A proxy filings -> proxy_filings/board_members/executive_compensation/shareholder_proposals.",
     ),
     BatchJob(
+        name="governance_assessment_scoring",
+        cron="0 7 * * 2",  # Tuesday 7 AM, after proxy_governance_ingest
+        script="scripts/compute_governance_assessments.py",
+        sla_minutes=240,
+        domain="AI",
+        description=(
+            "Layer 2 (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.7) Pillar-3 "
+            "follow-through -- runs the governance_scoring engine (built, "
+            "previously never called) over each proxy_filings row's "
+            "board_members/executive_compensation to persist "
+            "governance_assessments (the one confirmed-empty table in "
+            "§4.7's Governance row). Structural red flags needing DEF 14A "
+            "prose (dual-class, poison pill, staggered board, majority "
+            "voting, related-party) aren't extracted yet -- scored "
+            "assessments correctly omit those signals rather than guess."
+        ),
+        depends_on=("proxy_governance_ingest",),
+    ),
+    BatchJob(
         name="form4_insiders_ingest",
         cron="0 7 * * *",  # 7 AM daily
         script="scripts/ingest_form4.py",

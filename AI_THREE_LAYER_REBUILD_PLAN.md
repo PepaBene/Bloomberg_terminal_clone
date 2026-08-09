@@ -635,3 +635,106 @@ per-metric interpretation, the `interpretations` table).
 **Phase 1 complete.** Next: Phase 2 (Layer 2 — News/Information), per the
 roadmap -- not started without explicit direction, matching how Phase 1
 itself waited for confirmation after the Phase 0 recap.
+
+### Phase 2 — complete
+
+A background infrastructure survey (before writing any code) found the
+plan's own premise partly out of date: 4 of the 5 "dormant engines" §4.3
+asks to wire up (`news_dedup`, `news_entity_linker`, `news_propagation`,
+`finbert_sentiment`) already existed as fully-built, fully-tested, pure
+computation modules with **zero production callers** -- `finnhub_news.py`
+reimplemented a cruder single-entity link inline instead of calling
+`news_entity_linker`. `propagation_events`, the table §4.3 implies needs
+creating, already existed and was migrated (051). Phase 0's `embedding_1536`
+column already supersedes §6.2's `search_documents.embedding_vector ->
+VECTOR(3072)` migration item. This reframed most of Phase 2 into *wiring*
+existing engines rather than new engineering -- reflected below.
+
+- **§4.2 Trust & credibility**: new `news_sources` table (reference/lookup
+  table, natural-key PK like `Currency`/`Exchange`, seeded from
+  `data/news_sources.json` via the established `reference_loader.py`
+  pattern) + `news_articles` gains `source_trust`/`credibility_score`/
+  `cluster_id`/`is_non_consensus`/`corroboration_count`. New
+  `src/engines/news_credibility.py`: `find_cluster_match` reuses
+  `news_dedup`'s URL/title-Jaccard/simhash tiers as a "does this
+  corroborate an existing article" query rather than `deduplicate()`'s
+  "drop duplicates" -- Layer 2 wants every article kept, just clustered.
+  `cluster_id` is self-referential (a representative's row points at
+  itself), so "every article has a cluster_id" holds uniformly once
+  enriched.
+- **§4.3 Wire the dormant engines**: `src/ingestion/news_enrichment.py`
+  orchestrates all four into `finnhub_news.py`'s ingestion path:
+  `build_entity_lookup` (ticker/CUSIP/ISIN resolve via `Security.
+  issuer_entity_id`, NOT `EntityIdentifier` -- those are security-level,
+  only CIK is entity-level) feeds real multi-entity `link_entities`
+  (replacing the crude single-link); corroboration clustering +
+  credibility scoring per article; real FinBERT `score_text` (keyword
+  fallback preserved, per the engine's own existing degrade path);
+  entity-to-entity propagation (SUPPLY_CHAIN/CUSTOMER/COMPETITIVE hop-1
+  via real `BusinessRelationship` rows -- SECTOR/MACRO propagation
+  deferred, needs a full GICS-sector entity roster this pass doesn't
+  build).
+- **§4.1 body_text extraction**: `src/ingestion/article_extraction.py`,
+  trafilatura-based, unblocking dedup's content-fingerprint tier, FinBERT,
+  and entity linking, all of which degrade to title+summary without it.
+- **§4.5 No-AI mode**: deterministic ranked-links endpoint (RSS + trust
+  ranking, zero LLM) -- the always-on baseline the plan requires.
+- **§4.1 Multi-source ingestion**: three connectors bridging existing
+  regulatory/geopolitical data into `news_articles` (which nothing wrote
+  into before except Finnhub): SEC filings-as-news, GDELT articles (GDELT
+  previously only wrote `geopolitical_events`, confirmed via survey),
+  Federal Register regulatory actions.
+- **§4.4 AI analysis**: two-phase per-article (LIGHT tier, trust-weighted
+  summary/interpretation/non-consensus-angle, connections grounded in
+  this article's own `PropagationEvent` rows) and per-cluster (SYNTHESIS
+  tier, consensus vs. divergent views across a cluster's corroborating
+  coverage -- rides on the representative article's row since a cluster
+  has no owning row of its own) analysis, both compute-on-miss cached
+  directly on `news_articles`.
+- **§4.6 On-demand Deep Research**: new `research_reports` table +
+  two-phase `gather_research` (multi-step `run_agent` tool loop -- new
+  `web_fetch` client tool alongside the existing `web_search` server
+  tool and `data_query`, DEEP tier) then `structure_report` (separate
+  `complete_structured` synthesis pass over the gathered transcript).
+  `run_agent` gained an optional `on_step` hook (its first production
+  caller) so `POST /v5/research/deep` can stream progress over SSE via an
+  `asyncio.Queue` bridge, using its own `get_session_factory()` session
+  rather than the request-scoped one (FastAPI tears down `Depends`
+  generators before a `StreamingResponse`'s body actually runs).
+- **§4.7 Pillar-3 follow-through**: of the table's 8 rows, News/Sentiment
+  and Political/Regulatory were covered above; Filing intelligence and
+  Earnings (qualitative) already had live engines (`EdgarFilingDiffConnector`,
+  `analyze_earnings_call`) predating this phase. **Governance** was the
+  one row confirmed genuinely empty: `governance_assessments` had zero
+  writers despite `src/engines/governance_scoring.py` -- a full, tested,
+  10-red-flag scoring engine -- already existing with no caller, same
+  "built but dormant" pattern as §4.3's four engines. New
+  `scripts/compute_governance_assessments.py` wires it: per proxy filing,
+  derives board independence/tenure/diversity/interlocks from
+  `board_members`, CEO pay-ratio/LTIP-mix from `executive_compensation`,
+  and scores via the existing engine. Five structural red flags
+  (dual-class, poison pill, staggered board, majority voting,
+  related-party) need DEF 14A prose the current ingestion doesn't parse
+  -- deliberately left un-guessed (the engine's own `.get(key)` semantics
+  already treat an absent key as "no evidence," except
+  `has_majority_voting`, which the engine itself defaults to flagging
+  when unknown). Commodity narrative and insider/congressional-disclosure
+  narrative bridging are the two rows genuinely not attempted in this
+  pass -- real, scoped follow-ups, not silently dropped.
+- The survey's other correction: `political_intelligence`'s three tables
+  (`legislative_bills`/`regulatory_actions`/`sanctions_entries`) already
+  had live, scheduled ingestion contrary to the plan's "today empty"
+  assumption -- confirmed by reading the actual connector code and
+  scheduler registration, not just the model definitions.
+- Verified across the phase: every increment landed with its own test
+  suite (news_sources/credibility: 28, enrichment pipeline: 17, no-AI
+  mode + multi-source connectors: covered in their own commits, article
+  analysis: 22, cluster analysis: 28, Deep Research: 25, governance
+  scoring: 9) plus broad `tests/test_ai/`, `tests/test_api/`,
+  `tests/test_models/` sweeps after each commit, all green against the
+  same pre-existing, unrelated failure set already documented in Phase 0/1
+  (`CompanyPrimer(primer_id=...)` fixture bug, `test_batch_config.py`'s
+  missing `analytics_*` job entries).
+
+**Phase 2 complete.** Next: Phase 3 (Layer 3 — Financial Adviser), per the
+roadmap -- not started without explicit direction.
