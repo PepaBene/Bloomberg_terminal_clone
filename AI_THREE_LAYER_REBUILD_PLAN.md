@@ -738,3 +738,125 @@ existing engines rather than new engineering -- reflected below.
 
 **Phase 2 complete.** Next: Phase 3 (Layer 3 — Financial Adviser), per the
 roadmap -- not started without explicit direction.
+
+### Phase 3 — complete
+
+A pre-work survey (same discipline as Phase 2's) found the exact same
+"built but dormant" pattern again: `whatif_engine.py`, `drift_engine.py`,
+`trade_list_engine.py`, and `compliance_engine.py` are all fully-built,
+tested, pure-computation modules with zero production callers. Pre-trade
+compliance DOES have a live, tested endpoint
+(`portfolio_risk.py::pre_trade_check`) -- but it's ~90 lines of inline
+rule evaluation duplicating what `compliance_engine.py` already does, not
+a call into that module. The survey also found the existing
+`/v4/portfolios/{id}/drift` endpoints are read-only over a `DriftSnapshot`
+row that nothing in this codebase ever actually computes -- `POST
+.../drift/target` only ever writes zeros, so "current drift" has never
+been a real number anywhere in this app until this phase.
+
+- **§5.1 Expose the dark engines**: `src/services/portfolio_advisory.py`
+  wires all three engines to live `Position`/`Portfolio`/
+  `ComplianceRule`/`PortfolioVarSnapshot`/`DriftSnapshot` data --
+  `compute_whatif`, `compute_drift` (the actual fix for the
+  never-computed-drift gap above), `build_trade_list`, and
+  `check_pretrade_compliance` (the existing live endpoint's rule logic,
+  *extracted* so the endpoint and the new adviser tool share one
+  implementation instead of two that could drift apart -- verified
+  against the endpoint's own existing, unmodified tests). New
+  `POST /v5/portfolios/{id}/{whatif,drift-analysis,trade-list}` expose
+  these directly; new `src/ai/tools/portfolio.py`
+  (`PortfolioSnapshotTool`/`WhatIfTool`/`DriftAnalysisTool`/
+  `PreTradeComplianceTool`) expose the identical service functions as
+  Layer-3 agent tools, so a human hitting the API and the adviser
+  reasoning about a trade always see the same numbers. Documented,
+  deliberate gaps: no per-ticker factor loadings or VaR/correlation data
+  in this app (whatif's risk/factor dimensions degrade to the engine's
+  own documented fallbacks), `Position` has no `sector` column (drift's
+  sector dimension is skipped).
+- **§5.2 The adviser agent**: three new context tools
+  (`src/ai/tools/entity_context.py`) give the adviser read access to
+  Layer 1 (`InterpretationLookupTool`) and Layer 2
+  (`RecentNewsTool`/`ResearchReportLookupTool`) -- pure reads, never
+  triggering new AI computation mid-conversation. `src/ai/adviser/
+  adviser.py` is two-phase, matching this codebase's established
+  gather-then-structure pattern: `gather_advice` (`run_agent` at
+  SYNTHESIS tier with all the above tools + `WhatIf`/`DriftAnalysis`/
+  `PreTradeCompliance`/`DataQuery`/web_search) then
+  `extract_recommendations` (a separate `complete_structured` call at
+  DEEP tier over the transcript, pulling out zero or more concrete
+  recommendations -- zero is a valid, common outcome for a purely
+  informational turn). The one design point worth restating: `verify_
+  recommendation` re-runs the REAL `whatif`/`compliance` checks against
+  live data for any recommendation with a well-formed trade action,
+  never trusting the LLM's own account of what its tools said
+  mid-conversation -- the same "never trust the model for a number it
+  could look up" principle every other layer in this codebase follows.
+  `run_agent` (built in Phase 2.7, one caller so far) gained its second
+  production caller here.
+- **§5.3 Chat**: new `conversations`/`conversation_messages` tables.
+  `POST /v5/adviser/conversations/{id}/messages` streams over SSE
+  (`step` events per agent turn, then a terminal `done` with
+  `{reply, disclaimer, recommendations}` or `error`) -- same
+  own-session-via-`get_session_factory()` shape Phase 2.7 established,
+  plus the cost-budget guardrail (`guardrails/budget.py::check_budget`,
+  built in Phase 0, never previously wired to any caller) as a
+  pre-flight check before the agent loop starts. "Conversational
+  memory/recall" is prior turns rendered as a text transcript prepended
+  to the new message, since `run_agent` only takes a single seed `user`
+  string. Frontend: fixed both bugs the plan named in `QAChat.tsx`
+  (wrong endpoint prefix -- turned out to be `/v3` vs. the REAL mount
+  point `/v4`, not `/v5` as the plan assumed, since that's the
+  *existing* `research_qa.py` Q&A endpoint, not this phase's new chat;
+  and `answer_text`, which the component read as `data.answer`, a field
+  that doesn't exist on `QAResponse`) and the same field-name bug in
+  `AnalystQA.tsx`. A dedicated `/adviser` frontend route was not built --
+  this session's Phase 0-3 work has been backend-only throughout, and
+  building a new page is a distinct, larger effort than fixing two
+  existing field-name bugs.
+- **§5.4 Recommendations store & guardrails**: new `advice_recommendations`
+  table. `src/ai/adviser/store.py` enforces two of the four guardrails
+  as a hard filter before persistence: a recommendation with no cited
+  evidence is dropped (same standard `guardrails/citations.py` already
+  enforces elsewhere), and one whose real (not LLM-reported) compliance
+  check came back not-approved is dropped. The other two guardrails are
+  enforced elsewhere: cost budgets pre-flight in the chat endpoint
+  (§5.3), the not-financial-advice disclaimer is a fixed constant
+  attached to every chat response rather than baked into stored
+  rationale text.
+- **A real bug caught and fixed along the way**: `src/ai/research/
+  store.py`'s `run_and_persist_research` (built in Phase 2.7) only ever
+  called `session.flush()`, never `session.commit()`, inside the SSE
+  streaming generator's own per-run session. Verified directly (flush +
+  close a session, then read from a fresh one off the same factory --
+  the row is gone) that this meant every completed Deep Research
+  report's actual content was silently never persisted; only the
+  initial PENDING row (committed separately, at the request-scoped
+  session level, before streaming even starts) ever survived. Fixed by
+  committing after each state transition, which also makes progress
+  durable if the process dies mid-run rather than only at the very end.
+  Caught while building this phase's own, correctly-committing chat
+  streaming endpoint and noticing the asymmetry with the precedent it
+  was copying.
+- Verified across the phase: whatif/drift/trade-list service layer (26
+  tests) + advisor API (9) + portfolio tools (11), adviser agent (14) +
+  context tools (11), recommendations store (12) + model (2), chat
+  conversation store (6) + API (8) + models (3) -- 102 new tests total.
+  Broad sweeps after every commit: `tests/test_ai/` + `tests/test_models/`
+  + `tests/test_services/` + the affected API suites +
+  `tests/test_scheduler/`, consistently green against the same
+  pre-existing failure set documented since Phase 0 (`CompanyPrimer(
+  primer_id=...)` fixture bug, `test_batch_config.py`'s missing
+  `analytics_*` job entries) -- zero regressions introduced across all
+  four sub-phases.
+
+**Phase 3 complete. All three layers of AI_THREE_LAYER_REBUILD_PLAN.md are
+now built** (Layer 1 — Interpreter, Layer 2 — News/Information, Layer 3 —
+Financial Adviser). Remaining work per the plan is polish/breadth, not new
+layers: §6's shared-foundation items not yet exercised end-to-end (Redis
+response caching, prompt-cache verification under load, the eval harness
+running in CI rather than ad hoc), §8's frontend changes (this session's
+work has been backend-only throughout -- new endpoints exist with no UI
+wired to most of them yet), and the explicitly-deferred gaps documented
+inline through Phases 2-3 (SECTOR/MACRO news propagation, per-ticker
+factor/VaR data for whatif, DEF 14A structural-provision text-mining for
+governance red flags, commodity/insider-narrative Pillar-3 bridging).
