@@ -1,7 +1,7 @@
 """Tests for the Pillar 2 Analytics API endpoints."""
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -14,7 +14,7 @@ from src.models.analytics import (
     WACCResult,
 )
 from src.models.entity import Entity
-from src.models.security import Security
+from src.models.security import EODPrice, Security
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +208,42 @@ async def test_get_ttm(client, seeded_analytics):
 
 
 @pytest.mark.asyncio
+async def test_get_ttm_matches_real_dated_period_label(session: AsyncSession, client):
+    """Regression test: TTMEngine's real period label is
+    f"TTM_{period_end_date.isoformat()}" (e.g. "TTM_2025-03-31"), not the
+    bare "TTM" this endpoint previously matched exactly -- so it 404'd
+    even when TTM data had actually been computed and persisted.
+    """
+    entity = Entity(
+        entity_id=uuid.uuid4(), legal_name="TTM Label Test Corp",
+        entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        security_id=uuid.uuid4(), name="TTM Label Test Corp Stock",
+        security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+
+    session.add(AnalyticsResult(
+        result_id=uuid.uuid4(), security_id=security.security_id,
+        entity_id=entity.entity_id, engine_id="E1", metric_name="ttm_total_revenue",
+        metric_category="INCOME_STATEMENT", value=500_000_000.0, unit="CURRENCY",
+        period="TTM_2025-03-31", period_end_date=date(2025, 3, 31),
+        as_of_date=date.today(), data_quality="COMPLETE",
+    ))
+    await session.flush()
+
+    resp = await client.get(f"/v2/analytics/ttm/{security.security_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metrics"]["ttm_total_revenue"] == pytest.approx(500_000_000.0)
+
+
+@pytest.mark.asyncio
 async def test_get_dupont(client, seeded_analytics):
     """GET /v2/analytics/dupont/{id} returns DuPont decomposition."""
     resp = await client.get(f"/v2/analytics/dupont/{seeded_analytics.security_id}")
@@ -228,6 +264,46 @@ async def test_get_multiples(client, seeded_analytics):
     assert "multiples" in data
     assert "PE_TRAILING" in data["multiples"]
     assert data["multiples"]["PE_TRAILING"] == pytest.approx(18.5)
+
+
+@pytest.mark.asyncio
+async def test_multiple_history_matches_real_lowercase_type(session: AsyncSession, client):
+    """Regression test: e2_multiples.py persists
+    MultipleTimeSeries.multiple_type in lowercase (e.g. "pe_trailing",
+    matching AnalyticsResult.metric_name), but this endpoint compared
+    against `multiple.upper()` -- never matching, so
+    /multiples/{id}/history was always empty.
+    """
+    entity = Entity(
+        entity_id=uuid.uuid4(), legal_name="Multiples History Test Corp",
+        entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        security_id=uuid.uuid4(), name="Multiples History Test Corp Stock",
+        security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+
+    session.add(MultipleTimeSeries(
+        security_id=security.security_id,
+        multiple_type="pe_trailing",
+        calculation_date=date.today(),
+        value=17.2,
+    ))
+    await session.flush()
+
+    resp = await client.get(
+        f"/v2/analytics/multiples/{security.security_id}/history",
+        params={"multiple": "PE_TRAILING"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["data_points"]) == 1
+    assert data["data_points"][0]["value"] == pytest.approx(17.2)
 
 
 @pytest.mark.asyncio
@@ -306,3 +382,125 @@ async def test_dupont_history(client, seeded_analytics):
     assert resp.status_code == 200
     data = resp.json()
     assert "decompositions" in data
+
+
+# ---------------------------------------------------------------------------
+# /v2/analytics/correlation -- factor performance (regression for the
+# previously-hardcoded-zeros bug)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_correlation_insufficient_securities_returns_zeros(client, session: AsyncSession):
+    """Below _MIN_SECURITIES_FOR_FACTOR_PERFORMANCE, factors report zeros
+    (honest default when there isn't enough data to rank a spread)."""
+    entity = Entity(
+        entity_id=uuid.uuid4(), legal_name="Sparse Factor Corp",
+        entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        security_id=uuid.uuid4(), name="Sparse Factor Corp Common Stock",
+        security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+    session.add(AnalyticsResult(
+        security_id=security.security_id, entity_id=entity.entity_id,
+        engine_id="E1", metric_name="roe", metric_category="PROFITABILITY",
+        value=0.20, unit="PERCENT", period="TTM", as_of_date=date.today(),
+        data_quality="COMPLETE",
+    ))
+    await session.flush()
+
+    resp = await client.get("/v2/analytics/correlation")
+    assert resp.status_code == 200
+    data = resp.json()
+    quality = next(f for f in data["factorPerformance"] if f["factor"] == "Quality")
+    assert quality == {
+        "factor": "Quality", "mtd": 0.0, "qtd": 0.0, "ytd": 0.0,
+        "oneYear": 0.0, "sharpe": 0.0, "ic": 0.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_correlation_factor_performance_reflects_real_spread(client, session: AsyncSession):
+    """Regression test: factor_performance must be computed from real price
+    data, not hardcoded to zero.
+
+    Seeds 9 securities with a "quality" score (roe) split into a clear
+    bottom tercile (3 low-roe), middle tercile (3, padding only), and top
+    tercile (3 high-roe). The bottom-tercile securities decline at a
+    constant -0.10%/day; the top-tercile securities gain at a constant
+    +0.10%/day, every business day for ~14 months. The long-top/short-
+    bottom spread must therefore show a large POSITIVE oneYear return --
+    not 0.0. (IC needs >= 5 securities in the top+bottom groups, hence
+    tercile size 3 rather than 2.)
+    """
+    entities = []
+    securities = []
+    for i in range(9):
+        eid = uuid.uuid4()
+        sid = uuid.uuid4()
+        entities.append(eid)
+        securities.append(sid)
+        session.add(Entity(
+            entity_id=eid, legal_name=f"Factor Perf Corp {i}",
+            entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+        ))
+        session.add(Security(
+            security_id=sid, name=f"Factor Perf Corp {i} Common Stock",
+            security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+            issuer_entity_id=eid,
+        ))
+    await session.flush()
+
+    # roe: 3 bottom, 3 middle, 3 top
+    roe_values = [0.01, 0.02, 0.03, 0.14, 0.16, 0.18, 0.30, 0.33, 0.35]
+    today = date.today()
+    for sid, eid, roe in zip(securities, entities, roe_values):
+        session.add(AnalyticsResult(
+            security_id=sid, entity_id=eid, engine_id="E1", metric_name="roe",
+            metric_category="PROFITABILITY", value=roe, unit="PERCENT",
+            period="TTM", as_of_date=today, data_quality="COMPLETE",
+        ))
+    await session.flush()
+
+    # Daily returns: bottom three securities decline, top three rally.
+    # Middle three get no price history (excluded from the spread query).
+    bottom_ids = set(securities[0:3])
+    top_ids = set(securities[6:9])
+    daily_return = {sid: -0.001 for sid in bottom_ids}
+    daily_return.update({sid: 0.001 for sid in top_ids})
+
+    start = today - timedelta(days=400)
+    rows = []
+    for sid, ret in daily_return.items():
+        d = start
+        price = 100.0
+        while d <= today:
+            if d.weekday() < 5:
+                price *= (1.0 + ret)
+                rows.append(EODPrice(
+                    security_id=sid, price_date=d,
+                    open=price, high=price, low=price, close=price,
+                    close_adjusted=price, volume=1_000_000, source="TEST",
+                ))
+            d += timedelta(days=1)
+    session.add_all(rows)
+    await session.flush()
+
+    resp = await client.get("/v2/analytics/correlation")
+    assert resp.status_code == 200
+    data = resp.json()
+    quality = next(f for f in data["factorPerformance"] if f["factor"] == "Quality")
+
+    # A ~14-month +0.1%/day vs -0.1%/day spread compounds to a large gain --
+    # nowhere near the previously-hardcoded 0.0.
+    assert quality["oneYear"] > 0.3
+    assert quality["ytd"] != 0.0
+    assert quality["sharpe"] > 0.0
+    # IC: quality score (roe) should positively rank-correlate with realized
+    # return, since the highest-roe securities are exactly the ones that rallied.
+    assert quality["ic"] > 0.5

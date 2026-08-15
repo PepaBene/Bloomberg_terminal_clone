@@ -11,6 +11,7 @@ Every output carries full input lineage for auditability.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any, Callable
 from uuid import UUID
 
@@ -43,14 +44,17 @@ class _Data:
         "security_id", "entity_id", "entity",
         "inc", "bs", "cf",
         "period_label", "period_end_date", "ttm",
+        "prior_research_development",
     )
 
     def __init__(self, security_id: UUID, entity: Entity,
-                 period: FinancialPeriod | None, ttm: dict[str, float | None]) -> None:
+                 period: FinancialPeriod | None, ttm: dict[str, float | None],
+                 prior_research_development: float | None = None) -> None:
         self.security_id = security_id
         self.entity_id = entity.entity_id
         self.entity = entity
         self.ttm = ttm
+        self.prior_research_development = prior_research_development
         if period is not None:
             self.inc: IncomeStatement | None = period.income_statement
             self.bs: BalanceSheet | None = period.balance_sheet
@@ -109,13 +113,16 @@ _mi = make_input  # local alias for brevity
 def _software(d: _Data) -> list[EngineOutput]:
     """Software / Technology (GICS 4510, 4520)."""
     out: list[EngineOutput] = []
-    rev_g = d.t("revenue_growth_yoy")
+    # [Bug fix] was "revenue_growth_yoy", a name RatioEngine never emits;
+    # the real metric (e1_ratios.py) is "revenue_yoy" -- rule_of_40 always
+    # read a missing key and was permanently None.
+    rev_g = d.t("revenue_yoy")
     fcf = d.t("ttm_free_cash_flow")
     rev = d.iv("total_revenue") or d.t("ttm_total_revenue")
     fcf_m = safe_divide(fcf, rev)
     r40 = (rev_g + fcf_m) if rev_g is not None and fcf_m is not None else None
     out.append(_o(d, "rule_of_40", r40, inp=[
-        _mi("revenue_growth_yoy", "analytics_results", rev_g),
+        _mi("revenue_yoy", "analytics_results", rev_g),
         _mi("fcf_margin", "derived", fcf_m),
     ]))
     out.append(_o(d, "revenue_per_employee", None, unit="CURRENCY",
@@ -295,12 +302,35 @@ def _insurance(d: _Data) -> list[EngineOutput]:
 def _energy(d: _Data) -> list[EngineOutput]:
     """Energy / Mining (GICS 1010, 1510).
 
-    [Bug 17 fix] Skip always-None placeholders that require supplemental
-    data not present in the standard schema.
+    [Bug fix] Previously returned [] unconditionally, so this sector always
+    reported zero industry KPIs. reserve_life_index, finding_cost, netback,
+    and reserve_replacement_ratio all still require reserve/production data
+    not present in the standard financial-statement schema and stay omitted
+    (same "Bug 17" pattern as _banks above) -- but capex_intensity and
+    dd_and_a_to_ppe ARE computable from standard schema fields and are
+    genuinely industry-relevant for a capital-intensive, depleting-asset
+    sector, so there's no reason to report nothing at all.
     """
-    # reserve_life_index, finding_cost, netback: all require reserve/production
-    # data not available in standard financials — omit entirely.
-    return []
+    out: list[EngineOutput] = []
+
+    capex = d.cv("capital_expenditures") or d.t("ttm_capital_expenditures")
+    rev = d.iv("total_revenue") or d.t("ttm_total_revenue")
+    # capital_expenditures is conventionally a negative cash outflow;
+    # report intensity as a positive ratio.
+    capex_abs = abs(capex) if capex is not None else None
+    out.append(_o(d, "capex_intensity", safe_divide(capex_abs, rev), unit="PERCENT", inp=[
+        _mi("capital_expenditures", "cash_flow", capex),
+        _mi("total_revenue", "income_statement", rev),
+    ]))
+
+    da = (d.cv("depreciation_amortization") or d.t("ttm_cf_depreciation_amortization")
+          or d.iv("depreciation_amortization") or d.t("ttm_depreciation_amortization"))
+    ppe = d.bv("ppe_net")
+    out.append(_o(d, "dd_and_a_to_ppe", safe_divide(da, ppe), unit="PERCENT", inp=[
+        _mi("depreciation_amortization", "cash_flow", da),
+        _mi("ppe_net", "balance_sheet", ppe),
+    ]))
+    return out
 
 
 def _pharma(d: _Data) -> list[EngineOutput]:
@@ -312,10 +342,20 @@ def _pharma(d: _Data) -> list[EngineOutput]:
         _mi("research_development", "income_statement", rd),
         _mi("total_revenue", "income_statement", rev),
     ]))
-    rdg = d.t("rd_expense_growth_yoy")
+    # [Bug fix] was `d.t("rd_expense_growth_yoy")` -- no engine has ever
+    # emitted that metric, so pipeline_proxy was permanently None. Compute
+    # YoY R&D growth directly from this period's and the prior year's
+    # income statement (fetched in compute() specifically for this KPI).
+    rd_curr = d.iv("research_development")
+    rd_prior = d.prior_research_development
+    if rd_curr is not None and rd_prior is not None and rd_prior != 0:
+        rdg: float | None = (rd_curr - rd_prior) / abs(rd_prior)
+    else:
+        rdg = None
     out.append(_o(d, "pipeline_proxy", rdg,
                   dq="ESTIMATED" if rdg is not None else "INSUFFICIENT_DATA",
-                  inp=[_mi("rd_growth_proxy", "analytics_results", rdg)]))
+                  inp=[_mi("research_development_current", "income_statement", rd_curr),
+                       _mi("research_development_prior_year", "income_statement", rd_prior)]))
     return out
 
 
@@ -396,11 +436,37 @@ class IndustryKPIEngine(BaseEngine):
             .limit(1))
         latest_period = fp_row.scalar_one_or_none()
 
+        # 3b. Prior-year period's R&D expense (self-contained YoY input for
+        # pipeline_proxy -- this engine only loads a single period's raw
+        # statements, unlike e1_ratios.py's multi-snapshot _ComputeContext,
+        # so pipeline_proxy fetches its own comparison point directly rather
+        # than depending on a "rd_expense_growth_yoy" AnalyticsResult metric
+        # that no engine has ever emitted).
+        prior_rd: float | None = None
+        if latest_period is not None:
+            prior_row = await session.execute(
+                select(FinancialPeriod)
+                .where(
+                    FinancialPeriod.entity_id == entity_id,
+                    FinancialPeriod.period_type == latest_period.period_type,
+                    FinancialPeriod.period_end_date
+                    <= latest_period.period_end_date - timedelta(days=330),
+                    FinancialPeriod.period_end_date
+                    >= latest_period.period_end_date - timedelta(days=400),
+                )
+                .order_by(FinancialPeriod.period_end_date.desc())
+                .limit(1)
+            )
+            prior_period = prior_row.scalar_one_or_none()
+            if prior_period is not None and prior_period.income_statement is not None:
+                rd_val = prior_period.income_statement.research_development
+                prior_rd = float(rd_val) if rd_val is not None else None
+
         # 4. Pre-computed TTM / ratio metrics
         ttm = await self._load_ttm(session, security_id)
 
         # 5. Build data bundle
-        d = _Data(security_id, entity, latest_period, ttm)
+        d = _Data(security_id, entity, latest_period, ttm, prior_research_development=prior_rd)
         outputs: list[EngineOutput] = []
 
         # 6. Universal outputs

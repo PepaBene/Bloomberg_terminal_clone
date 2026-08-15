@@ -314,6 +314,125 @@ async def test_stress_hypothetical(session, seed_data, risk_engine):
 
 
 # ---------------------------------------------------------------------------
+# 10b. Hypothetical stress scales by beta (regression: was a flat echo)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stress_hypothetical_scales_by_beta(session, seed_data, risk_engine):
+    """stress_equity_minus_10 must scale with the security's beta_market.
+
+    Regression test: every security previously got the SAME raw shock_pct
+    (e.g. exactly -0.10 for "Equity -10%") regardless of its actual market
+    sensitivity. With beta_market=1.5 seeded, the exposure-adjusted stress
+    P&L must be -0.10 * 1.5 = -0.15, not the raw -0.10.
+    """
+    session.add(AnalyticsResult(
+        security_id=seed_data["security_id"],
+        entity_id=seed_data["entity_id"],
+        engine_id="E7",
+        metric_name="beta_market",
+        metric_category="STATISTICAL",
+        value=Decimal("1.5"),
+        unit="RATIO",
+        period="LATEST",
+        as_of_date=date.today(),
+        data_quality="COMPLETE",
+    ))
+    await session.flush()
+
+    outputs = await risk_engine.compute(session, seed_data["security_id"])
+    out_map = {o.metric_name: o.value for o in outputs}
+
+    assert "stress_equity_minus_10" in out_map
+    assert out_map["stress_equity_minus_10"] == pytest.approx(-0.10 * 1.5, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 10c. Historical stress test replays the scenario's actual date window
+#      (regression: previously always compounded the trailing 252 days
+#      from *today*, ignoring which historical scenario was requested)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_historical_stress_uses_scenario_window(session):
+    """run_stress_test('GFC_2008') must reflect prices during 2008-09-01..
+    2009-03-31 specifically, not a trailing window ending today.
+
+    Seeds a security with three distinct regimes: flat (0%/day) before the
+    GFC_2008 window, a severe -0.5%/day decline ONLY within the window, and
+    a long +0.3%/day rally afterward that runs well past 252 business days
+    (so it alone can fill an entire "trailing 252 returns" slice). The
+    correct pnl_percent is the compounded -0.5%/day crash over exactly the
+    scenario's business days. The old "trailing 252 days from *today*" code
+    fetched every row with no upper-date bound and took the *last* 252
+    returns of whatever it found -- here that is almost entirely the
+    post-window rally, nothing like the crash -- so a buggy vs. fixed
+    result would diverge sharply (a large positive vs. a large negative
+    pnl_percent).
+    """
+    from src.engines.e5_risk import RiskEngine
+
+    entity_id = uuid.uuid4()
+    security_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    session.add(Entity(
+        entity_id=entity_id, entity_type="PUBLIC_COMPANY",
+        legal_name="GFC Window Test Corp", status="ACTIVE", source="TEST",
+        created_at=now, updated_at=now,
+    ))
+    session.add(Security(
+        security_id=security_id, name="GFC Window Test Corp Common Stock",
+        short_name="GFCW", security_type="COMMON_STOCK", asset_class="EQUITY",
+        status="ACTIVE", issuer_entity_id=entity_id, created_at=now, updated_at=now,
+    ))
+    await session.flush()
+
+    scenario_start = date(2008, 9, 1)
+    scenario_end = date(2009, 3, 31)
+
+    # ~64 biz days flat before + ~152 crash days within the 7-month window
+    # + ~300 rally days after (comfortably > 252, so a naive "last 252
+    # returns" slice over the whole series lands entirely in the rally).
+    all_days = _business_days(date(2008, 6, 1), 520)
+
+    price = 100.0
+    expected_window_returns: list[float] = []
+    rows = []
+    for i, d in enumerate(all_days):
+        if i > 0:
+            if scenario_start <= d <= scenario_end:
+                daily_return = -0.005
+                expected_window_returns.append(daily_return)
+            elif d > scenario_end:
+                daily_return = 0.003
+            else:
+                daily_return = 0.0
+            price *= (1.0 + daily_return)
+        rows.append(EODPrice(
+            security_id=security_id, price_date=d,
+            open=price, high=price, low=price, close=price, close_adjusted=price,
+            volume=1_000_000, source="TEST", created_at=now,
+        ))
+    session.add_all(rows)
+    await session.flush()
+
+    expected_pnl = 1.0
+    for r in expected_window_returns:
+        expected_pnl *= (1.0 + r)
+    expected_pnl -= 1.0
+
+    engine = RiskEngine()
+    result = await engine.run_stress_test(session, security_id, "GFC_2008")
+
+    assert result is not None
+    assert result.pnl_percent == pytest.approx(expected_pnl, rel=1e-6)
+    # Sanity bound: a multi-month -0.5%/day decline is a severe crash, not
+    # the large positive figure a rally-tail read would produce.
+    assert result.pnl_percent < -0.30
+
+
+# ---------------------------------------------------------------------------
 # 11. No price data -> empty list (unknown security_id)
 # ---------------------------------------------------------------------------
 

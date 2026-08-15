@@ -88,7 +88,15 @@ class TestOhlsonOScore:
         assert result["probability_of_default"] > 0.9
 
     def test_oeneg_component_when_overleveraged(self):
-        """OENEG should be 0.285 when total liabilities exceed total assets."""
+        """OENEG should be -1.72 per Ohlson (1980) Model 1 when TL > TA.
+
+        Regression test: this previously asserted 0.285, which is actually
+        INTWO's coefficient (T8) copy-pasted onto OENEG (T7). The two
+        1/0 indicator terms are adjacent in the source and easy to
+        transpose; the published Model 1 coefficients are +0.285 for INTWO
+        and -1.72 for OENEG -- not interchangeable, even though both gate
+        the same kind of binary indicator.
+        """
         result = compute_ohlson_o_score(
             total_assets=100_000,
             total_liabilities=150_000,  # > total_assets
@@ -100,7 +108,7 @@ class TestOhlsonOScore:
             net_income_lag1=-3_000,
             total_assets_lag1=100_000,
         )
-        assert result["components"]["oeneg"] == 0.285
+        assert result["components"]["oeneg"] == -1.72
 
     def test_oeneg_component_when_solvent(self):
         """OENEG should be 0 when total liabilities < total assets."""

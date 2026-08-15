@@ -124,17 +124,24 @@ async def _load_returns(
     session: AsyncSession,
     security_id: UUID,
     lookback_days: int = 504,
+    end_date: date | None = None,
 ) -> tuple[list[date], list[float], list[float], list[float], list[float]]:
     """Load EOD prices and compute daily returns.
 
     Returns (dates, returns, close_prices, volumes, high_low_close_ratios).
+
+    ``end_date`` anchors the lookback window to a date other than today
+    (e.g. replaying a historical stress scenario window) -- defaults to
+    today, preserving the original "trailing window from now" behavior.
     """
-    cutoff = date.today() - timedelta(days=int(lookback_days * 1.6))
+    ref_date = end_date or date.today()
+    cutoff = ref_date - timedelta(days=int(lookback_days * 1.6))
     result = await session.execute(
         select(EODPrice)
         .where(
             EODPrice.security_id == security_id,
             EODPrice.price_date >= cutoff,
+            EODPrice.price_date <= ref_date,
         )
         .order_by(EODPrice.price_date)
     )
@@ -316,19 +323,43 @@ class RiskEngine(BaseEngine):
             ))
 
         # ── Stress tests (hypothetical) ──────────────────────────
+        # [Bug fix] Previously every security was given the SAME raw
+        # shock_pct as its stress P&L (e.g. every name showed exactly -20%
+        # under "Equity -20%", regardless of that security's actual market
+        # sensitivity). Scale by the security's beta (E7 QuantEngine's
+        # beta_market, read from AnalyticsResult; default to 1.0 -- "moves
+        # with the market" -- when no beta has been computed yet) so a
+        # low-beta defensive name and a high-beta cyclical show different,
+        # exposure-adjusted stress impacts.
+        #
+        # RATE_PLUS_* scenarios have no `shock_pct` (they carry
+        # `rate_shock_bps` instead) and are intentionally NOT modeled here:
+        # this engine has no equity interest-rate-duration proxy, and
+        # fabricating one would be worse than clearly omitting it -- use
+        # the FI duration/DV01 engines for rate-sensitivity on fixed-income
+        # securities instead.
+        beta = await self._get_metric(session, security_id, "beta_market")
+        beta_for_stress = beta if beta is not None else 1.0
         for scenario_name, scenario in HYPOTHETICAL_SCENARIOS.items():
-            if "shock_pct" in scenario:
-                shock = scenario["shock_pct"]
-                outputs.append(EngineOutput(
-                    security_id=security_id,
-                    entity_id=entity_id,
-                    engine_id=self.engine_id,
-                    metric_name=f"stress_{scenario_name.lower()}",
-                    metric_category="RISK",
-                    value=shock,
-                    unit="RATIO",
-                    inputs=[make_input("scenario", "stress", scenario_name)],
-                ))
+            if "shock_pct" not in scenario:
+                continue
+            shock = scenario["shock_pct"]
+            exposure_adjusted_pnl = shock * beta_for_stress
+            outputs.append(EngineOutput(
+                security_id=security_id,
+                entity_id=entity_id,
+                engine_id=self.engine_id,
+                metric_name=f"stress_{scenario_name.lower()}",
+                metric_category="RISK",
+                value=exposure_adjusted_pnl,
+                unit="RATIO",
+                data_quality="ESTIMATED" if beta is None else "COMPLETE",
+                inputs=[
+                    make_input("scenario", "stress", scenario_name),
+                    make_input("shock_pct", "stress", shock),
+                    make_input("beta_market", "E7_beta_market", beta_for_stress),
+                ],
+            ))
 
         # ── Liquidity metrics ─────────────────────────────────────
         recent_volumes = volumes[-60:] if len(volumes) >= 60 else volumes
@@ -673,17 +704,34 @@ class RiskEngine(BaseEngine):
                 data_quality="COMPLETE",
             )
         elif scenario_name in HISTORICAL_SCENARIOS:
-            # For historical, compute PnL from actual price data during that period
+            # For historical, compute PnL from actual price data during that period.
+            # [Bug fix] Previously ignored the scenario's actual date window
+            # entirely: it always compounded the trailing 252 daily returns
+            # ending TODAY, so "GFC_2008" and "COVID_2020" (and every other
+            # historical scenario) returned the IDENTICAL pnl_percent for a
+            # given security -- none of them replayed the named crisis.
             scenario = HISTORICAL_SCENARIOS[scenario_name]
-            _, returns, _, _, _ = await _load_returns(session, security_id, lookback_days=5000)
+            scenario_start = date.fromisoformat(scenario["start"])
+            scenario_end = date.fromisoformat(scenario["end"])
+            span_days = max((scenario_end - scenario_start).days, 1)
+            dates, returns, _, _, _ = await _load_returns(
+                session, security_id, lookback_days=span_days, end_date=scenario_end,
+            )
             if not returns:
                 return None
-            # Compound the trailing 1y of daily log/simple returns rather than
+            # returns[k] is dated dates[k+1] (see _load_returns: dates[0] has
+            # no preceding price to form a return from).
+            windowed = [
+                r for d, r in zip(dates[1:], returns)
+                if scenario_start <= d <= scenario_end
+            ]
+            if not windowed:
+                return None
+            # Compound the scenario-window daily returns rather than
             # annualising an arithmetic mean — the latter overstates returns
             # in volatile periods and ignores compounding.
-            window = returns[-252:]
             cumulative = 1.0
-            for r in window:
+            for r in windowed:
                 cumulative *= (1.0 + r)
             pnl = cumulative - 1.0
             result = StressTestResult(

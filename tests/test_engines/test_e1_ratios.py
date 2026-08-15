@@ -237,6 +237,23 @@ class TestLeverageRatios:
         # Both periods have same total_debt=500000, so pct_change=0, *100=0
         assert names["debt_growth_yoy"].value == pytest.approx(0.0)
 
+    def test_debt_growth_yoy_stores_fraction_not_percent(self):
+        """Regression test: debt_growth_yoy previously stored
+        pct_change() * 100, double-scaling relative to every sibling
+        growth metric (fcf_yoy, book_value_yoy, dividend_yoy, ...), which
+        all store the raw pct_change()/cagr() fraction directly."""
+        engine = RatioEngine()
+        latest = _make_snapshot(bs_overrides={"total_debt": 550_000})
+        prior = _make_snapshot(date(2023, 12, 31), 2023, bs_overrides={"total_debt": 500_000})
+        prior_3y = _make_snapshot(date(2021, 12, 31), 2021)
+        prior_5y = _make_snapshot(date(2019, 12, 31), 2019)
+        ctx = _make_context(snapshots=[latest, prior, prior_3y, prior_5y])
+        outputs = engine._leverage(ctx)
+        names = {o.metric_name: o for o in outputs}
+        assert "debt_growth_yoy" in names
+        # (550000 - 500000) / 500000 = 0.10 (a fraction, NOT 10.0)
+        assert names["debt_growth_yoy"].value == pytest.approx(0.10)
+
 
 class TestEfficiencyRatios:
     """Test efficiency category including new ratio."""
@@ -276,6 +293,22 @@ class TestGrowthRatios:
         assert "tangible_bvps_yoy" in names
         # Both snapshots have same tangible_book_value=600000, so 0%
         assert names["tangible_bvps_yoy"].value == pytest.approx(0.0)
+
+    def test_tangible_bvps_yoy_stores_fraction_not_percent(self):
+        """Regression test: tangible_bvps_yoy previously stored
+        pct_change() * 100, the same double-scaling bug as
+        debt_growth_yoy -- store the raw fraction."""
+        engine = RatioEngine()
+        latest = _make_snapshot(bs_overrides={"tangible_book_value": 660_000})
+        prior = _make_snapshot(date(2023, 12, 31), 2023, bs_overrides={"tangible_book_value": 600_000})
+        prior_3y = _make_snapshot(date(2021, 12, 31), 2021)
+        prior_5y = _make_snapshot(date(2019, 12, 31), 2019)
+        ctx = _make_context(snapshots=[latest, prior, prior_3y, prior_5y])
+        outputs = engine._growth(ctx)
+        names = {o.metric_name: o for o in outputs}
+        assert "tangible_bvps_yoy" in names
+        # (660000 - 600000) / 600000 = 0.10 (a fraction, NOT 10.0)
+        assert names["tangible_bvps_yoy"].value == pytest.approx(0.10)
 
     def test_debt_growth_3y_cagr(self):
         engine = RatioEngine()

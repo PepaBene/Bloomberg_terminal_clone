@@ -135,6 +135,86 @@ async def test_both_models_returned(session: AsyncSession, seeded_security_dupon
 
 
 @pytest.mark.asyncio
+async def test_roe_uses_ttm_flow_not_single_quarter(session: AsyncSession):
+    """Regression test: ROE flows must be summed over the trailing 4
+    quarters, not read from a single quarter.
+
+    Seeds 4 quarters each with net_income=18M / total_revenue=100M
+    (so TTM net_income=72M, TTM total_revenue=400M -- identical totals to
+    the single-quarter fixture above) against a single latest-quarter
+    balance sheet (total_assets=1B, total_equity=200M). Before the fix,
+    reading only the latest quarter's flows (18M / 100M) against the full
+    balance sheet understated margin/turnover/ROE by ~4x versus this TTM
+    figure (margin 0.18 vs the buggy 0.18/4-scale... concretely: buggy ROE
+    = 18M/200M = 0.09, correct ROE = 72M/200M = 0.36).
+    """
+    entity = Entity(
+        entity_id=uuid.uuid4(),
+        legal_name="DuPont TTM Test Corp",
+        entity_type="PUBLIC_COMPANY",
+        status="ACTIVE",
+        incorporation_country="US",
+        source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+
+    security = Security(
+        security_id=uuid.uuid4(),
+        name="DuPont TTM Test Corp Common Stock",
+        security_type="COMMON_STOCK",
+        asset_class="EQUITY",
+        status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+
+    quarter_ends = [date(2025, 3, 31), date(2024, 12, 31), date(2024, 9, 30), date(2024, 6, 30)]
+    for i, end_date in enumerate(quarter_ends):
+        fp = FinancialPeriod(
+            period_id=uuid.uuid4(),
+            entity_id=entity.entity_id,
+            period_end_date=end_date,
+            period_type="QUARTERLY",
+            fiscal_year=2025 if i == 0 else 2024,
+            fiscal_quarter=1 if i == 0 else 4 - i,
+        )
+        session.add(fp)
+        await session.flush()
+
+        session.add(IncomeStatement(
+            statement_id=uuid.uuid4(),
+            period_id=fp.period_id,
+            total_revenue=100_000_000.0,
+            operating_income=25_000_000.0,
+            pretax_income=22_500_000.0,
+            net_income=18_000_000.0,
+        ))
+        # Only the latest quarter needs a balance sheet (DuPont uses the
+        # most recent quarter with BOTH statements as its BS anchor).
+        if i == 0:
+            session.add(BalanceSheet(
+                statement_id=uuid.uuid4(),
+                period_id=fp.period_id,
+                total_assets=1_000_000_000.0,
+                total_equity=200_000_000.0,
+            ))
+        await session.flush()
+
+    engine = DuPontEngine()
+    results = await engine.compute(session, security_id=security.security_id)
+    by_name = {r.metric_name: r.value for r in results}
+
+    # TTM net_income = 4*18M = 72M, TTM total_revenue = 4*100M = 400M.
+    assert by_name["dupont_net_profit_margin"] == pytest.approx(72_000_000 / 400_000_000)
+    assert by_name["dupont_asset_turnover"] == pytest.approx(400_000_000 / 1_000_000_000)
+    assert by_name["dupont_equity_multiplier"] == pytest.approx(1_000_000_000 / 200_000_000)
+    assert by_name["dupont_roe_3f"] == pytest.approx(72_000_000 / 200_000_000)
+    assert by_name["dupont_roe_direct"] == pytest.approx(72_000_000 / 200_000_000)
+
+
+@pytest.mark.asyncio
 async def test_missing_data_returns_empty(session: AsyncSession):
     """No data at all should return empty list."""
     engine = DuPontEngine()

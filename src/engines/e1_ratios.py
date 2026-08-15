@@ -720,12 +720,16 @@ class RatioEngine(BaseEngine):
                              inputs=_mi([("ebitda", ebitda), ("interest_expense", interest),
                                          ("operating_lease_payments", lease_payments)])))
 
-        # Debt growth YoY = (total_debt / prior_total_debt - 1) * 100
+        # Debt growth YoY = total_debt / prior_total_debt - 1
+        # [Bug fix] was `debt_growth * 100`, double-scaling the fraction
+        # pct_change() already returns -- every sibling *_yoy/*_cagr metric
+        # in this engine (fcf_yoy, book_value_yoy, dividend_yoy, etc.)
+        # stores the raw pct_change()/cagr() fraction directly.
         prior_1y = self._prior(ctx.snapshots, 1)
         prior_total_debt = prior_1y.bv("total_debt") if prior_1y else None
         debt_growth = pct_change(total_debt, prior_total_debt)
         out.append(self._out(ctx, "debt_growth_yoy", CAT,
-                             debt_growth * 100 if debt_growth is not None else None, "PERCENT",
+                             debt_growth, "PERCENT",
                              inputs=_mi([("total_debt_current", total_debt),
                                          ("total_debt_prior", prior_total_debt)])))
 
@@ -962,11 +966,13 @@ class RatioEngine(BaseEngine):
                                          ("dividends_paid_3y_prior", div_3y_prior)])))
 
         # Tangible BVPS YoY
+        # [Bug fix] was `tbvps_yoy * 100`, the same double-scaling as
+        # debt_growth_yoy above -- store the raw pct_change() fraction.
         tbvps_curr = s.bv("tangible_book_value")
         tbvps_prior = prior_1y.bv("tangible_book_value") if prior_1y else None
         tbvps_yoy = pct_change(tbvps_curr, tbvps_prior)
         out.append(self._out(ctx, "tangible_bvps_yoy", CAT,
-                             tbvps_yoy * 100 if tbvps_yoy is not None else None, "PERCENT",
+                             tbvps_yoy, "PERCENT",
                              inputs=_mi([("tangible_bv_current", tbvps_curr),
                                          ("tangible_bv_prior", tbvps_prior)])))
 

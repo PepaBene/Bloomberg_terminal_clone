@@ -13,10 +13,11 @@ Covers:
 """
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engines.e4_screening import (
@@ -222,6 +223,92 @@ async def test_screen_filter_not_null(session, screening_data, screening_engine)
     ])
     result = await screening_engine.run_screen(session, filters)
     assert result.total_matches == 5
+
+
+@pytest.mark.asyncio
+async def test_screen_filter_uses_latest_value_not_any_historical(
+    session, screening_data, screening_engine
+):
+    """Regression test: analytics-sourced filters must only match a
+    security's LATEST value for a metric, not any historical snapshot.
+
+    Beta's roe is seeded at 0.08 (today). Seed a STALE prior-year roe=0.30
+    for Beta -- before the fix, "roe > 0.20" matched Beta via that stale
+    row even though its current roe (0.08) fails the filter.
+    """
+    beta_id = screening_data["BETA"]
+    beta_row = (await session.execute(
+        select(AnalyticsResult).where(
+            AnalyticsResult.security_id == beta_id,
+            AnalyticsResult.metric_name == "roe",
+        )
+    )).scalar_one()
+
+    session.add(AnalyticsResult(
+        result_id=uuid.uuid4(),
+        security_id=beta_id,
+        entity_id=beta_row.entity_id,
+        engine_id="E1",
+        metric_name="roe",
+        metric_category="PROFITABILITY",
+        value=0.30,
+        period="TTM",
+        as_of_date=date.today() - timedelta(days=365),
+    ))
+    await session.flush()
+
+    filters = ScreenFilterGroup(logic="AND", filters=[
+        ScreenFilter(field="roe", op="GT", value=0.20),
+    ])
+    result = await screening_engine.run_screen(session, filters)
+    matched_ids = {s.security_id for s in result.securities}
+
+    # Gamma (0.22) and Epsilon (0.25) still match on their current values;
+    # Beta must NOT match despite its stale roe=0.30 snapshot.
+    assert beta_id not in matched_ids
+    assert screening_data["GAMA"] in matched_ids
+    assert screening_data["EPSL"] in matched_ids
+
+
+@pytest.mark.asyncio
+async def test_screen_altman_zone_categorical_filter(session, screening_data, screening_engine):
+    """Regression test: altman_zone was unscreenable -- e3_altman.py stores
+    the classification string ("SAFE"/"GREY"/"DISTRESS") in
+    AnalyticsResult.data_quality (value stays None, since value is a
+    strict Numeric column), but screening always ran a NUMERIC comparison
+    against `value`, which is always None for this field.
+    """
+    safe_id = screening_data["ALPH"]
+    distress_id = screening_data["BETA"]
+
+    for sid, zone in [(safe_id, "SAFE"), (distress_id, "DISTRESS")]:
+        row = (await session.execute(
+            select(AnalyticsResult).where(
+                AnalyticsResult.security_id == sid,
+                AnalyticsResult.metric_name == "roe",
+            )
+        )).scalar_one()
+        session.add(AnalyticsResult(
+            result_id=uuid.uuid4(),
+            security_id=sid,
+            entity_id=row.entity_id,
+            engine_id="E3",
+            metric_name="altman_zone",
+            metric_category="QUALITY_SCORE",
+            value=None,
+            unit="CLASSIFICATION",
+            period="TTM",
+            as_of_date=date.today(),
+            data_quality="SAFE" if zone == "SAFE" else "DISTRESS",
+        ))
+    await session.flush()
+
+    filters = ScreenFilterGroup(logic="AND", filters=[
+        ScreenFilter(field="altman_zone", op="EQ", value="SAFE"),
+    ])
+    result = await screening_engine.run_screen(session, filters)
+    matched_ids = {s.security_id for s in result.securities}
+    assert matched_ids == {safe_id}
 
 
 # ---------------------------------------------------------------------------
