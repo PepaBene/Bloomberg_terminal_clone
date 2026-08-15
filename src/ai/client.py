@@ -27,6 +27,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from src.ai.models import DEFAULT_TIER, Tier, model_for_tier
+from src.ai.response_cache import get_cached_structured, get_cached_text, set_cached_structured, set_cached_text
 from src.ai.telemetry import AICallRecord, Usage, record_call
 
 logger = logging.getLogger(__name__)
@@ -225,16 +226,28 @@ class AIClient:
         cache_system: bool = True,
         user_id: str | None = None,
     ) -> str | None:
-        """Text-only helper. Returns None when disabled or on failure."""
+        """Text-only helper. Returns None when disabled or on failure.
+
+        §6's Redis full-response cache (src/ai/response_cache.py) sits in
+        front of the API call here -- a per-feature-configured hit skips
+        the call entirely, not just the token cost.
+        """
         if self._client is None:
             return None
+        resolved_model = model or model_for_tier(tier)
+        cached = await get_cached_text(feature=feature, model=resolved_model, system=system, user=user)
+        if cached is not None:
+            return cached
         try:
             resp = await self.complete(
-                user=user, system=system, tier=tier, model=model, max_tokens=max_tokens,
+                user=user, system=system, tier=tier, model=resolved_model, max_tokens=max_tokens,
                 temperature=temperature, feature=feature, cache_system=cache_system,
                 user_id=user_id,
             )
-            return resp.text or None
+            text = resp.text or None
+            if text:
+                await set_cached_text(feature=feature, model=resolved_model, system=system, user=user, text=text)
+            return text
         except Exception:
             logger.exception("complete_text failed (feature=%s)", feature)
             return None
@@ -253,9 +266,23 @@ class AIClient:
         cache_system: bool = True,
         user_id: str | None = None,
     ) -> T:
-        """Force the model to emit JSON matching ``response_model`` (tool_use)."""
+        """Force the model to emit JSON matching ``response_model`` (tool_use).
+
+        Same §6 Redis response cache as ``complete_text``. A cache hit is
+        re-validated through ``response_model`` (not blindly trusted) so a
+        prompt/schema change that makes an old cached shape invalid falls
+        through to a live call instead of raising.
+        """
         if self._client is None:
             raise RuntimeError("AI disabled: set ANTHROPIC_API_KEY and install 'anthropic'.")
+        resolved_model = model or model_for_tier(tier)
+        cached = await get_cached_structured(feature=feature, model=resolved_model, system=system, user=user)
+        if cached is not None:
+            try:
+                return response_model.model_validate(cached)
+            except Exception:
+                logger.info("cached structured response for feature=%s failed validation — recomputing", feature)
+
         tool_name = f"emit_{response_model.__name__}"
         tool = {
             "name": tool_name,
@@ -263,13 +290,16 @@ class AIClient:
             "input_schema": response_model.model_json_schema(),
         }
         resp = await self.complete(
-            user=user, system=system, tier=tier, model=model, max_tokens=max_tokens,
+            user=user, system=system, tier=tier, model=resolved_model, max_tokens=max_tokens,
             temperature=temperature, feature=feature, cache_system=cache_system,
             tools=[tool], tool_choice={"type": "tool", "name": tool_name}, user_id=user_id,
         )
         for block in resp.tool_uses:
             if getattr(block, "name", None) == tool_name:
-                return response_model.model_validate(getattr(block, "input", {}) or {})
+                raw = getattr(block, "input", {}) or {}
+                result = response_model.model_validate(raw)
+                await set_cached_structured(feature=feature, model=resolved_model, system=system, user=user, data=raw)
+                return result
         raise ValueError(f"structured output missing for {response_model.__name__}")
 
     async def stream(

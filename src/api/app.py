@@ -17,6 +17,7 @@ from src.api.auth.dependencies import get_current_user
 from src.api.middleware import RequestContextMiddleware
 from src.api.middleware.audit import AuditLogMiddleware
 from src.api.utils.field_selection import FieldSelectionMiddleware
+from src.cache.redis_cache import cache
 from src.config import settings
 from src.database import get_session_factory
 from src.models.analytics import AnalyticsResult
@@ -45,6 +46,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
 
+    # AI_THREE_LAYER_REBUILD_PLAN.md §6: Redis full-response cache. Never
+    # wired to app startup before this -- src/cache/redis_cache.py's
+    # `cache` singleton had no live connection anywhere, so every
+    # existing caller (src/api/reference.py) was silently always a miss.
+    # connect() is lazy (doesn't itself verify reachability), and every
+    # RedisCache method fails open on a connection error, so a
+    # misconfigured/unreachable Redis degrades to "no caching," never a
+    # startup failure.
+    try:
+        await cache.connect()
+        logger.info("Redis cache: connected")
+    except Exception as e:
+        logger.warning(f"Redis cache connect failed (continuing without caching): {e}")
+
     # [Bug 73 fix] Auto-seed on startup if DB is empty
     try:
         async with get_session_factory()() as session:
@@ -56,6 +71,10 @@ async def lifespan(app: FastAPI):
         logger.warning("Auto-seed failed to start: %s", e)
 
     yield
+    try:
+        await cache.close()
+    except Exception:
+        logger.debug("Redis cache close failed during shutdown", exc_info=True)
     logger.info("Bloomberg Data Fabric API shutting down")
 
 
