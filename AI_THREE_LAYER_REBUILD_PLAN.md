@@ -921,3 +921,33 @@ governance red flags, commodity/insider-narrative Pillar-3 bridging).
   redis-cache/response-cache suites from the prior increment -- 733
   passed against the pre-existing `CompanyPrimer(primer_id=...)` fixture
   failure set, zero regressions.
+- **§4.3 SECTOR/MACRO news propagation**: the one piece `_propagate`
+  (Phase 2.2) explicitly deferred -- it always passed `sector_entities={}`
+  to `news_propagation.propagate_event`, so a SECTOR- or MACRO-classified
+  article (e.g. "new regulation for the sector" or "Fed rate decision")
+  silently propagated to nobody, even though the pure engine function
+  already fully implements both paths and was already tested. Built the
+  missing roster query: `_build_sector_entities` first classifies the
+  article (the same pure, cheap `classify_event_for_propagation` call
+  `propagate_event` makes internally) so a SUPPLY_CHAIN/CUSTOMER/
+  COMPETITIVE article -- the overwhelming majority -- costs no extra
+  query. For a SECTOR event it queries only the source entity's own GICS
+  sector (via `Entity.gics_sector` -> `GICSClassification.sector_name`)
+  and its peers, excluding the source itself -- `propagate_event`'s
+  SECTOR branch fans out to every sector key present in the dict it's
+  given, so passing the *whole* GICS universe would have propagated a
+  single sector's news to every entity in every sector, not just its own.
+  For a MACRO event it queries entities across the four sectors
+  `news_propagation.py` already hardcodes as rate/inflation/employment-
+  sensitive (Financials, Real Estate, Utilities, Consumer Discretionary).
+  A `SECTOR_ROSTER_LIMIT = 200` caps how many peers one article can fan
+  out to, since SECTOR/MACRO events are broad by nature and an uncapped
+  roster could generate thousands of `PropagationEvent` rows from one
+  article. 5 new tests (sector fan-out, cross-sector exclusion, no-
+  gics-sector no-op, macro fan-out to a rate-sensitive sector, macro
+  no-op with no matching entities) plus the 21 pre-existing
+  `test_news_enrichment.py` tests all green; broad sweep across
+  `tests/test_ai/` + `tests/test_engines/` + `tests/test_ingestion/`:
+  3534 passed, only the same pre-existing unrelated failures
+  (`test_agency_bonds.py`'s mocked-HTTP tests, `test_earnings_surprise_
+  intelligence.py`'s zero-consensus edge cases).

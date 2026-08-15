@@ -29,9 +29,10 @@ from src.engines.news_entity_linker import (
     classify_topics,
     link_entities,
 )
-from src.engines.news_propagation import propagate_event
+from src.engines.news_propagation import classify_event_for_propagation, propagate_event
 from src.models.entity import Entity, EntityIdentifier, EntityName
 from src.models.news_article import ArticleEntityLink, NewsArticle, NewsSource, PropagationEvent
+from src.models.reference import GICSClassification
 from src.models.relationships import BusinessRelationship
 from src.models.security import Security, SecurityIdentifier
 
@@ -43,6 +44,18 @@ logger = logging.getLogger(__name__)
 CLUSTER_WINDOW_DAYS = 3
 
 _ALIAS_NAME_TYPES = ("TRADING", "ALIAS", "DBA", "SHORT", "PREVIOUS")
+
+# news_propagation.propagate_event's MACRO branch hardcodes these as the
+# sectors sensitive to rate_decision/employment/inflation events -- mirrored
+# here so the roster query only fetches entities for sectors that branch can
+# actually use, not the whole GICS universe.
+_MACRO_SENSITIVE_SECTOR_NAMES = ("Financials", "Real Estate", "Utilities", "Consumer Discretionary")
+
+# Caps how many sector/macro peers one article can fan out to. SECTOR/MACRO
+# events are broad by nature (a rate decision touches every Financials
+# entity) -- an uncapped roster would let one article generate thousands of
+# PropagationEvent rows.
+SECTOR_ROSTER_LIMIT = 200
 
 
 async def build_entity_lookup(session: AsyncSession) -> dict:
@@ -212,15 +225,96 @@ async def _cluster_and_score_credibility(session: AsyncSession, article: NewsArt
     )
 
 
+async def _sector_name_for_entity(
+    session: AsyncSession, entity_id: uuid.UUID
+) -> tuple[str, str] | None:
+    """``(sector_code, sector_name)`` for ``entity_id``'s own GICS sector,
+    or ``None`` if it has no sector assigned or the code isn't in the GICS
+    reference table."""
+    entity = await session.get(Entity, entity_id)
+    if entity is None or not entity.gics_sector:
+        return None
+    sector_name = (
+        await session.execute(
+            select(GICSClassification.sector_name)
+            .where(GICSClassification.sector_code == entity.gics_sector)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if sector_name is None:
+        return None
+    return entity.gics_sector, sector_name
+
+
+async def _entities_in_sector(
+    session: AsyncSession, sector_code: str, *, exclude_entity_id: uuid.UUID
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            select(Entity.entity_id)
+            .where(Entity.gics_sector == sector_code, Entity.entity_id != exclude_entity_id)
+            .limit(SECTOR_ROSTER_LIMIT)
+        )
+    ).scalars().all()
+    return [{"entity_id": str(eid)} for eid in rows]
+
+
+async def _build_sector_entities(
+    session: AsyncSession, article: NewsArticle, *, primary_entity_id: uuid.UUID
+) -> dict[str, list[dict]]:
+    """§4.3: the GICS-sector roster ``propagate_event`` needs for SECTOR/
+    MACRO propagation, built only for the propagation type this article
+    actually classifies as -- a SUPPLY_CHAIN/CUSTOMER/COMPETITIVE article
+    (the overwhelming majority) costs no extra query.
+
+    For a SECTOR event, ``propagate_event`` fans out to every sector
+    present as a key in the returned dict -- so this returns only the
+    source entity's OWN sector, not the whole GICS universe, or every
+    SECTOR-classified article would propagate to every entity in every
+    sector regardless of relevance.
+    """
+    classification = classify_event_for_propagation({
+        "title": article.title,
+        "text": article.body_text or article.summary or "",
+        "topics": article.topics or [],
+        "materiality": article.materiality,
+    })
+    if classification is None:
+        return {}
+    _, propagation_type = classification
+
+    if propagation_type == "SECTOR":
+        own_sector = await _sector_name_for_entity(session, primary_entity_id)
+        if own_sector is None:
+            return {}
+        sector_code, sector_name = own_sector
+        peers = await _entities_in_sector(session, sector_code, exclude_entity_id=primary_entity_id)
+        return {sector_name: peers} if peers else {}
+
+    if propagation_type == "MACRO":
+        rows = (
+            await session.execute(
+                select(GICSClassification.sector_name, GICSClassification.sector_code)
+                .where(GICSClassification.sector_name.in_(_MACRO_SENSITIVE_SECTOR_NAMES))
+                .distinct()
+            )
+        ).all()
+        sector_entities: dict[str, list[dict]] = {}
+        for sector_name, sector_code in rows:
+            peers = await _entities_in_sector(session, sector_code, exclude_entity_id=primary_entity_id)
+            if peers:
+                sector_entities[sector_name] = peers
+        return sector_entities
+
+    return {}
+
+
 async def _propagate(
     session: AsyncSession, article: NewsArticle, *, primary_entity_id: uuid.UUID | None
 ) -> None:
-    """Entity-to-entity propagation only (SUPPLY_CHAIN/CUSTOMER/COMPETITIVE
-    hop-1, via real ``BusinessRelationship`` rows). SECTOR/MACRO
-    propagation needs a full GICS-sector entity roster this pass doesn't
-    build (querying/grouping the entire entity universe per article) -- a
-    real, mechanical follow-up, not scoped out for a design reason.
-    """
+    """Entity-to-entity propagation (SUPPLY_CHAIN/CUSTOMER/COMPETITIVE
+    hop-1, via real ``BusinessRelationship`` rows) plus SECTOR/MACRO
+    propagation across a real GICS-sector entity roster (§4.3)."""
     if primary_entity_id is None or article.is_propagated:
         return
 
@@ -232,8 +326,6 @@ async def _propagate(
             )
         )
     ).scalars().all()
-    if not rel_rows:
-        return
 
     relationships = [
         {
@@ -244,6 +336,10 @@ async def _propagate(
         }
         for r in rel_rows
     ]
+    sector_entities = await _build_sector_entities(session, article, primary_entity_id=primary_entity_id)
+    if not relationships and not sector_entities:
+        return
+
     result = propagate_event(
         source_entity_id=str(primary_entity_id),
         article_data={
@@ -253,7 +349,7 @@ async def _propagate(
             "materiality": article.materiality,
         },
         relationships=relationships,
-        sector_entities={},
+        sector_entities=sector_entities,
     )
     if result is None or not result.targets:
         return

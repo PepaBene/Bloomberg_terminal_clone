@@ -17,6 +17,7 @@ from src.ingestion.news_enrichment import (
 )
 from src.models.entity import Entity, EntityIdentifier, EntityName
 from src.models.news_article import ArticleEntityLink, NewsArticle, NewsSource, PropagationEvent
+from src.models.reference import GICSClassification
 from src.models.relationships import BusinessRelationship
 from src.models.security import Security, SecurityIdentifier
 
@@ -329,6 +330,141 @@ async def test_enrich_article_no_propagation_without_primary_entity(session):
         title="Some company files for bankruptcy",
     )
     await enrich_article(session, article, entity_lookup=await build_entity_lookup(session), primary_entity_id=None)
+    await session.flush()
+
+    assert article.is_propagated is False
+
+
+async def _seed_gics_sector(session, *, sector_code, sector_name) -> None:
+    session.add(GICSClassification(
+        sub_industry_code=f"{sector_code}0000",
+        sector_code=sector_code,
+        sector_name=sector_name,
+        industry_group_code=f"{sector_code}00",
+        industry_group_name=f"{sector_name} Group",
+        industry_code=f"{sector_code}000",
+        industry_name=f"{sector_name} Industry",
+        sub_industry_name=f"{sector_name} Sub-Industry",
+    ))
+    await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_propagates_to_sector_peers(session):
+    """§4.3: a SECTOR-classified article fans out to peer entities sharing
+    the source entity's own GICS sector, via a real roster query -- not the
+    dict-literal ``{}`` this used to be hardcoded to."""
+    await _seed_gics_sector(session, sector_code="20", sector_name="Industrials")
+    source_entity = await _seed_entity(session, legal_name="Acme Industrial Corp")
+    source_entity.gics_sector = "20"
+    peer_entity = await _seed_entity(session, legal_name="Beta Industrial Corp")
+    peer_entity.gics_sector = "20"
+    await session.flush()
+
+    article = await _seed_article(
+        session, source_url="https://reuters.com/industrials-regulation",
+        title="New regulatory rules imposed on industrial manufacturers",
+        summary="A sweeping new regulation affects the whole sector.",
+    )
+    lookup = await build_entity_lookup(session)
+    await enrich_article(session, article, entity_lookup=lookup, primary_entity_id=source_entity.entity_id)
+    await session.flush()
+
+    assert article.is_propagated is True
+    events = (
+        await session.execute(
+            select(PropagationEvent).where(PropagationEvent.source_article_id == article.id)
+        )
+    ).scalars().all()
+    assert len(events) == 1
+    assert events[0].target_entity_id == peer_entity.entity_id
+    assert events[0].propagation_type == "SECTOR"
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_sector_propagation_excludes_other_sectors(session):
+    await _seed_gics_sector(session, sector_code="20", sector_name="Industrials")
+    await _seed_gics_sector(session, sector_code="40", sector_name="Financials")
+    source_entity = await _seed_entity(session, legal_name="Acme Industrial Corp")
+    source_entity.gics_sector = "20"
+    other_sector_entity = await _seed_entity(session, legal_name="Gamma Bank Corp")
+    other_sector_entity.gics_sector = "40"
+    await session.flush()
+
+    article = await _seed_article(
+        session, source_url="https://reuters.com/industrials-regulation-2",
+        title="New regulatory compliance rules for industrial manufacturers",
+    )
+    lookup = await build_entity_lookup(session)
+    await enrich_article(session, article, entity_lookup=lookup, primary_entity_id=source_entity.entity_id)
+    await session.flush()
+
+    events = (
+        await session.execute(
+            select(PropagationEvent).where(PropagationEvent.source_article_id == article.id)
+        )
+    ).scalars().all()
+    assert events == []  # only sector peer would be Financials, which isn't Industrials
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_no_sector_propagation_without_gics_sector(session):
+    source_entity = await _seed_entity(session, legal_name="Acme Unclassified Corp")
+    # gics_sector left unset (None)
+    article = await _seed_article(
+        session, source_url="https://reuters.com/unclassified-regulation",
+        title="New regulatory rules imposed on this company",
+    )
+    lookup = await build_entity_lookup(session)
+    await enrich_article(session, article, entity_lookup=lookup, primary_entity_id=source_entity.entity_id)
+    await session.flush()
+
+    assert article.is_propagated is False
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_propagates_macro_event_to_sensitive_sectors(session):
+    """§4.3: a MACRO-classified article (e.g. a Fed rate decision) fans out
+    to entities in the sectors news_propagation.py hardcodes as rate-
+    sensitive (Financials/Real Estate/Utilities), regardless of the source
+    entity's own sector."""
+    await _seed_gics_sector(session, sector_code="40", sector_name="Financials")
+    await _seed_gics_sector(session, sector_code="20", sector_name="Industrials")
+    source_entity = await _seed_entity(session, legal_name="Acme Industrial Corp")
+    source_entity.gics_sector = "20"
+    financials_peer = await _seed_entity(session, legal_name="Gamma Bank Corp")
+    financials_peer.gics_sector = "40"
+    await session.flush()
+
+    article = await _seed_article(
+        session, source_url="https://reuters.com/fed-rate-decision",
+        title="Federal Reserve announces interest rate decision",
+        summary="The Fed's rate decision affects rate-sensitive sectors broadly.",
+    )
+    lookup = await build_entity_lookup(session)
+    await enrich_article(session, article, entity_lookup=lookup, primary_entity_id=source_entity.entity_id)
+    await session.flush()
+
+    assert article.is_propagated is True
+    events = (
+        await session.execute(
+            select(PropagationEvent).where(PropagationEvent.source_article_id == article.id)
+        )
+    ).scalars().all()
+    assert len(events) == 1
+    assert events[0].target_entity_id == financials_peer.entity_id
+    assert events[0].propagation_type == "MACRO"
+
+
+@pytest.mark.asyncio
+async def test_enrich_article_macro_propagation_with_no_matching_entities_is_noop(session):
+    source_entity = await _seed_entity(session, legal_name="Acme Industrial Corp")
+    article = await _seed_article(
+        session, source_url="https://reuters.com/fed-rate-decision-2",
+        title="Federal Reserve announces interest rate decision",
+    )
+    lookup = await build_entity_lookup(session)
+    await enrich_article(session, article, entity_lookup=lookup, primary_entity_id=source_entity.entity_id)
     await session.flush()
 
     assert article.is_propagated is False
