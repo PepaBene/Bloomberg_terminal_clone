@@ -12,26 +12,46 @@ check_pretrade_compliance`` below is that same logic, extracted so both
 the existing endpoint and the new adviser tool share one implementation
 instead of two copies that could drift apart.
 
-Known, deliberate gaps (real portfolio data this app doesn't have in an
-easily joinable form, not guessed): no per-ticker factor loadings (so
-``compute_whatif``'s factor-impact dimension is always empty), no
-per-ticker VaR/correlation data (so its risk-impact dimension degrades to
-the engine's own "scale by volatility ratio" fallback), and ``Position``
-has no ``sector`` column (so drift's sector dimension is skipped).
+``compute_whatif``'s factor/VaR/correlation dimensions are wired to real
+per-security analytics (``AnalyticsResult``'s FACTOR category,
+``VaRResult``, and a correlation matrix computed on demand from
+``EODPrice`` returns -- see ``_factor_data_for_tickers``/
+``_risk_metrics_for_tickers``/``_correlation_matrix_for_tickers`` below),
+not guessed placeholders. A ticker with no matching security_id or no
+analytics rows yet simply has no entry in these dicts --
+``whatif_engine``'s own documented fallbacks (beta defaults to 1.0,
+volatility to current portfolio volatility, that ticker excluded from
+the parametric VaR sum) already handle that gracefully.
+
+Remaining, still-deliberate gap: ``Position`` has no ``sector`` column,
+so drift's sector dimension is skipped.
 """
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engines import drift_engine, trade_list_engine, whatif_engine
+from src.models.analytics import AnalyticsResult
 from src.models.compliance import ComplianceRule, DriftSnapshot
 from src.models.portfolio import Portfolio
 from src.models.portfolio_risk import PortfolioVarSnapshot
 from src.models.position import Position
+from src.models.risk import VaRResult
+from src.models.security import EODPrice, SecurityIdentifier
+
+# How far back to pull daily prices for the on-demand pairwise correlation
+# matrix. Matches e7_quant.py's own lookback convention (its
+# ``_load_price_series`` default is 756 trading days / ~3y); this uses a
+# shorter, cheaper window since whatif's correlation input only needs to
+# be "recent enough to be representative," not a long-horizon factor input.
+CORRELATION_LOOKBACK_DAYS = 252
+MIN_CORRELATION_OBSERVATIONS = 20
 
 
 async def get_portfolio(session: AsyncSession, portfolio_id: uuid.UUID) -> Portfolio | None:
@@ -45,23 +65,41 @@ async def load_open_positions(session: AsyncSession, portfolio_id: uuid.UUID) ->
     return list(rows.scalars().all())
 
 
-def position_dicts(positions: list[Position]) -> list[dict]:
+def position_dicts(
+    positions: list[Position],
+    *,
+    beta_by_ticker: dict[str, float] | None = None,
+    volatility_by_ticker: dict[str, float] | None = None,
+) -> list[dict]:
     """``Position`` rows -> the shape ``whatif_engine``/``drift_engine``
     expect. ``Position.weight`` is stored as a 0-1 fraction
     (``market_value / nav``, see ``portfolios.py``); these engines expect
     a 0-100 percentage (their own docstrings: "weight is a percentage,
     e.g. 10.0 = 10%") -- this is the one place that unit conversion
     happens, so it isn't silently wrong at every call site.
+
+    ``beta_by_ticker``/``volatility_by_ticker`` are optional and only
+    used by ``compute_whatif`` (``estimate_risk_impact`` reads ``beta``/
+    ``volatility`` straight off each position dict) -- ``compute_drift``/
+    ``build_trade_list`` call this without them, so a missing key per
+    position is the normal case there, not an oversight.
     """
-    return [
-        {
+    beta_by_ticker = beta_by_ticker or {}
+    volatility_by_ticker = volatility_by_ticker or {}
+    out = []
+    for p in positions:
+        d = {
             "ticker": p.ticker,
             "shares": float(p.shares or 0),
             "market_value": float(p.market_value or 0),
             "weight": float(p.weight or 0) * 100.0,
         }
-        for p in positions
-    ]
+        if p.ticker in beta_by_ticker:
+            d["beta"] = beta_by_ticker[p.ticker]
+        if p.ticker in volatility_by_ticker:
+            d["volatility"] = volatility_by_ticker[p.ticker]
+        out.append(d)
+    return out
 
 
 def portfolio_nav(portfolio: Portfolio, positions: list[Position]) -> float:
@@ -123,6 +161,218 @@ async def _compliance_rules_for_whatif(session: AsyncSession, portfolio_id: uuid
     return out
 
 
+async def _resolve_security_ids(
+    session: AsyncSession, positions: list[Position], proposed_trades: list[dict],
+) -> dict[str, uuid.UUID]:
+    """``{ticker: security_id}`` for every ticker a what-if run touches --
+    currently-held positions (which already carry ``security_id``) plus
+    any newly-traded ticker not currently held, resolved via
+    ``SecurityIdentifier`` (TICKER type), the same lookup pattern
+    ``e2_wacc.py``'s benchmark-security resolution uses. A ticker that
+    can't be resolved either way (unknown symbol, or a held position with
+    no ``security_id`` populated) is simply absent from the returned map
+    -- every downstream helper here treats that as "no analytics data for
+    this ticker," which is factually true, not a bug to work around.
+    """
+    ticker_to_id: dict[str, uuid.UUID] = {
+        p.ticker: p.security_id for p in positions if p.security_id is not None
+    }
+    unresolved = {
+        t.get("ticker") for t in proposed_trades
+        if t.get("ticker") and t.get("ticker") not in ticker_to_id
+    }
+    if unresolved:
+        rows = (
+            await session.execute(
+                select(SecurityIdentifier.identifier_value, SecurityIdentifier.security_id)
+                .where(
+                    SecurityIdentifier.identifier_type == "TICKER",
+                    SecurityIdentifier.identifier_value.in_(unresolved),
+                )
+            )
+        ).all()
+        for ticker, security_id in rows:
+            ticker_to_id.setdefault(ticker, security_id)
+    return ticker_to_id
+
+
+async def _factor_data_for_tickers(
+    session: AsyncSession, ticker_to_security_id: dict[str, uuid.UUID],
+) -> dict[str, dict[str, float]]:
+    """§whatif factor-impact dimension: real per-security factor loadings
+    from ``AnalyticsResult``'s FACTOR category (momentum/low-vol/value/
+    size/quality/growth/dividend -- raw ratios, written by
+    ``e5_risk.py::_compute_factor_exposures``, not z-scores). A ticker
+    with no FACTOR rows yet is simply absent --
+    ``estimate_factor_impact`` already excludes it from the weighted
+    average rather than erroring.
+    """
+    out: dict[str, dict[str, float]] = {}
+    for ticker, security_id in ticker_to_security_id.items():
+        rows = (
+            await session.execute(
+                select(AnalyticsResult.metric_name, AnalyticsResult.value)
+                .where(
+                    AnalyticsResult.security_id == security_id,
+                    AnalyticsResult.metric_category == "FACTOR",
+                )
+                .order_by(AnalyticsResult.as_of_date.desc())
+            )
+        ).all()
+        latest: dict[str, float] = {}
+        for metric_name, value in rows:
+            if value is not None and metric_name not in latest:
+                latest[metric_name] = float(value)
+        if latest:
+            out[ticker] = latest
+    return out
+
+
+async def _risk_metrics_for_tickers(
+    session: AsyncSession,
+    ticker_to_security_id: dict[str, uuid.UUID],
+    market_value_by_ticker: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    """§whatif risk-impact dimension: real per-security VaR/volatility/beta,
+    keyed by ticker. Returns ``(individual_vars, volatility, beta)``.
+
+    ``individual_vars`` is in dollar terms (``VaRResult.var_value``, a
+    proportional 1-day-95%-VaR ratio, scaled by that ticker's current
+    ``market_value``) -- matching ``estimate_risk_impact``'s documented
+    "dollar terms or proportional to market value" contract and directly
+    comparable to ``current_risk["var_95"]``, which is likewise a dollar
+    figure whenever a ``PortfolioVarSnapshot`` exists.
+
+    Filters ``confidence_level`` in Python rather than SQL: it's a
+    ``Numeric(4,2)`` column, and comparing the ``Decimal`` SQLAlchemy
+    returns against the Python float literal ``0.95`` can be
+    False even for the "same" value (0.95 has no exact binary
+    representation), so an exact-equality WHERE clause is a real
+    footgun here -- a tolerance comparison after fetching sidesteps it.
+    """
+    individual_vars: dict[str, float] = {}
+    volatility: dict[str, float] = {}
+    beta: dict[str, float] = {}
+
+    for ticker, security_id in ticker_to_security_id.items():
+        var_rows = (
+            await session.execute(
+                select(VaRResult)
+                .where(
+                    VaRResult.security_id == security_id,
+                    VaRResult.method == "HISTORICAL",
+                    VaRResult.holding_period_days == 1,
+                )
+                .order_by(VaRResult.calculation_date.desc())
+                .limit(10)
+            )
+        ).scalars().all()
+        var_row = next(
+            (r for r in var_rows if r.confidence_level is not None and abs(float(r.confidence_level) - 0.95) < 0.01),
+            None,
+        )
+        if var_row is not None:
+            if var_row.var_value is not None:
+                individual_vars[ticker] = float(var_row.var_value) * market_value_by_ticker.get(ticker, 0.0)
+            if var_row.annualized_volatility is not None:
+                volatility[ticker] = float(var_row.annualized_volatility)
+
+        beta_val = (
+            await session.execute(
+                select(AnalyticsResult.value)
+                .where(
+                    AnalyticsResult.security_id == security_id,
+                    AnalyticsResult.metric_name == "beta_market",
+                )
+                .order_by(AnalyticsResult.as_of_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if beta_val is not None:
+            beta[ticker] = float(beta_val)
+
+    return individual_vars, volatility, beta
+
+
+async def _returns_by_ticker(
+    session: AsyncSession, ticker_to_security_id: dict[str, uuid.UUID],
+) -> dict[str, dict[date, float]]:
+    """``{ticker: {price_date: daily_return}}`` from ``EODPrice``, for
+    pairwise correlation. Keyed by date rather than a plain list so
+    ``_pearson_correlation`` can align on the dates two tickers actually
+    share -- different securities don't always have the same trading-day
+    set (different listing histories, different exchange holidays).
+    """
+    out: dict[str, dict[date, float]] = {}
+    cutoff = date.today() - timedelta(days=int(CORRELATION_LOOKBACK_DAYS * 1.6))
+    for ticker, security_id in ticker_to_security_id.items():
+        rows = (
+            await session.execute(
+                select(EODPrice.price_date, EODPrice.close_adjusted, EODPrice.close)
+                .where(EODPrice.security_id == security_id, EODPrice.price_date >= cutoff)
+                .order_by(EODPrice.price_date)
+            )
+        ).all()
+        prices: list[tuple[date, float]] = []
+        for price_date, close_adjusted, close in rows:
+            p = float(close_adjusted or close or 0)
+            if p > 0:
+                prices.append((price_date, p))
+        returns: dict[date, float] = {}
+        for i in range(1, len(prices)):
+            prev_date, prev_price = prices[i - 1]
+            cur_date, cur_price = prices[i]
+            if prev_price > 0:
+                returns[cur_date] = (cur_price - prev_price) / prev_price
+        if returns:
+            out[ticker] = returns
+    return out
+
+
+def _pearson_correlation(a: dict[date, float], b: dict[date, float]) -> float | None:
+    """Pure. Correlation over the dates both return series actually
+    share; ``None`` (not 0.0) below ``MIN_CORRELATION_OBSERVATIONS`` --
+    too little overlap to be a meaningful estimate, and the caller should
+    omit the pair rather than assert a false "uncorrelated" reading.
+    """
+    shared = sorted(set(a) & set(b))
+    if len(shared) < MIN_CORRELATION_OBSERVATIONS:
+        return None
+    xs = [a[d] for d in shared]
+    ys = [b[d] for d in shared]
+    n = len(xs)
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = sum((x - mean_x) ** 2 for x in xs)
+    var_y = sum((y - mean_y) ** 2 for y in ys)
+    if var_x <= 0 or var_y <= 0:
+        return None
+    return covariance / math.sqrt(var_x * var_y)
+
+
+async def _correlation_matrix_for_tickers(
+    session: AsyncSession, ticker_to_security_id: dict[str, uuid.UUID],
+) -> dict[str, dict[str, float]]:
+    """§whatif's on-demand pairwise correlation matrix -- computed from
+    real ``EODPrice`` returns rather than a systematic stored correlation
+    table (none exists in this codebase; ``CorrelationResult`` is only
+    ever written on-demand for an arbitrary caller-chosen pair via
+    ``POST /v1/quant/correlation``, not for a portfolio's holdings).
+    """
+    returns = await _returns_by_ticker(session, ticker_to_security_id)
+    tickers = list(returns.keys())
+    matrix: dict[str, dict[str, float]] = {}
+    for i, ticker_a in enumerate(tickers):
+        for ticker_b in tickers[i + 1:]:
+            corr = _pearson_correlation(returns[ticker_a], returns[ticker_b])
+            if corr is None:
+                continue
+            matrix.setdefault(ticker_a, {})[ticker_b] = corr
+            matrix.setdefault(ticker_b, {})[ticker_a] = corr
+    return matrix
+
+
 async def compute_whatif(
     session: AsyncSession, portfolio_id: uuid.UUID, proposed_trades: list[dict],
 ) -> whatif_engine.WhatIfResult | None:
@@ -136,17 +386,27 @@ async def compute_whatif(
     risk_data = await latest_var_95(session, portfolio_id)
     compliance_rules = await _compliance_rules_for_whatif(session, portfolio_id)
 
+    ticker_to_security_id = await _resolve_security_ids(session, positions, proposed_trades)
+    market_value_by_ticker = {p.ticker: float(p.market_value or 0) for p in positions}
+    factor_data = await _factor_data_for_tickers(session, ticker_to_security_id)
+    individual_vars, volatility_by_ticker, beta_by_ticker = await _risk_metrics_for_tickers(
+        session, ticker_to_security_id, market_value_by_ticker,
+    )
+    correlation_matrix = await _correlation_matrix_for_tickers(session, ticker_to_security_id)
+
     return whatif_engine.run_whatif_analysis(
         portfolio_id=str(portfolio_id),
-        positions=position_dicts(positions),
+        positions=position_dicts(
+            positions, beta_by_ticker=beta_by_ticker, volatility_by_ticker=volatility_by_ticker,
+        ),
         proposed_trades=proposed_trades,
         portfolio_nav=nav,
         risk_data=risk_data,
-        factor_data={},
+        factor_data=factor_data,
         compliance_rules=compliance_rules,
         compliance_context={"risk_data": risk_data},
-        individual_vars={},
-        correlation_matrix={},
+        individual_vars=individual_vars,
+        correlation_matrix=correlation_matrix,
     )
 
 
