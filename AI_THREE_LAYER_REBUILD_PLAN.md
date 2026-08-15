@@ -994,7 +994,49 @@ governance red flags, commodity/insider-narrative Pillar-3 bridging).
 **All of "Do the rest" is now done**: §6's shared-foundation items (Redis
 response cache, eval harness in CI -- Anthropic prompt-caching was already
 in place), §4.3's deferred SECTOR/MACRO propagation, and §8's frontend gap
-are all closed. Remaining gaps are the ones documented inline as genuine,
-narrower follow-ups rather than missing layers: per-ticker factor/VaR data
-for whatif, DEF 14A structural-provision text-mining for governance red
-flags, and commodity/insider-narrative Pillar-3 bridging.
+are all closed.
+
+### "Do the remaining gaps" — the three explicitly-documented follow-ups
+
+- **§5.1 whatif factor/VaR/correlation data** -- complete. See the Phase
+  3-era "Known, deliberate gaps" note in `src/services/portfolio_advisory.py`'s
+  module docstring for what changed: per-security factor loadings, VaR,
+  volatility, and beta all turned out to already be computed and
+  persisted by the analytics engines (`e5_risk.py`/`e7_quant.py`) --
+  `compute_whatif` just never read them. Only a systematic pairwise
+  correlation matrix genuinely didn't exist anywhere, and is now computed
+  on demand from `EODPrice` returns. New helpers:
+  `_resolve_security_ids` (ticker -> security_id for both held positions
+  and newly-traded tickers not yet held), `_factor_data_for_tickers`,
+  `_risk_metrics_for_tickers`, `_correlation_matrix_for_tickers` +
+  `_pearson_correlation`. 20 new tests, 321 passed across
+  `tests/test_services/` + `tests/test_api/test_portfolio_advisor_api.py`
+  + `tests/test_ai/`, zero regressions.
+- **§4.7 DEF 14A structural red-flag text-mining** -- complete. New
+  `src/ingestion/proxy_red_flags.py`: pure regex-based extractors for
+  the five structural flags `scripts/compute_governance_assessments.py`
+  previously left out entirely (dual-class shares, poison pill,
+  staggered board, majority voting, related-party transactions). Same
+  honesty contract as `edgar_proxy.py`/`edgar_esg.py`: a flag is only
+  ever set when the text gives a definite answer; ambiguous or absent
+  evidence returns `None` and the key is simply omitted (governance_
+  scoring.py's own `.get(key)` semantics already handle that correctly).
+  Related-party transactions needed special care: Item 404 disclosure is
+  a *required* section present in nearly every proxy whether or not
+  there's anything to report, so the section header alone isn't
+  evidence -- only an explicit "none to report" negation or a described
+  transaction with a dollar figure counts. `compute_governance_
+  assessments.py` now fetches each proxy's body via
+  `EdgarProxyConnector._fetch_body` (reusing its existing rate-limited
+  SEC fetch path rather than a second httpx client) and merges the mined
+  flags into `governance_data` before scoring -- on by default
+  (`--no-mine-red-flags` to opt out), matching this codebase's "opt into
+  the one piece of network I/O at the production entry point" convention
+  from `news_enrichment.py::enrich_new_articles`. 33 new tests (20 pure
+  text-mining + 4 `_mine_red_flags_for_proxy` wiring + the 9 pre-existing
+  `_build_governance_data` tests, unmodified and still passing); broad
+  sweep across `tests/test_ingestion/` + `tests/test_engines/
+  test_governance_scoring.py`: 309 passed, only the same pre-existing
+  unrelated `test_agency_bonds.py` failures.
+- **§4.7 commodity + insider/congressional narrative bridging** -- not
+  yet done as of this entry (in progress).

@@ -6,12 +6,22 @@ covered by tests/test_engines/test_governance_scoring.py. The rest of the
 script (run/_upsert) is DB orchestration via get_session_factory(),
 untestable against this suite's SQLite engine -- same situation as
 scripts/interpret_batch.py/backfill.py, verified via py_compile/ast only.
+
+_mine_red_flags_for_proxy is the exception: it only needs a fake
+connector (duck-typed async _fetch_body) and a plain ProxyFiling object
+with a filing_url, neither of which touches a DB session -- so it's
+tested directly, same as the pure text-mining it wraps
+(tests/test_ingestion/test_proxy_red_flags.py).
 """
 from __future__ import annotations
 
+import uuid
+from datetime import date
 from decimal import Decimal
 
-from src.models.governance_intelligence import BoardMember, ExecutiveCompensation
+import pytest
+
+from src.models.governance_intelligence import BoardMember, ExecutiveCompensation, ProxyFiling
 
 # Import via importlib since "scripts" isn't a package with an __init__.py
 # on the normal import path in this test run.
@@ -27,6 +37,7 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 sys.modules["compute_governance_assessments"] = _MODULE
 _SPEC.loader.exec_module(_MODULE)
 _build_governance_data = _MODULE._build_governance_data
+_mine_red_flags_for_proxy = _MODULE._mine_red_flags_for_proxy
 
 
 def _board_member(**kwargs) -> BoardMember:
@@ -105,9 +116,72 @@ class TestBuildGovernanceData:
     def test_structural_flags_never_fabricated(self):
         """dual_class/poison_pill/staggered_board/related_party/majority_voting
         are never in the returned dict -- the engine's own .get() defaults
-        (no evidence = flag not raised, except majority_voting) apply."""
+        (no evidence = flag not raised, except majority_voting) apply.
+        (Mining them from DEF 14A body text is a separate step --
+        _mine_red_flags_for_proxy, tested below -- run() merges its
+        result into governance_data after this function returns.)"""
         board = [_board_member()]
         exec_comp = [_exec_comp()]
         governance_data, _ = _build_governance_data(board, exec_comp)
         for key in ("dual_class", "has_poison_pill", "has_staggered_board", "has_majority_voting", "related_party_flag"):
             assert key not in governance_data
+
+
+def _proxy_filing(**kwargs) -> ProxyFiling:
+    defaults = dict(
+        id=uuid.uuid4(), entity_id=uuid.uuid4(), fiscal_year=2025,
+        filing_date=date(2026, 1, 1), filing_url="https://www.sec.gov/Archives/edgar/data/1/def14a.htm",
+    )
+    defaults.update(kwargs)
+    return ProxyFiling(**defaults)
+
+
+class _FakeConnector:
+    def __init__(self, body: str | None):
+        self._body = body
+        self.fetched_urls: list[str] = []
+
+    async def _fetch_body(self, url: str) -> str | None:
+        self.fetched_urls.append(url)
+        return self._body
+
+
+@pytest.mark.asyncio
+class TestMineRedFlagsForProxy:
+
+    async def test_mines_flags_from_fetched_body(self):
+        proxy = _proxy_filing()
+        connector = _FakeConnector("There were no related party transactions during fiscal year 2025.")
+
+        result = await _mine_red_flags_for_proxy(connector, proxy)
+
+        assert result == {"related_party_flag": False}
+        assert connector.fetched_urls == [proxy.filing_url]
+
+    async def test_no_filing_url_skips_fetch_entirely(self):
+        proxy = _proxy_filing(filing_url=None)
+        connector = _FakeConnector("There were no related party transactions during fiscal year 2025.")
+
+        result = await _mine_red_flags_for_proxy(connector, proxy)
+
+        assert result == {}
+        assert connector.fetched_urls == []
+
+    async def test_failed_fetch_returns_empty_dict(self):
+        proxy = _proxy_filing()
+        connector = _FakeConnector(None)  # simulates edgar_proxy.py's own _fetch_body failure contract
+
+        result = await _mine_red_flags_for_proxy(connector, proxy)
+
+        assert result == {}
+
+    async def test_body_with_html_is_stripped_before_mining(self):
+        proxy = _proxy_filing()
+        connector = _FakeConnector(
+            "<html><body><p>Our board of directors is <b>divided into three classes</b> "
+            "with staggered terms.</p></body></html>"
+        )
+
+        result = await _mine_red_flags_for_proxy(connector, proxy)
+
+        assert result == {"has_staggered_board": True}
