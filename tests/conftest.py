@@ -104,6 +104,7 @@ import src.models.interpretation  # noqa: F401  (AI Layer 1 — Interpreter, Pha
 import src.models.research_report  # noqa: F401  (AI Layer 2 — Deep Research, Phase 2.7)
 import src.models.advice_recommendation  # noqa: F401  (AI Layer 3 — Financial Adviser, Phase 3.4)
 import src.models.conversation  # noqa: F401  (AI Layer 3 — Financial Adviser chat, Phase 3.3)
+import src.models.pillar3_narratives  # noqa: F401  (Layer 2 §4.7 commodity/insider narratives)
 
 
 # Patch JSONB (and pgvector Vector) columns to use plain JSON under SQLite —

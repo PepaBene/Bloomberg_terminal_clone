@@ -75,6 +75,12 @@ FEATURE_CACHE_TTL: dict[str, int] = {
     # research_qa.py's single-shot Q&A has no persistent cache of its
     # own and isn't conversational in the adviser sense -- cache briefly.
     "analyst_qa": 900,
+    # §4.7 narratives: same story as interpret_metric/news_article_summary
+    # above -- their own Postgres compute-on-miss cache
+    # (commodity_narratives/insider_narratives, keyed on as_of_date) is
+    # the real cache; this just guards duplicate concurrent computes.
+    "commodity_narrative": 900,
+    "insider_narrative": 900,
 }
 DEFAULT_CACHE_TTL = 0
 

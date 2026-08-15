@@ -224,6 +224,18 @@ class TestClassifyTopics:
         topics = classify_topics("Nothing", "Just some random text about the weather.")
         assert topics == []
 
+    def test_commodity_topic(self):
+        topics = classify_topics("Oil Prices Surge", "Crude oil prices jumped after the OPEC meeting.")
+        assert "COMMODITY" in topics
+
+    def test_commodity_topic_distinct_from_supply_chain(self):
+        # A commodity price move and an operational supply-chain
+        # disruption are different framings and can co-occur, but
+        # shouldn't require each other.
+        topics = classify_topics("Gold Price Rally", "Gold prices hit a record high this week.")
+        assert "COMMODITY" in topics
+        assert "SUPPLY_CHAIN" not in topics
+
 
 # ── Materiality Assessment Tests ──────────────────────────────────────────
 

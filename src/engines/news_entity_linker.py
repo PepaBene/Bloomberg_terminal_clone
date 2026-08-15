@@ -381,6 +381,15 @@ _TOPIC_KEYWORDS: dict[str, list[str]] = {
     "PATENT": ["patent", "intellectual property", "ip litigation", "patent infringement"],
     "PRICING": ["price increase", "price cut", "pricing pressure", "price war"],
     "SUPPLY_CHAIN": ["supply chain", "supply disruption", "shortage", "logistics"],
+    # §4.7 Pillar-3 follow-through: lets news_enrichment link an article to
+    # commodity-price context (src/ai/narratives/commodity.py) the same way
+    # SUPPLY_CHAIN/CUSTOMER/etc. already feed propagation -- distinct from
+    # SUPPLY_CHAIN's operational-disruption framing (a factory closure vs.
+    # an oil/gold/wheat price move).
+    "COMMODITY": [
+        "commodity price", "oil price", "crude oil", "natural gas price",
+        "gold price", "wheat price", "copper price", "opec",
+    ],
 }
 
 

@@ -33,6 +33,10 @@ FEATURE_TIER: dict[str, Tier] = {
     "earnings_narrative": Tier.LIGHT,
     "rating_narrative": Tier.LIGHT,
     "legacy_narrative": Tier.SYNTHESIS,
+    # §4.7 Pillar-3 follow-through: commodity price/supply and insider/
+    # congressional-disclosure narratives (src/ai/narratives/).
+    "commodity_narrative": Tier.LIGHT,
+    "insider_narrative": Tier.LIGHT,
     # Ingestion-side AI augmentation (not a router; src/ingestion/guidance_extraction.py)
     "guidance_extraction": Tier.LIGHT,
 }

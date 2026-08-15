@@ -64,6 +64,7 @@ from src.models.quality import DataQualityIssue, DataQualityScore
 from src.models.research_report import ResearchReport
 from src.models.advice_recommendation import AdviceRecommendation
 from src.models.conversation import Conversation, ConversationMessage
+from src.models.pillar3_narratives import CommodityNarrative, InsiderNarrative
 from src.models.reference import (
     Country,
     Currency,
@@ -166,4 +167,6 @@ __all__ = [
     "AdviceRecommendation",
     "Conversation",
     "ConversationMessage",
+    "CommodityNarrative",
+    "InsiderNarrative",
 ]

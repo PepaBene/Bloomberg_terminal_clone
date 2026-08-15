@@ -1038,5 +1038,70 @@ are all closed.
   sweep across `tests/test_ingestion/` + `tests/test_engines/
   test_governance_scoring.py`: 309 passed, only the same pre-existing
   unrelated `test_agency_bonds.py` failures.
-- **§4.7 commodity + insider/congressional narrative bridging** -- not
-  yet done as of this entry (in progress).
+- **§4.7 commodity + insider/congressional narrative bridging** -- complete,
+  the largest of the three deferred items. Both rows in §4.7's Pillar-3
+  table already had real, scheduled, ingested structured data
+  (`CommodityPrice`/`CommodityInventory`; `InsiderSignal`/
+  `CongressionalTrade`) but no narrative layer over it -- this closes
+  that gap for both, following the same context-assemble -> prompt-render
+  -> `complete_text` shape as the legacy narrative features
+  (`company_primer`/`morning_briefing`), with compute-on-miss caching
+  shaped like `src/ai/interpret/store.py` (simpler here -- no
+  analytics-version freshness concept, just "is there already a row for
+  today").
+  - New migration `103_commodity_and_insider_narratives.py`:
+    `commodity_narratives` (unique on `commodity_code, as_of_date`) and
+    `insider_narratives` (unique on `entity_id, as_of_date`).
+  - New `src/ai/narratives/commodity.py`: `assemble_commodity_context`
+    pulls the latest 30 `CommodityPrice` rows (price level + % change
+    over the window), the latest `CommodityInventory` reading, and any
+    corroborating news -- a new `COMMODITY` topic label added to
+    `news_entity_linker.py`'s `_TOPIC_KEYWORDS` (there was none; §4.7's
+    own survey flagged this), matched against a bounded recent window of
+    articles in Python (JSONB list containment isn't portable across
+    this suite's SQLite test engine and Postgres in production, so this
+    filters the same way `news_enrichment.py`'s own cluster-candidate
+    query does, not a dialect-specific SQL operator).
+  - New `src/ai/narratives/insider.py`: `assemble_insider_context` pulls
+    the latest `InsiderSignal` row per `signal_type` for the entity, plus
+    up to 5 recent `CongressionalTrade` rows for that entity's ticker
+    (resolved via `SecurityIdentifier`, same pattern used throughout this
+    codebase).
+  - Two new prompt YAMLs (`commodity_narrative`/`insider_narrative`,
+    LIGHT tier) and two new `GET /v5/commodities/{code}/narrative` /
+    `GET /v5/entities/{id}/insider-narrative` endpoints, compute-on-miss
+    shaped identically to `src/api/routers/interpret.py`.
+  - **A real bug caught by the tests, not the user**: the first version
+    of both `get_or_compute_*_narrative` functions only checked for an
+    existing row when `force_refresh` was `False`, so calling
+    `?refresh=true` against an already-narrated subject tried to INSERT
+    a second row and hit the table's own unique constraint instead of
+    updating the first. Fixed by always looking up the existing row (to
+    decide INSERT vs. UPDATE) and only using `force_refresh` to decide
+    whether a *fresh* one is still cache-eligible -- caught by
+    `test_force_refresh_bypasses_cache`/`test_force_refresh_updates_
+    existing_row` before this ever reached a real deployment.
+  - Verified: 28 new tests across `test_narratives_commodity.py` +
+    `test_narratives_insider.py` (context assembly, narrative generation,
+    compute-on-miss caching including the force-refresh bug above) plus
+    7 new API tests (`test_pillar3_narratives_api.py`) and 2 new
+    `COMMODITY` topic-classification tests; full sweep across
+    `tests/test_ai/` + `tests/test_cache/` + `tests/test_evals/` +
+    `tests/test_scripts/` (347 passed), `tests/test_engines/` +
+    `tests/test_ingestion/` (3290 passed, only the same pre-existing
+    unrelated failures), `tests/test_models/` + `tests/test_services/`
+    (473 passed, only the pre-existing `CompanyPrimer` fixture bug), and
+    `tests/test_api/` (1054 passed, 14 failed -- confirmed via `git
+    stash` identical on the pre-change code, all pre-existing and
+    unrelated: `test_custom_classifications_api.py`, `test_reference_
+    api.py::test_health_check` (`asyncpg` not installed in this sandbox),
+    `test_research_primers_api.py`, `test_screening_api.py::
+    test_screen_fields`) -- zero regressions from this change anywhere
+    it was checked.
+
+**All three explicitly-documented deferred gaps from "Do the remaining
+gaps" are now closed.** Every layer of `AI_THREE_LAYER_REBUILD_PLAN.md`,
+its shared foundation, and the frontend gap the plan named are built.
+Remaining work is genuinely open-ended breadth (more Pillar-3 rows could
+always get an AI narrative layer; more legacy engines could always be
+exercised at higher fidelity), not a tracked gap.

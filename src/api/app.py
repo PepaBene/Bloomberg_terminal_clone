@@ -605,6 +605,14 @@ def create_app() -> FastAPI:
         logger.warning(f"Failed to import router adviser_chat: {e}")
         router_import_failures.append("adviser_chat")
 
+    # AI Layer 2 — Pillar-3 commodity/insider narratives (AI_THREE_LAYER_REBUILD_PLAN.md §4.7)
+    try:
+        from src.api.routers.pillar3_narratives import router as pillar3_narratives_router
+        app.include_router(pillar3_narratives_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router pillar3_narratives: {e}")
+        router_import_failures.append("pillar3_narratives")
+
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management
     # NOTE: Risk router must be registered BEFORE Performance and Portfolios
