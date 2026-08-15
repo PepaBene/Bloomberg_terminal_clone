@@ -951,3 +951,50 @@ governance red flags, commodity/insider-narrative Pillar-3 bridging).
   3534 passed, only the same pre-existing unrelated failures
   (`test_agency_bonds.py`'s mocked-HTTP tests, `test_earnings_surprise_
   intelligence.py`'s zero-consensus edge cases).
+- **§8 frontend: `/adviser` chat page**: the one frontend piece the plan
+  explicitly named as not yet built. Closed the gap:
+  - `frontend/src/api/client.ts`'s `ApiClient` gained a `stream()` method
+    -- every prior method assumes a JSON body (`request()` always awaits
+    `response.json()`), which doesn't apply to a `text/event-stream`
+    response. `stream()` reads the raw `ReadableStream`, splits on blank
+    lines per the SSE frame boundary, and parses `event:`/`data:` lines
+    matching exactly what `src/ai/streaming.py`'s `format_sse()` emits
+    server-side. A grep confirmed this codebase's frontend had *no*
+    existing SSE/`EventSource`/`ReadableStream` consumer anywhere --
+    `QAChat.tsx`'s "streaming" flag is cosmetic (an "●●●" placeholder
+    while awaiting a single full JSON response), so this is genuinely new
+    plumbing, not a reused pattern.
+  - New `ADVISER` block in `frontend/src/api/endpoints.ts` for
+    `adviser_chat.py`'s four routes.
+  - New `frontend/src/pages/adviser/AdviserChat.tsx`: a portfolio picker
+    (reusing the existing `usePortfolios()` hook), a conversation
+    start/restart control, a chat pane consuming the SSE `step`/`done`/
+    `error` events (`step` renders a live "thinking" status line from the
+    agent's tool calls, `done` renders the reply plus the fixed
+    not-financial-advice disclaimer every response carries), and a
+    recommendations side panel showing each proposed action's rationale,
+    confidence, and guardrail status. Styled identically to
+    `AnalystQA.tsx` (inline `style` objects against the app's CSS custom
+    properties, no Tailwind/CSS-modules in this codebase's page layer).
+  - Wired into `frontend/src/router/index.tsx` (`/adviser` route) and
+    `frontend/src/components/shell/NavRail.tsx` (a new top-level "Adviser"
+    nav item in the Investment group, shortcut `A`, matching the
+    existing generic keyboard-shortcut dispatch that's keyed off
+    `NAV_GROUPS` -- no separate wiring needed for the shortcut to work).
+  - Verified: `tsc --noEmit` and `vite build` both clean for every
+    changed/new file (confirmed via `git stash` that the small set of
+    pre-existing type errors elsewhere in the frontend -- `DonutChart.tsx`,
+    `IssuanceMonitor.tsx`, etc. -- are unchanged and unrelated). Loaded
+    the built page in a headless Chromium: the route renders inside the
+    app shell with the nav item highlighted, portfolio selector, chat
+    pane, and recommendations panel all present: no console errors other
+    than the expected failed API calls (this sandbox has no live
+    Postgres/Redis backend to actually serve `/v5/adviser/...` against).
+
+**All of "Do the rest" is now done**: §6's shared-foundation items (Redis
+response cache, eval harness in CI -- Anthropic prompt-caching was already
+in place), §4.3's deferred SECTOR/MACRO propagation, and §8's frontend gap
+are all closed. Remaining gaps are the ones documented inline as genuine,
+narrower follow-ups rather than missing layers: per-ticker factor/VaR data
+for whatif, DEF 14A structural-provision text-mining for governance red
+flags, and commodity/insider-narrative Pillar-3 bridging.

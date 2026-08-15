@@ -28,6 +28,7 @@ const PortfolioDetail = lazy(() => import('@/pages/portfolio/PortfolioDetail'));
 const PerformancePage = lazy(() => import('@/pages/portfolio/PerformancePage'));
 const RiskPage = lazy(() => import('@/pages/portfolio/RiskPage'));
 const RiskDashboard = lazy(() => import('@/pages/risk/RiskDashboard'));
+const AdviserChat = lazy(() => import('@/pages/adviser/AdviserChat'));
 const MacroDashboard = lazy(() => import('@/pages/macro/MacroDashboard'));
 const YieldCurveDeepDive = lazy(() => import('@/pages/macro/YieldCurveDeepDive'));
 const CentralBankMonitor = lazy(() => import('@/pages/macro/CentralBankMonitor'));
@@ -112,6 +113,9 @@ export function AppRouter() {
 
         {/* Risk */}
         <Route path="/risk" element={<RiskDashboard />} />
+
+        {/* Adviser */}
+        <Route path="/adviser" element={<AdviserChat />} />
 
         {/* Macro */}
         <Route path="/macro" element={<MacroDashboard />} />
