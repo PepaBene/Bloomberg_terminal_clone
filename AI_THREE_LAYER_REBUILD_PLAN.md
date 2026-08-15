@@ -860,3 +860,64 @@ wired to most of them yet), and the explicitly-deferred gaps documented
 inline through Phases 2-3 (SECTOR/MACRO news propagation, per-ticker
 factor/VaR data for whatif, DEF 14A structural-provision text-mining for
 governance red flags, commodity/insider-narrative Pillar-3 bridging).
+
+### §6 hardening — Redis response cache + eval harness in CI — complete
+
+- **Redis full-response cache**: `src/cache/redis_cache.py`'s `RedisCache`
+  already existed with a full `get`/`set`/`delete`/`delete_pattern` API,
+  but a grep turned up zero callers of `cache.connect()` anywhere in the
+  app -- the entire layer was silently always a cache miss, for its one
+  existing consumer (`src/api/reference.py`) included. It also had no
+  error handling around the actual Redis calls, so an outage would raise
+  instead of degrading. Fixed both: wrapped every method body in
+  try/except so a connection failure fails open (miss/no-op, never
+  propagates), and wired `cache.connect()`/`cache.close()` into
+  `src/api/app.py`'s `lifespan`, both guarded so a Redis problem never
+  blocks startup/shutdown. New `src/ai/response_cache.py` adds the
+  actual §6 feature: a per-feature TTL registry (conversational/
+  non-deterministic features like `adviser_chat`/`deep_research` get
+  TTL=0, i.e. never cached) and cache-key derivation via
+  `sha256(feature+model+system+user)` -- functionally equivalent to the
+  plan's literal "`prompt_id+version+inputs`" wording since `system`
+  already *is* the rendered prompt and `user` already *is* the rendered
+  input. Wired into `AIClient.complete_text`/`complete_structured` only
+  (never the raw multi-turn `complete()` an agent loop drives, where each
+  turn's messages differ turn to turn); `complete_structured`'s cache-hit
+  path re-validates through the Pydantic `response_model` before trusting
+  it, so a schema change makes an old cached shape fall through to a live
+  call instead of raising. Anthropic prompt-caching itself (the other
+  half of §6's caching ask) turned out to already be implemented --
+  `client.py`'s `_system_param` already marks system prompts
+  `cache_control: ephemeral` -- so this closes the one actually-missing
+  piece. Verified with a new integration test simulating an enabled
+  Anthropic client: a second identical `complete_text`/`complete_structured`
+  call skips the API call entirely; a changed input or an uncached
+  feature always calls through.
+- **Eval harness in CI**: `evals/runner.py`/`judge.py`/`schema.py` (built
+  in Phase 0) and the golden examples under `evals/golden/` existed but
+  had never been wired to an actual feature or a CI job -- there was no
+  `.github/workflows/` directory at all. New `scripts/run_evals.py` is
+  the missing CLI entrypoint: every golden category's `inputs` turned out
+  to share the exact same `{question, context}` shape regardless of its
+  category label (`company_primer`, `investment_thesis`,
+  `morning_briefing`, `anomaly_narrative`, `semantic_search`,
+  `analyst_qa` all use it), which matches exactly one production prompt
+  template (`src/ai/prompts/v1/analyst_qa.yaml`) -- reused as the single
+  target across every category rather than inventing bespoke per-category
+  prompts the golden suite was never written against. Follows this
+  codebase's graceful-degradation contract: with no `ANTHROPIC_API_KEY`
+  configured, the client is disabled and there's no meaningful response
+  to grade, so the script prints a "skipped" notice and exits 0 rather
+  than failing every example on an empty response. New
+  `.github/workflows/ci.yml` runs `pytest -q` (no live Postgres/Redis
+  needed -- the test suite runs entirely against the in-memory SQLite
+  engine) then `python -m scripts.run_evals` on every PR and push to
+  `main`; the eval step reads `ANTHROPIC_API_KEY` from a repo secret if
+  one is configured, and is always safe to run unconditionally either
+  way.
+- Verified: 10 new tests for `scripts/run_evals.py`'s own orchestration
+  (disabled-client skip path, pass/fail/regression exit codes,
+  `--update-baseline` wiring, `_target`'s prompt rendering) plus the
+  redis-cache/response-cache suites from the prior increment -- 733
+  passed against the pre-existing `CompanyPrimer(primer_id=...)` fixture
+  failure set, zero regressions.
