@@ -793,6 +793,44 @@ BATCH_JOBS: list[BatchJob] = [
             "rarely queried."
         ),
     ),
+    # ── Pillar 4: Portfolio risk / attribution / compliance ───────────
+    #    attribution_engine, portfolio_risk_engine (VaR/concentration/
+    #    factor exposure), and compliance_engine were correct
+    #    pure-computation modules with no caller outside the on-demand
+    #    stress-test endpoints, so their result tables had zero writers
+    #    and every read endpoint returned empty/None (DEEP_AUDIT_2026-07-16
+    #    Dimension 2/3, item 53). Runs after the day's EOD-price-driven
+    #    security analytics (VaR, beta) and quality/financial-strength
+    #    composite scores settle so this job's context data is fresh.
+    BatchJob(
+        name="portfolio_risk_batch",
+        cron="30 22 * * 1-5",  # 10:30 PM ET weekdays
+        script="scripts/run_portfolio_risk_batch.py",
+        sla_minutes=60,
+        domain="P4",
+        description=(
+            "Computes and persists real VaR, concentration, factor "
+            "exposure, security-level attribution, and compliance-rule "
+            "results for every portfolio with open positions."
+        ),
+        depends_on=("analytics_risk_var", "analytics_quality_scoring"),
+    ),
+    BatchJob(
+        name="corporate_action_matching",
+        cron="30 6 * * *",  # 6:30 AM daily (after corporate_actions_ingest)
+        script="scripts/match_corporate_actions.py",
+        sla_minutes=30,
+        domain="P4",
+        description=(
+            "Matches newly-ingested corporate_actions rows against open "
+            "portfolio positions and queues PENDING CorporateActionQueue "
+            "rows -- corporate_action_engine.match_corporate_actions_to_"
+            "holdings had no production caller, so GET .../corporate-"
+            "actions returned an empty list even for real, already-"
+            "ingested upcoming dividends/splits on held securities."
+        ),
+        depends_on=("corporate_actions_ingest",),
+    ),
 ]
 
 # Lookup by name for programmatic access

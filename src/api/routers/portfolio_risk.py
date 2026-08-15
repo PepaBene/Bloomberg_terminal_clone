@@ -9,7 +9,9 @@ from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines import e2_wacc, portfolio_risk_engine, treasury_analytics
+from src.engines import drift_engine, e2_wacc, portfolio_risk_engine, treasury_analytics
+from src.models.analytics import AnalyticsResult
+from src.models.entity import Entity
 from src.models.portfolio import Portfolio
 from src.models.position import Position
 from src.models.security import FixedIncomeDetails, Security
@@ -554,6 +556,83 @@ async def _load_position_dicts(
             "beta": beta,
             "duration": duration,
             "spread_duration": spread_duration,
+        })
+    return dicts
+
+
+async def load_position_dicts_with_classification(
+    session: AsyncSession, portfolio_id: uuid.UUID
+) -> list[dict]:
+    """Load open positions with sector/industry/country/beta for the
+    concentration/factor/drift/compliance engines.
+
+    Shared by ``set_target_allocation`` (below) and
+    ``scripts/run_portfolio_risk_batch.py`` so both the on-demand drift
+    endpoint and the scheduled snapshot job build positions the same way
+    instead of two independently-drifting implementations.
+
+    sector/industry come from ``Entity.gics_sector``/``gics_industry`` (the
+    2-digit/6-digit GICS codes already used as-is elsewhere in this
+    codebase, e.g. e4_screening's categorical filters -- there is no
+    separate human-readable name table). beta reads the already-scheduled
+    E7/E1 ``beta_market`` AnalyticsResult metric (populated daily by the
+    ``analytics_quant_weekly``/``analytics_ratios`` batch jobs) rather than
+    recomputing an OLS regression per position on every call.
+    """
+    result = await session.execute(
+        select(Position).where(
+            Position.portfolio_id == portfolio_id,
+            Position.status == "OPEN",
+        )
+    )
+    positions = list(result.scalars().all())
+
+    dicts: list[dict] = []
+    for pos in positions:
+        sector = "Unknown"
+        industry = "Unknown"
+        country = "Unknown"
+        beta = 1.0
+
+        if pos.security_id is not None:
+            sec = (
+                await session.execute(
+                    select(Security).where(Security.security_id == pos.security_id)
+                )
+            ).scalar_one_or_none()
+            if sec is not None and sec.issuer_entity_id is not None:
+                entity = (
+                    await session.execute(
+                        select(Entity).where(Entity.entity_id == sec.issuer_entity_id)
+                    )
+                ).scalar_one_or_none()
+                if entity is not None:
+                    sector = entity.gics_sector or "Unknown"
+                    industry = entity.gics_industry or "Unknown"
+                    country = entity.domicile_country or entity.incorporation_country or "Unknown"
+
+            beta_row = (
+                await session.execute(
+                    select(AnalyticsResult.value)
+                    .where(
+                        AnalyticsResult.security_id == pos.security_id,
+                        AnalyticsResult.metric_name == "beta_market",
+                    )
+                    .order_by(AnalyticsResult.as_of_date.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if beta_row is not None:
+                beta = float(beta_row)
+
+        dicts.append({
+            "ticker": pos.ticker,
+            "security_id": pos.security_id,
+            "market_value": float(pos.market_value) if pos.market_value is not None else 0.0,
+            "sector": sector,
+            "industry": industry,
+            "country": country,
+            "beta": beta,
         })
     return dicts
 
@@ -1301,19 +1380,72 @@ async def set_target_allocation(
     body: TargetAllocationRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Set or update target allocation for drift monitoring."""
-    await _get_portfolio(session, portfolio_id)
+    """Set a new target allocation and immediately compute real drift
+    against it.
+
+    [Bug fix] Previously hardcoded every drift metric to zero /
+    classification "NONE" regardless of the portfolio's actual current
+    weights -- only ``target_allocation`` itself was genuine, so every read
+    of ``GET .../drift`` presented fabricated "no drift" numbers instead of
+    an honest computation. Target weights arrive as decimal fractions
+    (TargetAllocationRequest's documented 0.0-1.0 range) but
+    ``drift_engine`` operates on percentage points (0-100, see its
+    DRIFT_THRESHOLDS and ``suggest_rebalance_trades``'s ``/100.0`` NAV
+    scaling) -- both weight dicts are scaled up before calling it.
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
 
     today = date.today()
+    positions = await load_position_dicts_with_classification(session, portfolio_id)
+    portfolio_nav = float(portfolio.current_cash or 0.0) + sum(p["market_value"] for p in positions)
+
+    current_weights_pct = {
+        p["ticker"]: (p["market_value"] / portfolio_nav * 100.0 if portfolio_nav > 0 else 0.0)
+        for p in positions
+    }
+    target_weights_pct = {ticker: weight * 100.0 for ticker, weight in body.root.items()}
+    positions_pct = [
+        {**p, "weight": current_weights_pct.get(p["ticker"], 0.0)} for p in positions
+    ]
+
+    engine_result = drift_engine.analyze_drift(
+        current_weights=current_weights_pct,
+        target_weights=target_weights_pct,
+        positions=positions_pct,
+        target_sector_weights=None,  # not captured by TargetAllocationRequest -- honest gap
+        portfolio_nav=portfolio_nav,
+    )
+
+    position_drifts = [
+        {
+            "ticker": d.ticker,
+            "target_weight": d.target_weight,
+            "current_weight": d.current_weight,
+            "drift_pct": d.drift_pct,
+        }
+        for d in engine_result.position_drifts
+    ]
+    sector_drifts = [
+        {
+            "sector": d.sector,
+            "target_weight": d.target_weight,
+            "current_weight": d.current_weight,
+            "drift_pct": d.drift_pct,
+        }
+        for d in engine_result.sector_drifts
+    ]
+
     snap = DriftSnapshot(
         id=uuid.uuid4(),
         portfolio_id=portfolio_id,
         snapshot_date=today,
-        total_drift_pct=Decimal("0.0000"),
-        max_position_drift_pct=Decimal("0.0000"),
-        max_sector_drift_pct=Decimal("0.0000"),
-        drift_classification="NONE",
-        rebalance_needed=False,
+        total_drift_pct=Decimal(str(engine_result.total_drift_pct)),
+        max_position_drift_pct=Decimal(str(engine_result.max_position_drift_pct)),
+        max_sector_drift_pct=Decimal(str(engine_result.max_sector_drift_pct)),
+        drift_classification=engine_result.classification,
+        rebalance_needed=engine_result.rebalance_needed,
+        position_drifts=position_drifts,
+        sector_drifts=sector_drifts,
         target_allocation=body.root,
     )
     session.add(snap)
@@ -1323,12 +1455,12 @@ async def set_target_allocation(
     return DriftResponse(
         portfolio_id=portfolio_id,
         snapshot_date=today,
-        total_drift_pct=0.0,
-        max_position_drift_pct=0.0,
-        max_sector_drift_pct=0.0,
-        drift_classification="NONE",
-        rebalance_needed=False,
-        position_drifts=[],
-        sector_drifts=[],
+        total_drift_pct=engine_result.total_drift_pct,
+        max_position_drift_pct=engine_result.max_position_drift_pct,
+        max_sector_drift_pct=engine_result.max_sector_drift_pct,
+        drift_classification=engine_result.classification,
+        rebalance_needed=engine_result.rebalance_needed,
+        position_drifts=_parse_position_drifts(position_drifts),
+        sector_drifts=_parse_sector_drifts(sector_drifts),
         target_allocation=body.root,
     )

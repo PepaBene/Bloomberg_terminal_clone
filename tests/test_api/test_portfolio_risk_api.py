@@ -16,6 +16,7 @@ from src.models.portfolio_risk import (
     PortfolioStressTestResult,
 )
 from src.models.compliance import ComplianceRule, ComplianceResult, DriftSnapshot
+from src.models.position import Position
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -721,8 +722,23 @@ async def test_get_rebalance_suggestions_with_data(client: AsyncClient, session:
 
 @pytest.mark.asyncio
 async def test_set_target_allocation(client: AsyncClient, session: AsyncSession):
-    """POST /v4/portfolios/{id}/drift/target sets target allocation."""
-    p = await _seed_portfolio(session, portfolio_name="Drift Target")
+    """POST /v4/portfolios/{id}/drift/target sets target allocation and
+    computes REAL drift against current holdings.
+
+    Regression test for the "fabricates zeros" bug (DEEP_AUDIT_2026-07-16
+    Dimension 3): this endpoint used to hardcode every drift metric to
+    0.0/"NONE" no matter what the portfolio actually held. AAPL/MSFT are
+    seeded far above their targets (60%/40% of NAV vs. 10%/8% targets) and
+    GOOG isn't held at all vs. a 7% target, so a real computation must show
+    large SELL/BUY drift, not a fabricated "no drift" result.
+    """
+    p = await _seed_portfolio(session, portfolio_name="Drift Target", current_cash=Decimal("0.00"))
+    session.add_all([
+        Position(id=uuid.uuid4(), portfolio_id=p.id, ticker="AAPL", status="OPEN", market_value=Decimal("12000.00")),
+        Position(id=uuid.uuid4(), portfolio_id=p.id, ticker="MSFT", status="OPEN", market_value=Decimal("8000.00")),
+    ])
+    await session.flush()
+
     resp = await client.post(
         f"/v4/portfolios/{p.id}/drift/target",
         json={"AAPL": 0.10, "MSFT": 0.08, "GOOG": 0.07},
@@ -730,7 +746,13 @@ async def test_set_target_allocation(client: AsyncClient, session: AsyncSession)
     assert resp.status_code == 201
     data = resp.json()
     assert data["target_allocation"]["AAPL"] == 0.10
-    assert data["drift_classification"] == "NONE"
+    assert data["drift_classification"] == "CRITICAL"
+    assert data["rebalance_needed"] is True
+    assert data["total_drift_pct"] == pytest.approx(44.5, abs=0.01)
+    by_ticker = {d["ticker"]: d for d in data["position_drifts"]}
+    assert by_ticker["AAPL"]["current_weight"] == pytest.approx(60.0)
+    assert by_ticker["GOOG"]["current_weight"] == pytest.approx(0.0)
+    assert by_ticker["GOOG"]["target_weight"] == pytest.approx(7.0)
 
 
 @pytest.mark.asyncio
