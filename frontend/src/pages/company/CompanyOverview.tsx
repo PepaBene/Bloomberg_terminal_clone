@@ -12,6 +12,7 @@ import { useMarketDepth, useVolumeProfile } from '@/api/hooks/useMarketData';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { PriceChartPanel } from '@/components/company/PriceChartPanel';
+import { SeasonalityChart } from '@/components/company/SeasonalityChart';
 import { SentimentGauge } from '@/components/intelligence';
 import { EmptyState } from '@/components/feedback';
 import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useCorporateActionsUpcoming } from '@/hooks';
@@ -223,6 +224,13 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Price Chart (6M)</h2>
             <PriceChartPanel securityId={resolvedId} height={300} />
+          </div>
+
+          {/* Seasonality — monthly returns by year, computed client-side from
+              the same real EOD price history above (Bloomberg's SEAG screen). */}
+          <div className="terminal-panel">
+            <h2 className="terminal-section-title">Seasonality</h2>
+            <SeasonalityChart securityId={resolvedId} height={220} />
           </div>
 
           {/* Order Book Depth & Volume Profile — no /v1/market-data/* router

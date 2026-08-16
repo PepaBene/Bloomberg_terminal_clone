@@ -7,6 +7,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  ReferenceLine,
   Tooltip as RechartsTooltip,
   Legend,
 } from 'recharts';
@@ -70,10 +71,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
         {label}
       </div>
       {payload.map((entry) => {
-        const isPriceSeries = entry.dataKey === 'price';
-        const formatted = isPriceSeries
-          ? `$${(entry.value ?? 0).toFixed(2)}`
-          : `${(entry.value ?? 0).toFixed(0)} bps`;
+        const formatted = `${(entry.value ?? 0) >= 100 ? '+' : ''}${((entry.value ?? 0) - 100).toFixed(1)}%`;
 
         return (
           <div
@@ -125,18 +123,26 @@ export function EquityCreditDivergence({
   height = 320,
   className,
 }: EquityCreditDivergenceProps) {
-  /* Detect divergence periods: equity up + spread widening or equity down + spread tightening */
+  /* Index both series to 100 at the first observation so they share one
+   * honest axis (see anti-patterns: two independently-scaled y-axes let
+   * the visual "divergence" be an artifact of arbitrary scaling rather
+   * than the real relationship). Also flags divergence periods: equity
+   * up + spread widening, or equity down + spread tightening. */
   const enrichedData = useMemo(() => {
-    if (data.length < 2) return data;
+    if (data.length === 0) return [];
+    const basePrice = data[0]!.price;
+    const baseSpread = data[0]!.spread;
 
     return data.map((d, i) => {
-      if (i === 0) return { ...d, divergent: false };
+      const priceIndex = basePrice ? (d.price / basePrice) * 100 : 100;
+      const spreadIndex = baseSpread ? (d.spread / baseSpread) * 100 : 100;
+      if (i === 0) return { ...d, priceIndex, spreadIndex, divergent: false };
       const prev = data[i - 1]!;
       const priceUp = d.price > prev.price;
       const spreadUp = d.spread > prev.spread;
       // Divergence = equity rallies while credit deteriorates, or vice versa
       const divergent = priceUp !== spreadUp;
-      return { ...d, divergent };
+      return { ...d, priceIndex, spreadIndex, divergent };
     });
   }, [data]);
 
@@ -168,36 +174,21 @@ export function EquityCreditDivergence({
             axisLine={{ stroke: CHART_THEME.colors.grid }}
           />
 
-          {/* Left axis: Stock price */}
+          {/* Single axis: both series indexed to 100 at the first observation */}
           <YAxis
-            yAxisId="price"
-            orientation="left"
             tick={{
-              fill: CHART_THEME.colors.positive,
+              fill: CHART_THEME.colors.axis,
               fontFamily: CHART_THEME.fonts.data,
               fontSize: 10,
             }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v: number) => `$${v.toFixed(0)}`}
-            width={60}
+            tickFormatter={(v: number) => `${v.toFixed(0)}`}
+            width={44}
+            domain={['auto', 'auto']}
           />
 
-          {/* Right axis: OAS spread (inverted conceptually — higher = worse) */}
-          <YAxis
-            yAxisId="spread"
-            orientation="right"
-            tick={{
-              fill: CHART_THEME.colors.negative,
-              fontFamily: CHART_THEME.fonts.data,
-              fontSize: 10,
-            }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v: number) => `${v.toFixed(0)}bp`}
-            width={60}
-            reversed
-          />
+          <ReferenceLine y={100} stroke={CHART_THEME.colors.surfaceBorderStrong} strokeWidth={1} />
 
           <RechartsTooltip
             content={<CustomTooltip />}
@@ -216,24 +207,22 @@ export function EquityCreditDivergence({
             }}
           />
 
-          {/* Equity price line */}
+          {/* Equity price, indexed to 100 at the first observation */}
           <Line
-            yAxisId="price"
             type="monotone"
-            dataKey="price"
-            name="Stock Price ($)"
+            dataKey="priceIndex"
+            name="Stock Price (Indexed)"
             stroke={CHART_THEME.colors.positive}
             strokeWidth={1.5}
             dot={false}
             activeDot={{ r: 4, fill: CHART_THEME.colors.positive, stroke: '#0C0F12', strokeWidth: 1.5 }}
           />
 
-          {/* Credit spread line */}
+          {/* Credit OAS spread, indexed to 100 at the first observation */}
           <Line
-            yAxisId="spread"
             type="monotone"
-            dataKey="spread"
-            name="OAS Spread (bps)"
+            dataKey="spreadIndex"
+            name="OAS Spread (Indexed)"
             stroke={CHART_THEME.colors.negative}
             strokeWidth={1.5}
             dot={false}
@@ -250,7 +239,7 @@ export function EquityCreditDivergence({
           paddingTop: 2,
         }}
       >
-        Spread axis inverted: lower = better credit quality. Divergence periods indicate equity/credit dislocation.
+        Both series indexed to 100 at the start of the window so they share one honest scale — a widening gap is real divergence, not an axis artifact. Rising spread = deteriorating credit quality.
       </div>
     </div>
   );

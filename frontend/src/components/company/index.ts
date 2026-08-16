@@ -34,3 +34,7 @@ export type { EquityCreditDivergenceProps, EquityCreditPoint } from './EquityCre
 // Candlestick price chart with toggleable technical-indicator overlays
 export { PriceChartPanel } from './PriceChartPanel';
 export type { PriceChartPanelProps } from './PriceChartPanel';
+
+// Seasonality — monthly returns by year, computed from real EOD price history
+export { SeasonalityChart } from './SeasonalityChart';
+export type { SeasonalityChartProps } from './SeasonalityChart';
