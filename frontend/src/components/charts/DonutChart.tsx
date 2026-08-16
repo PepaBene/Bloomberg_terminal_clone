@@ -30,6 +30,14 @@ export interface DonutChartProps {
   centerLabel?: string;
   centerValue?: string;
   showLegend?: boolean;
+  /**
+   * Max number of named slices before the rest fold into a single "Other"
+   * slice. A pie/donut only reads at a glance up to ~6-7 segments, and the
+   * 8-color categorical palette collides (wraps via modulo) past 8 — so an
+   * uncapped donut both stops being legible and silently merges two
+   * different categories into the same color. Default 6.
+   */
+  topN?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,6 +141,7 @@ export function DonutChart({
   centerLabel,
   centerValue,
   showLegend = false,
+  topN = 6,
 }: DonutChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
 
@@ -148,13 +157,25 @@ export function DonutChart({
   const outerRadius = outerRadiusProp ?? Math.round(height * 0.38);
   const innerRadius = innerRadiusProp ?? Math.round(outerRadius * 0.6);
 
+  /* Cap visible slices at topN, folding the remainder into a single
+   * "Other" slice (neutral gray — it isn't one identity, so it doesn't
+   * take a categorical color) rather than letting the palette wrap. */
+  const cappedData = useMemo(() => {
+    if (data.length <= topN) return data;
+    const sorted = [...data].sort((a, b) => b.value - a.value);
+    const shown = sorted.slice(0, topN);
+    const rest = sorted.slice(topN);
+    const otherValue = rest.reduce((sum, d) => sum + d.value, 0);
+    return otherValue > 0 ? [...shown, { name: 'Other', value: otherValue, color: CHART_THEME.colors.textTertiary }] : shown;
+  }, [data, topN]);
+
   /* Attach default colors */
   const coloredData = useMemo(
-    () => data.map((d, i) => ({ ...d, _fill: d.color ?? seriesColor(i) })),
-    [data],
+    () => cappedData.map((d, i) => ({ ...d, _fill: d.color ?? seriesColor(i) })),
+    [cappedData],
   );
 
-  /* Total for percentage calculation */
+  /* Total for percentage calculation (all original data, so "Other" reads as its true share) */
   const totalValue = useMemo(
     () => data.reduce((sum, d) => sum + d.value, 0),
     [data],

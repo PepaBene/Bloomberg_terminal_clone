@@ -156,6 +156,16 @@ function IconSmartMoney({ filled }: IconProps) {
   );
 }
 
+function IconDashboard({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <rect x="2" y="2" width="7" height="5" rx="0.5" />
+      <rect x="2" y="9" width="7" height="5" rx="0.5" />
+      <rect x="11" y="2" width="3" height="12" rx="0.5" />
+    </svg>
+  );
+}
+
 function IconSettings({ filled }: IconProps) {
   return (
     <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
@@ -234,6 +244,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'watchlist', icon: IconWatchlist, label: 'Watchlist', path: '/watchlist', shortcut: 'E', subItems: ['Lists', 'Movers', 'Alerts'] },
       { id: 'alerts', icon: IconAlerts, label: 'Alerts', path: '/alerts', shortcut: 'R', subItems: ['Active', 'History', 'Create'] },
+      { id: 'dashboard', icon: IconDashboard, label: 'Dashboard', path: '/dashboard', shortcut: 'D', subItems: ['Custom Layout', 'Panels'] },
     ],
   },
 ];

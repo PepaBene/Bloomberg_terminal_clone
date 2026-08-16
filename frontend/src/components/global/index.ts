@@ -17,3 +17,6 @@ export type { BillTrackerProps, BillRecord } from './BillTracker';
 
 export { SanctionsTable } from './SanctionsTable';
 export type { SanctionsTableProps, SanctionRecord } from './SanctionsTable';
+
+export { WorldRiskMap } from './WorldRiskMap';
+export type { WorldRiskMapProps, CountryRiskMapPoint } from './WorldRiskMap';

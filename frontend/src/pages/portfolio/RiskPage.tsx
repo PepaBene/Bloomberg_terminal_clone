@@ -2,11 +2,12 @@
 // Risk Page — Portfolio VaR, Concentration, Stress Tests, Factor Exposure,
 // Correlation, Drift Monitoring, Custom Stress Tests
 // ---------------------------------------------------------------------------
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   usePortfolioVaR,
   usePortfolioCVaR,
+  usePortfolioVaRDecomposition,
   usePortfolioConcentration,
   usePortfolioStressHistorical,
   usePortfolioCompliance,
@@ -15,6 +16,10 @@ import {
   usePortfolioDrift,
 } from '@/hooks';
 import { api } from '@/api/client';
+import { HeatmapChart, BarChartComponent } from '@/components/charts';
+import type { HeatmapDataPoint } from '@/components/charts';
+import { FactorExposureChart, VaRDecomposition } from '@/components/risk';
+import type { FactorBeta, VaRComponent } from '@/components/risk';
 
 // --- Real API response shapes (src/schemas/portfolio_risk.py,
 // compliance_schema.py, drift_schema.py) -- P4-F-022: replaces the 13
@@ -106,6 +111,15 @@ interface ApiDrift {
   sector_drifts: ApiSectorDrift[];
 }
 
+// VaRDecompositionResponse (real GET /risk/var/decomposition) carries
+// component/marginal VaR as {ticker: value} dicts, not a ready-made list --
+// percentContrib is derived (component VaR sums to total VaR by
+// construction) rather than fabricated.
+interface ApiVaRDecomposition {
+  marginal_var: Record<string, number> | null;
+  component_var: Record<string, number> | null;
+}
+
 const panelStyle: React.CSSProperties = { background: 'var(--color-surface-base)', border: '1px solid var(--color-surface-border)', borderRadius: '4px', padding: 'var(--panel-padding)', overflow: 'auto' };
 const sectionTitle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 12px 0' };
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' };
@@ -171,6 +185,14 @@ const mockCorrelationMatrix = [
   [0.61, 0.65, 0.70, 0.58, 1.0],
 ];
 
+const mockVaRDecomposition: VaRComponent[] = [
+  { name: 'NVDA', marginalVar: 4.8, componentVar: 1.42, percentContrib: 22.4 },
+  { name: 'AAPL', marginalVar: 3.1, componentVar: 0.98, percentContrib: 15.5 },
+  { name: 'MSFT', marginalVar: 2.7, componentVar: 0.85, percentContrib: 13.4 },
+  { name: 'AMZN', marginalVar: 2.2, componentVar: 0.71, percentContrib: 11.2 },
+  { name: 'GOOGL', marginalVar: 1.9, componentVar: 0.60, percentContrib: 9.5 },
+];
+
 const mockDriftData = [
   { asset: 'US Equity', target: 40.0, actual: 42.5, drift: 2.5, status: 'Warning' },
   { asset: 'Intl Equity', target: 20.0, actual: 18.2, drift: -1.8, status: 'OK' },
@@ -185,6 +207,7 @@ export default function RiskPage() {
   // API hooks
   const { data: apiVaR } = usePortfolioVaR(portfolioId) as { data: ApiVaR | null | undefined };
   const { data: apiCVaR } = usePortfolioCVaR(portfolioId) as { data: ApiCVaR | undefined };
+  const { data: apiVaRDecomp } = usePortfolioVaRDecomposition(portfolioId) as { data: ApiVaRDecomposition | null | undefined };
   const { data: apiConcentration } = usePortfolioConcentration(portfolioId) as { data: ApiConcentration | null | undefined };
   const { data: apiStress } = usePortfolioStressHistorical(portfolioId) as { data: ApiStressResult[] | undefined };
   const { data: apiCompliance } = usePortfolioCompliance(portfolioId) as { data: ApiCompliance | undefined };
@@ -292,6 +315,50 @@ export default function RiskPage() {
       }))
     : mockDriftData;
 
+  // Component VaR sums to total portfolio VaR by construction (Euler
+  // decomposition), so percentContrib is derived rather than a field the
+  // backend returns.
+  const varDecomposition: VaRComponent[] = useMemo(() => {
+    const componentVar = apiVaRDecomp?.component_var;
+    const marginalVar = apiVaRDecomp?.marginal_var;
+    if (!componentVar || Object.keys(componentVar).length === 0) return mockVaRDecomposition;
+
+    const total = Object.values(componentVar).reduce((s, v) => s + Math.abs(v), 0) || 1;
+    return Object.entries(componentVar)
+      .map(([ticker, compVar]) => ({
+        name: ticker,
+        componentVar: compVar,
+        marginalVar: marginalVar?.[ticker] ?? 0,
+        percentContrib: (Math.abs(compVar) / total) * 100,
+      }))
+      .sort((a, b) => b.percentContrib - a.percentContrib);
+  }, [apiVaRDecomp]);
+
+  // Correlation matrix reshaped into the {row, col, value} triples HeatmapChart expects.
+  const correlationHeatmapData: HeatmapDataPoint[] = useMemo(() => {
+    const points: HeatmapDataPoint[] = [];
+    correlationTickers.forEach((row: string, ri: number) => {
+      correlationTickers.forEach((col: string, ci: number) => {
+        const value = correlationMatrix[ri]?.[ci];
+        if (typeof value === 'number') points.push({ row, col, value });
+      });
+    });
+    return points;
+  }, [correlationTickers, correlationMatrix]);
+
+  // Factor exposure as diverging active-tilt bars (exposure minus benchmark) --
+  // the real API has no t-stat/significance field, so the chart is plotted
+  // without a significance overlay rather than fabricating one.
+  const factorExposureBars: FactorBeta[] = useMemo(
+    () =>
+      factorExposure.map((f: any) => ({
+        name: f.factor,
+        beta: f.active,
+        benchmark: f.benchmark,
+      })),
+    [factorExposure],
+  );
+
   // Custom stress test state
   const [customScenarioName, setCustomScenarioName] = useState('');
   const [customEquityShock, setCustomEquityShock] = useState<number>(0);
@@ -339,22 +406,15 @@ export default function RiskPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)', alignItems: 'start' }}>
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Concentration Analysis</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              {['Dimension', 'Weight', 'VaR Contribution'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: h === 'Dimension' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {concentrationRisk.map((c: any) => (
-                <tr key={c.name} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ ...dataStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)' }}>{c.name}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{c.weight.toFixed(1)}%</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: c.varContribution > 50 ? 'var(--color-signal-warning)' : 'var(--color-text-primary)' }}>{c.varContribution.toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <BarChartComponent
+            data={concentrationRisk}
+            bars={[{ key: 'weight', name: 'Weight %', color: 'var(--color-chart-1)' }]}
+            xKey="name"
+            layout="vertical"
+            height={Math.max(concentrationRisk.length * 32 + 40, 160)}
+            showMeanLine={false}
+            yAxisFormat={(v) => `${v.toFixed(1)}%`}
+          />
         </div>
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Compliance Checks</h2>
@@ -397,26 +457,11 @@ export default function RiskPage() {
           </table>
         </div>
 
-        {/* Factor Exposure */}
+        {/* Factor Exposure — active tilt vs benchmark, diverging bar */}
         <div style={panelStyle}>
           <h2 style={sectionTitle}>Factor Exposure</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              {['Factor', 'Exposure', 'Benchmark', 'Active'].map((h) => (
-                <th key={h} style={{ ...labelStyle, textAlign: h === 'Factor' ? 'left' : 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {factorExposure.map((f: any) => (
-                <tr key={f.factor} style={{ height: 'var(--table-row-height)' }}>
-                  <td style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', padding: 'var(--table-cell-py) var(--table-cell-px)' }}>{f.factor}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{f.exposure.toFixed(2)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: 'var(--color-text-secondary)' }}>{f.benchmark.toFixed(2)}</td>
-                  <td style={{ ...dataStyle, textAlign: 'right', padding: 'var(--table-cell-py) var(--table-cell-px)', color: f.active >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 500 }}>{f.active >= 0 ? '+' : ''}{f.active.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p style={{ ...labelStyle, margin: '0 0 8px', fontSize: 'var(--text-xs)' }}>Active exposure vs. benchmark</p>
+          <FactorExposureChart factors={factorExposureBars} />
         </div>
 
         {/* Drift Monitoring */}
@@ -442,40 +487,22 @@ export default function RiskPage() {
           </table>
         </div>
 
+        {/* VaR Decomposition — each position's share of total portfolio VaR */}
+        <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
+          <h2 style={sectionTitle}>VaR Decomposition</h2>
+          <VaRDecomposition components={varDecomposition} />
+        </div>
+
         {/* Correlation Matrix */}
         <div style={{ ...panelStyle, gridColumn: '1 / -1' }}>
           <h2 style={sectionTitle}>Correlation Matrix</h2>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)' }}></th>
-                  {correlationTickers.map((t: string) => (
-                    <th key={t} style={{ ...labelStyle, textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', borderBottom: '1px solid var(--color-surface-border)', minWidth: '70px' }}>{t}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {correlationTickers.map((rowTicker: string, rowIdx: number) => (
-                  <tr key={rowTicker} style={{ height: 'var(--table-row-height)' }}>
-                    <td style={{ ...labelStyle, padding: 'var(--table-cell-py) var(--table-cell-px)', fontWeight: 600 }}>{rowTicker}</td>
-                    {correlationMatrix[rowIdx]?.map((val: number, colIdx: number) => {
-                      const bg = rowIdx === colIdx
-                        ? 'var(--color-surface-border)'
-                        : val >= 0.7
-                          ? 'rgba(255, 80, 80, 0.15)'
-                          : val >= 0.5
-                            ? 'rgba(255, 165, 0, 0.10)'
-                            : 'transparent';
-                      return (
-                        <td key={colIdx} style={{ ...dataStyle, textAlign: 'center', padding: 'var(--table-cell-py) var(--table-cell-px)', fontSize: 'var(--text-sm)', background: bg }}>{val.toFixed(2)}</td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <HeatmapChart
+            data={correlationHeatmapData}
+            rows={correlationTickers}
+            cols={correlationTickers}
+            colorScale="diverging"
+            valueFormat={(v) => v.toFixed(2)}
+          />
         </div>
 
         {/* Custom Stress Test */}

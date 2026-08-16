@@ -18,7 +18,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { CountryRiskRanking, GeopoliticalEventCard } from '@/components/global';
+import { CountryRiskRanking, GeopoliticalEventCard, WorldRiskMap } from '@/components/global';
 import type { CountryRisk as CountryRiskType, GeopoliticalEvent } from '@/components/global';
 import { EmptyState } from '@/components/feedback';
 
@@ -86,8 +86,11 @@ interface CountryRiskSample {
 }
 
 // Risk scores require one /risk call per country; bound the fan-out so the
-// dashboard shows a real ranking sample rather than firing hundreds of requests.
-const RISK_SAMPLE_SIZE = 12;
+// dashboard shows a real sample rather than firing hundreds of requests.
+// Widened from 12 for the world map added below — a map with only 12 colored
+// countries reads as broken, not "small sample" — but still capped well short
+// of a full ~190-country fan-out.
+const RISK_SAMPLE_SIZE = 40;
 
 function asStringList(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.map(String) : undefined;
@@ -203,6 +206,24 @@ export default function GlobalDashboard() {
           title="No global indices data"
           description="This deployment does not expose a global indices / GDP-growth comparison endpoint."
         />
+      </div>
+
+      {/* Country Risk Map — geospatial view of the same composite risk scores
+          the ranking table below shows in list form (every map has a table
+          twin, and vice versa). */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Country Risk Map</h2>
+        {riskLoading ? (
+          <EmptyState icon="⏳" title="Loading risk scores…" />
+        ) : riskRows.length === 0 ? (
+          <EmptyState
+            icon="🗺️"
+            title="No risk scores available"
+            description="No country risk scores have been ingested for this deployment yet."
+          />
+        ) : (
+          <WorldRiskMap countries={riskRows} />
+        )}
       </div>
 
       {/* 2-column layout */}

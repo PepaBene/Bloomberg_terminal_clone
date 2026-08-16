@@ -10,10 +10,15 @@
 // This page now renders the REAL, backed data: GET /v3/industry/rankings
 // (industry.py) ranks industries by a selectable metric. Everything unbacked
 // was removed rather than faked.
+//
+// The industry treemap (tile size = market cap, color = selected metric)
+// lives in the reusable IndustryTreemap component (components/sector/) so
+// the dashboard-builder's "Sector Heatmap" panel can drop in the same view.
 // ---------------------------------------------------------------------------
 import { useState } from 'react';
 import { useIndustryRankings } from '@/hooks';
 import { EmptyState } from '@/components/feedback';
+import { IndustryTreemap } from '@/components/sector';
 
 const panelStyle: React.CSSProperties = {
   background: 'var(--color-surface-base)',
@@ -97,6 +102,12 @@ export default function SectorView() {
           Industry Rankings
         </h1>
         <p style={{ ...labelStyle, marginTop: '4px' }}>GICS industries ranked by fundamental metric</p>
+      </div>
+
+      {/* Industry treemap — tile size = total market cap, tile color = selected metric */}
+      <div style={{ ...panelStyle, marginBottom: 'var(--panel-gap)' }}>
+        <h2 style={sectionTitle}>Industry Map</h2>
+        <IndustryTreemap height={360} />
       </div>
 
       {/* Metric selector */}
