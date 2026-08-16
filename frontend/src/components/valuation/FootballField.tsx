@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { ChartTooltip } from '../charts/ChartTooltip';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -39,6 +40,20 @@ function fmtMethodologyLabel(m: string): string {
 
 function fmtPrice(v: number): string {
   return `$${v.toFixed(2)}`;
+}
+
+/** ~5 evenly spaced, clean-ish axis ticks spanning [min, max]. */
+function niceTicks(min: number, max: number, count = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return [min, max];
+  const span = max - min;
+  const rawStep = span / (count - 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const residual = rawStep / magnitude;
+  const step = (residual >= 5 ? 10 : residual >= 2 ? 5 : residual >= 1 ? 2 : 1) * magnitude;
+  const start = Math.ceil(min / step) * step;
+  const ticks: number[] = [];
+  for (let t = start; t <= max + step * 0.001; t += step) ticks.push(Math.round(t * 100) / 100);
+  return ticks.length > 0 ? ticks : [min, max];
 }
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +102,10 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
     return ((v - domainMin) / span) * 100;
   };
 
+  const axisTicks = useMemo(() => niceTicks(domainMin, domainMax), [domainMin, domainMax]);
+  const hasConfidence = rows.some((m) => m.confidence);
+  const [hovered, setHovered] = useState<string | null>(null);
+
   return (
     <div className="terminal-panel" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       <div
@@ -115,6 +134,17 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
           </span>
         )}
       </div>
+
+      {hasConfidence && rows.length > 0 && (
+        <div style={{ display: 'flex', gap: 'var(--space-4)', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+          {(['HIGH', 'MEDIUM', 'LOW'] as const).map((c) => (
+            <span key={c} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: CONFIDENCE_COLOR[c] }} />
+              {c.charAt(0) + c.slice(1).toLowerCase()} confidence
+            </span>
+          ))}
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div
@@ -157,9 +187,12 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
                       flex: 1,
                       height: 20,
                       background: 'var(--color-surface-raised)',
-                      border: '1px solid var(--color-surface-border)',
+                      border: `1px solid ${hovered === m.methodology ? 'var(--color-accent-primary)' : 'var(--color-surface-border)'}`,
                       borderRadius: 'var(--radius-sm)',
+                      cursor: 'default',
                     }}
+                    onMouseEnter={() => setHovered(m.methodology)}
+                    onMouseLeave={() => setHovered(null)}
                   >
                     <div
                       style={{
@@ -169,8 +202,9 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
                         left: `${left}%`,
                         width: `${width}%`,
                         background: color,
-                        opacity: 0.45,
+                        opacity: hovered === m.methodology ? 0.65 : 0.45,
                         borderRadius: 'var(--radius-sm)',
+                        transition: 'opacity var(--transition-fast)',
                       }}
                     />
                     <div
@@ -197,6 +231,30 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
                         }}
                       />
                     )}
+
+                    {hovered === m.methodology && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${toPct(mid)}%`,
+                          bottom: '100%',
+                          transform: 'translateX(-50%)',
+                          marginBottom: 6,
+                          zIndex: 10,
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        <ChartTooltip
+                          title={fmtMethodologyLabel(m.methodology)}
+                          value={fmtPrice(mid)}
+                          series={[
+                            { name: 'Low', value: fmtPrice(low), color },
+                            { name: 'High', value: fmtPrice(high), color },
+                          ]}
+                          {...(m.confidence ? { benchmark: { label: 'Confidence', value: m.confidence } } : {})}
+                        />
+                      </div>
+                    )}
                   </div>
                   <div
                     style={{
@@ -217,14 +275,43 @@ export function FootballField({ methodologies, currentPrice, consensusView }: Fo
             })}
           </div>
 
+          {/* Price axis — aligned under the range tracks (140px label + 200px value columns) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 140, flexShrink: 0 }} />
+            <div style={{ position: 'relative', flex: 1, height: 14 }}>
+              {axisTicks.map((t) => (
+                <span
+                  key={t}
+                  style={{
+                    position: 'absolute',
+                    left: `${toPct(t)}%`,
+                    transform: 'translateX(-50%)',
+                    fontFamily: 'var(--font-data)',
+                    fontVariantNumeric: 'tabular-nums',
+                    fontSize: 10,
+                    color: 'var(--color-text-tertiary)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {fmtPrice(t)}
+                </span>
+              ))}
+            </div>
+            <div style={{ width: 200, flexShrink: 0 }} />
+          </div>
+
           {typeof currentPrice === 'number' && (
             <div
               style={{
                 fontFamily: 'var(--font-ui)',
                 fontSize: 'var(--text-xs)',
                 color: 'var(--color-text-tertiary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}
             >
+              <span style={{ width: 8, height: 2, background: 'var(--color-accent-primary)', display: 'inline-block' }} />
               Current price: {fmtPrice(currentPrice)}
             </div>
           )}

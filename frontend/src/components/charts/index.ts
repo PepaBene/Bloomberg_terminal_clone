@@ -104,3 +104,11 @@ export type { WaterfallBar, WaterfallChartProps } from './WaterfallChart';
 // Monte Carlo chart — probability distribution histogram for scenario outputs
 export { MonteCarloChart } from './MonteCarloChart';
 export type { MonteCarloChartProps } from './MonteCarloChart';
+
+// Order book depth — cumulative bid/ask step-area chart
+export { OrderBookDepthChart } from './OrderBookDepthChart';
+export type { OrderBookDepthChartProps, OrderBookLevel } from './OrderBookDepthChart';
+
+// Volume profile — horizontal volume-by-price histogram with point of control
+export { VolumeProfileChart } from './VolumeProfileChart';
+export type { VolumeProfileChartProps, VolumeProfileLevel } from './VolumeProfileChart';

@@ -6,8 +6,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
-import { CandlestickChart } from '@/components/charts';
-import type { CandlestickDataPoint } from '@/components/charts';
+import { CandlestickChart, OrderBookDepthChart, VolumeProfileChart } from '@/components/charts';
+import type { CandlestickDataPoint, OrderBookLevel, VolumeProfileLevel } from '@/components/charts';
+import { useMarketDepth, useVolumeProfile } from '@/api/hooks/useMarketData';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { SentimentGauge } from '@/components/intelligence';
@@ -59,6 +60,19 @@ interface NewsArticleDTO {
   title: string;
   source_name?: string | null;
   publish_date?: string | null;
+}
+
+// No /v1/market-data/* router is mounted on the backend at all (verified —
+// no market_data router in src/api/app.py's include_router calls, and no
+// depth/volume-profile schema anywhere in src/schemas/). These hooks will
+// 404 until that service exists; the panels below show an honest empty
+// state rather than a fabricated order book or volume histogram.
+interface OrderBookDepthDTO {
+  bids?: OrderBookLevel[];
+  asks?: OrderBookLevel[];
+}
+interface VolumeProfileDTO {
+  levels?: VolumeProfileLevel[];
 }
 
 const DEFAULT_METRICS: MetricItem[] = [
@@ -157,6 +171,12 @@ export default function CompanyOverview() {
     time: n.publish_date ? new Date(n.publish_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
   }));
 
+  const { data: depthData } = useMarketDepth(company.ticker, { enabled: !!company.ticker && company.ticker !== '—' }) as { data: OrderBookDepthDTO | undefined };
+  const { data: volumeProfileData } = useVolumeProfile(company.ticker, { enabled: !!company.ticker && company.ticker !== '—' }) as { data: VolumeProfileDTO | undefined };
+  const bids = Array.isArray(depthData?.bids) ? depthData.bids : [];
+  const asks = Array.isArray(depthData?.asks) ? depthData.asks : [];
+  const volumeLevels = Array.isArray(volumeProfileData?.levels) ? volumeProfileData.levels : [];
+
   // New hooks for Phase 1
   const { data: sentimentHistory } = useSentimentHistory(resolvedId);
   const { data: earningsSurprises } = useEarningsSurprises(resolvedId);
@@ -210,6 +230,37 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Price Chart (6M)</h2>
             <StockCandlestick />
+          </div>
+
+          {/* Order Book Depth & Volume Profile — no /v1/market-data/* router
+              is mounted on the backend (see OrderBookDepthDTO/VolumeProfileDTO
+              above), so these render an honest empty state until that service
+              exists rather than a fabricated book or histogram. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--panel-gap)' }}>
+            <div className="terminal-panel">
+              <h2 className="terminal-section-title">Order Book Depth</h2>
+              {bids.length > 0 && asks.length > 0 ? (
+                <OrderBookDepthChart bids={bids} asks={asks} />
+              ) : (
+                <EmptyState
+                  icon="📶"
+                  title="Order book unavailable"
+                  description="Live bid/ask depth is not wired into this view yet."
+                />
+              )}
+            </div>
+            <div className="terminal-panel">
+              <h2 className="terminal-section-title">Volume Profile</h2>
+              {volumeLevels.length > 0 ? (
+                <VolumeProfileChart levels={volumeLevels} />
+              ) : (
+                <EmptyState
+                  icon="📊"
+                  title="Volume profile unavailable"
+                  description="Volume-by-price data is not wired into this view yet."
+                />
+              )}
+            </div>
           </div>
 
           {/* Quarterly Financials — the /financials/quarterly endpoint does not
