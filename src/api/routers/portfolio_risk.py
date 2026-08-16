@@ -5,16 +5,17 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_session
-from src.engines import drift_engine, e2_wacc, portfolio_risk_engine, treasury_analytics
+from src.engines import drift_engine, e2_wacc, portfolio_risk_engine, trade_list_engine, treasury_analytics
 from src.models.analytics import AnalyticsResult
 from src.models.entity import Entity
 from src.models.portfolio import Portfolio
 from src.models.position import Position
-from src.models.security import FixedIncomeDetails, Security
+from src.models.security import EODPrice, FixedIncomeDetails, Security
 from src.models.portfolio_risk import (
     ConcentrationAnalysis,
     FactorExposureSnapshot,
@@ -33,6 +34,8 @@ from src.schemas.portfolio_risk import (
     StressTestResponse,
     VaRDecompositionResponse,
     VaRResponse,
+    WhatIfRequest,
+    WhatIfResponse,
 )
 from src.schemas.compliance_schema import (
     ComplianceResultResponse,
@@ -50,6 +53,7 @@ from src.schemas.drift_schema import (
     SectorDriftEntry,
     TargetAllocationRequest,
 )
+from src.schemas.trade_list_schema import TradeListResponse, TradeListSummaryEntry, TradeOrderEntry
 
 router = APIRouter(tags=["Portfolio Risk"])
 
@@ -786,6 +790,69 @@ async def run_hypothetical_stress_test(
     )
 
 
+# Named scenarios offered by the pre-existing What-If Analysis panel
+# (frontend/src/pages/portfolio/PortfolioDetail.tsx) -- mapped onto the
+# same real equity/rate shock parameters AVAILABLE_SCENARIOS already uses
+# for hypothetical stress tests, so "what if" reuses real, tested position
+# math instead of a second implementation.
+_WHATIF_SCENARIO_SHOCKS: dict[str, dict[str, float]] = {
+    "market_drop_10": {"equity_shock": -0.10, "rate_shock_bps": 0.0, "spread_shock_bps": 0.0},
+    "rate_hike_100bp": {"equity_shock": 0.0, "rate_shock_bps": 100.0, "spread_shock_bps": 0.0},
+    # "sector_rotation" is deliberately unmapped: this codebase has no
+    # per-sector-differentiated shock model anywhere (run_hypothetical_
+    # stress only applies a single uniform equity/rate/spread shock across
+    # all positions via beta/duration) -- projecting a sector-rotation
+    # number would mean fabricating one, so it falls through to the
+    # honest-null response below instead.
+}
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/what-if",
+    response_model=WhatIfResponse,
+    response_model_by_alias=True,
+)
+async def run_what_if(
+    portfolio_id: uuid.UUID,
+    body: WhatIfRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Named-scenario what-if projection for the portfolio's current
+    holdings.
+
+    [Gap fix] No route existed for this at all (DEEP_AUDIT_2026-07-16) --
+    the frontend's What-If Analysis panel already POSTs
+    ``{scenario}`` and reads back ``{projectedNavChange, projectedPnl}``
+    (see the "always errors today" comment in PortfolioDetail.tsx), so
+    this always failed. Computed via the same real
+    portfolio_risk_engine.run_hypothetical_stress used by
+    ``/risk/stress/hypothetical``, applied to live positions -- not
+    whatif_engine.py's trade-level ``run_whatif_analysis`` (that engine
+    expects an explicit list of proposed trades, which this scenario-name
+    panel doesn't send; wiring it is a separate, larger gap than "the
+    route doesn't exist").
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
+    positions = await _load_position_dicts(session, portfolio_id)
+    portfolio_nav = float(portfolio.current_cash or 0.0) + sum(p["market_value"] for p in positions)
+
+    shock = _WHATIF_SCENARIO_SHOCKS.get(body.scenario)
+    if not positions or portfolio_nav <= 0 or shock is None:
+        return WhatIfResponse()
+
+    result = portfolio_risk_engine.run_hypothetical_stress(
+        positions=positions,
+        equity_shock=shock["equity_shock"],
+        rate_shock_bps=shock["rate_shock_bps"],
+        spread_shock_bps=shock["spread_shock_bps"],
+        portfolio_nav=portfolio_nav,
+    )
+    return WhatIfResponse(
+        projected_nav_change=result.total_pnl_percent,
+        projected_pnl=result.total_pnl_dollar,
+    )
+
+
 @router.get(
     "/portfolios/{portfolio_id}/risk/stress/results",
     response_model=list[StressTestResponse],
@@ -1368,6 +1435,116 @@ async def get_rebalance_suggestions(
         total_drift_pct=_opt_float(snap.total_drift_pct),
         suggestions=suggestions,
     )
+
+
+def _empty_trade_list(portfolio_id: str, portfolio_name: str, reason: str) -> trade_list_engine.TradeList:
+    return trade_list_engine.TradeList(
+        portfolio_id=portfolio_id,
+        portfolio_name=portfolio_name,
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        orders=[],
+        summary=trade_list_engine.TradeListSummary(
+            total_orders=0, buy_count=0, sell_count=0, total_buy_notional=0.0,
+            total_sell_notional=0.0, net_notional=0.0, estimated_commission=0.0,
+            estimated_market_impact=0.0,
+        ),
+        metadata={"source": "drift_rebalance", "reason": reason},
+    )
+
+
+def _trade_list_to_response(tl: trade_list_engine.TradeList, portfolio_id: uuid.UUID) -> TradeListResponse:
+    return TradeListResponse(
+        portfolio_id=portfolio_id,
+        portfolio_name=tl.portfolio_name,
+        generated_at=tl.generated_at,
+        orders=[TradeOrderEntry(**vars(o)) for o in tl.orders],
+        summary=TradeListSummaryEntry(**vars(tl.summary)),
+        metadata=tl.metadata,
+    )
+
+
+@router.get("/portfolios/{portfolio_id}/trade-list")
+async def get_trade_list(
+    portfolio_id: uuid.UUID,
+    format: str = Query(default="json", description="json | csv | fix | ems"),
+    order_type: str = Query(default="MARKET", description="MARKET | LIMIT | VWAP | TWAP"),
+    time_in_force: str = Query(default="DAY", description="DAY | GTC | IOC"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Generate a broker-ready trade list from the portfolio's current
+    drift vs. its stored target allocation.
+
+    [Gap fix] trade_list_engine.py was a correct pure-computation module
+    (rebalance-trades -> sized orders -> optimized sequence -> CSV/FIX/EMS
+    export) with zero callers anywhere (DEEP_AUDIT_2026-07-16). Feeds
+    drift_engine's real ``suggest_rebalance_trades`` output -- computed
+    fresh from live positions and the stored target allocation, not
+    ``/drift/rebalance``'s own duplicate 2%-threshold approximation -- into
+    the trade-list engine, sized against today's closing prices.
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
+    pid_str = str(portfolio_id)
+
+    target_row = (
+        await session.execute(
+            select(DriftSnapshot)
+            .where(DriftSnapshot.portfolio_id == portfolio_id)
+            .order_by(DriftSnapshot.snapshot_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    target_allocation = target_row.target_allocation if target_row and target_row.target_allocation else None
+
+    if not target_allocation:
+        trade_list = _empty_trade_list(pid_str, portfolio.portfolio_name, "no target allocation set")
+    else:
+        positions = await load_position_dicts_with_classification(session, portfolio_id)
+        nav = float(portfolio.current_cash or 0.0) + sum(p["market_value"] for p in positions)
+
+        if nav <= 0 or not positions:
+            trade_list = _empty_trade_list(pid_str, portfolio.portfolio_name, "no open positions")
+        else:
+            current_weights_pct = {p["ticker"]: p["market_value"] / nav * 100.0 for p in positions}
+            target_weights_pct = {ticker: weight * 100.0 for ticker, weight in target_allocation.items()}
+            position_drifts = drift_engine.compute_position_drift(current_weights_pct, target_weights_pct)
+            rebalance_trades = drift_engine.suggest_rebalance_trades(position_drifts, nav)
+
+            prices: dict[str, float] = {}
+            for p in positions:
+                if p["security_id"] is None:
+                    continue
+                row = (
+                    await session.execute(
+                        select(EODPrice.close)
+                        .where(EODPrice.security_id == p["security_id"], EODPrice.close.isnot(None))
+                        .order_by(EODPrice.price_date.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if row is not None:
+                    prices[p["ticker"]] = float(row)
+
+            trade_list = trade_list_engine.generate_trade_list(
+                portfolio_id=pid_str,
+                portfolio_name=portfolio.portfolio_name,
+                rebalance_trades=rebalance_trades,
+                positions=positions,
+                prices=prices,
+                portfolio_nav=nav,
+                order_type=order_type,
+                time_in_force=time_in_force,
+            )
+
+    if format == "json":
+        return _trade_list_to_response(trade_list, portfolio_id)
+    elif format == "csv":
+        return PlainTextResponse(trade_list_engine.format_trade_list_csv(trade_list), media_type="text/csv")
+    elif format == "fix":
+        return trade_list_engine.format_trade_list_fix(trade_list)
+    elif format == "ems":
+        return trade_list_engine.format_trade_list_ems(trade_list)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
 
 
 @router.post(

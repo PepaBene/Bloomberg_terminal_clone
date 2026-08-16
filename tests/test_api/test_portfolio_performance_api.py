@@ -1,7 +1,7 @@
 """API tests for Portfolio Performance & Attribution endpoints (Pillar 4 Phase 2)."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -230,13 +230,20 @@ async def test_get_performance_empty(client: AsyncClient, session: AsyncSession)
 
 @pytest.mark.asyncio
 async def test_get_performance_with_data(client: AsyncClient, session: AsyncSession):
-    """GET /v4/portfolios/{id}/performance returns snapshot."""
+    """GET /v4/portfolios/{id}/performance returns snapshot.
+
+    ``period`` now genuinely scopes the lookup (see _normalize_period_type),
+    so the fallback-to-prior-snapshot path only matches a snapshot whose
+    period_type equals the requested (default "YTD") period -- seeding a
+    "YTD" row, not an unrelated "MONTHLY" one, is what makes this a
+    same-period fallback rather than a mismatched one.
+    """
     p = await _seed_portfolio(session, portfolio_name="Perf Data")
-    await _seed_performance_snapshot(session, p.id)
+    await _seed_performance_snapshot(session, p.id, period_type="YTD")
     resp = await client.get(f"/v4/portfolios/{p.id}/performance")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["period_type"] == "MONTHLY"
+    assert data["period_type"] == "YTD"
     assert data["twr_return"] is not None
     assert data["sharpe_ratio"] is not None
 
@@ -255,14 +262,38 @@ async def test_get_performance_404(client: AsyncClient, session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_get_returns_time_series(client: AsyncClient, session: AsyncSession):
-    """GET /v4/portfolios/{id}/performance/returns returns entries."""
+    """GET /v4/portfolios/{id}/performance/returns returns entries.
+
+    ``period`` now genuinely filters the series (default "YTD" would
+    exclude these 2025 dates once "today" rolls into a later year) --
+    request the unscoped "SI" window to check the full seeded series.
+    """
     p = await _seed_portfolio(session, portfolio_name="Returns TS")
     await _seed_nav_snapshot(session, p.id, snapshot_date=date(2025, 6, 1))
     await _seed_nav_snapshot(session, p.id, snapshot_date=date(2025, 6, 2))
-    resp = await client.get(f"/v4/portfolios/{p.id}/performance/returns")
+    resp = await client.get(f"/v4/portfolios/{p.id}/performance/returns?period=SI")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["entries"]) >= 2
+
+
+@pytest.mark.asyncio
+async def test_get_returns_time_series_scoped_to_period(client: AsyncClient, session: AsyncSession):
+    """GET .../performance/returns?period=YTD excludes prior-year entries.
+
+    Regression test for the "period is decorative" bug: a YTD request must
+    only return this year's NAV history, not the full since-inception
+    series regardless of what was asked.
+    """
+    p = await _seed_portfolio(session, portfolio_name="Returns TS Scoped")
+    await _seed_nav_snapshot(session, p.id, snapshot_date=date(2020, 1, 1))
+    await _seed_nav_snapshot(session, p.id, snapshot_date=date(2020, 1, 2))
+    resp = await client.get(f"/v4/portfolios/{p.id}/performance/returns?period=YTD")
+    assert resp.status_code == 200
+    data = resp.json()
+    dates = [e["date"] for e in data["entries"]]
+    assert "2020-01-01" not in dates
+    assert "2020-01-02" not in dates
 
 
 @pytest.mark.asyncio
@@ -292,6 +323,33 @@ async def test_get_rolling_returns(client: AsyncClient, session: AsyncSession):
     assert resp.status_code == 200
     data = resp.json()
     assert "entries" in data
+
+
+@pytest.mark.asyncio
+async def test_get_rolling_returns_computes_real_windowed_values(client: AsyncClient, session: AsyncSession):
+    """Regression test: every rolling_* field was previously set to the
+    SAME since-inception cumulative return regardless of window size. With
+    21 days of a constant +0.1%/day NAVSnapshot.daily_return series, the
+    21-day rolling_1m window on the last day must equal (1.001)^21 - 1 --
+    a real geometric link over real daily returns, not an echoed value --
+    while rolling_3m (needs 63 days) must be null (honest gap), not
+    fabricated from the same short series.
+    """
+    p = await _seed_portfolio(session, portfolio_name="Rolling Windowed")
+    base = date(2025, 1, 1)
+    for i in range(21):
+        await _seed_nav_snapshot(
+            session, p.id, snapshot_date=base + timedelta(days=i),
+            daily_return=Decimal("0.00100000"),
+        )
+
+    resp = await client.get(f"/v4/portfolios/{p.id}/performance/returns/rolling")
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    last = next(e for e in entries if e["date"] == (base + timedelta(days=20)).isoformat())
+    expected_1m = 1.001 ** 21 - 1.0
+    assert last["rolling_1m"] == pytest.approx(expected_1m, abs=1e-5)
+    assert last["rolling_3m"] is None
 
 
 # ══════════════════════════════════════════════════════════════════════

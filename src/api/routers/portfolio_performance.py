@@ -6,6 +6,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select, func
@@ -333,11 +334,71 @@ async def _upsert_performance_snapshot(
     return snap
 
 
+# Recognized period keywords, normalized to a canonical spelling ("1MO" ->
+# "1M", "1YR" -> "1Y"). Anything outside this set (including "SI"/"ALL",
+# and the empty/unrecognized string) means "use the full since-inception
+# history" -- both _period_start_date and the PerformanceSnapshot
+# period_type these requests are upserted/looked-up under agree on this
+# same normalization so a fallback query always matches what the live
+# computation would have written.
+_PERIOD_ALIASES = {"1MO": "1M", "1YR": "1Y"}
+_RECOGNIZED_PERIODS = {"MTD", "QTD", "YTD", "1M", "3M", "6M", "1Y", "3Y", "5Y"}
+
+
+def _normalize_period_type(period: str | None) -> str:
+    p = (period or "").upper()
+    p = _PERIOD_ALIASES.get(p, p)
+    return p if p in _RECOGNIZED_PERIODS else "DAILY"
+
+
+def _period_start_date(period: str, as_of: date, inception: date) -> date | None:
+    """Map a normalized period keyword (MTD/QTD/YTD/1M/3M/6M/1Y/3Y/5Y) to
+    its window start date. Returns None for "DAILY" (i.e. an
+    unrecognized/SI/ALL period), meaning "use the full since-inception
+    history".
+    """
+    p = _normalize_period_type(period)
+    if p == "MTD":
+        start = as_of.replace(day=1)
+    elif p == "QTD":
+        q_month = ((as_of.month - 1) // 3) * 3 + 1
+        start = as_of.replace(month=q_month, day=1)
+    elif p == "YTD":
+        start = as_of.replace(month=1, day=1)
+    elif p == "1M":
+        start = as_of - relativedelta(months=1)
+    elif p == "3M":
+        start = as_of - relativedelta(months=3)
+    elif p == "6M":
+        start = as_of - relativedelta(months=6)
+    elif p == "1Y":
+        start = as_of - relativedelta(years=1)
+    elif p == "3Y":
+        start = as_of - relativedelta(years=3)
+    elif p == "5Y":
+        start = as_of - relativedelta(years=5)
+    else:
+        return None
+    return max(start, inception)
+
+
 async def _compute_and_persist_performance(
-    session: AsyncSession, portfolio_id: uuid.UUID
+    session: AsyncSession, portfolio_id: uuid.UUID, period: str | None = None
 ) -> PerformanceSnapshot | None:
-    """Build and persist a real "since-inception-to-date" DAILY performance
-    snapshot from NAV history via performance_engine.build_performance_summary().
+    """Build and persist a real performance snapshot from NAV history via
+    performance_engine.build_performance_summary().
+
+    [Bug fix] ``period`` was previously accepted by every caller but never
+    used -- this always built the same since-inception-to-date DAILY
+    snapshot regardless of whether the caller asked for YTD, MTD, 1Y, etc.
+    When ``period`` resolves to a real window (see _period_start_date) and
+    that window contains at least two NAV points, the NAV history is
+    sliced to it *before* calling build_performance_summary, so every
+    metric (return, Sharpe, drawdown, ...) is genuinely period-scoped, not
+    just relabeled. The result is upserted under a period_type matching
+    the requested period (e.g. "YTD"), distinct from the "DAILY"
+    since-inception row scripts/backfill_performance_snapshots.py
+    maintains, so period-scoped requests never clobber it.
 
     Returns None when there's fewer than two NAV snapshots (not enough
     history yet to derive a return series) rather than fabricating one.
@@ -368,21 +429,44 @@ async def _compute_and_persist_performance(
     await _ensure_nav_snapshot_today(session, portfolio_id)
     portfolio = await _get_portfolio(session, portfolio_id)
 
-    nav_rows = (
+    all_nav_rows = (
         await session.execute(
             select(NAVSnapshot)
             .where(NAVSnapshot.portfolio_id == portfolio_id)
             .order_by(NAVSnapshot.snapshot_date.asc())
         )
     ).scalars().all()
-    if len(nav_rows) < 2:
+    if len(all_nav_rows) < 2:
         return None
+
+    period_type = "DAILY"
+    nav_rows = all_nav_rows
+    since_inception = True
+    if period:
+        start = _period_start_date(period, all_nav_rows[-1].snapshot_date, portfolio.inception_date)
+        if start is not None:
+            windowed = [r for r in all_nav_rows if r.snapshot_date >= start]
+            # Fewer than 2 points in the window is an honest gap (e.g. a
+            # brand-new portfolio asked about YTD before it has 2 days of
+            # history) -- fall back to the full since-inception series
+            # rather than a degenerate single-point "summary".
+            if len(windowed) >= 2:
+                nav_rows = windowed
+                period_type = _normalize_period_type(period)
+                since_inception = False
 
     nav_history = [{"date": r.snapshot_date.isoformat(), "nav": float(r.nav)} for r in nav_rows]
     nav_dates = [r.snapshot_date for r in nav_rows]
 
     cash_flows = None
-    if portfolio.initial_cash is not None and float(portfolio.initial_cash) > 0:
+    if since_inception and portfolio.initial_cash is not None and float(portfolio.initial_cash) > 0:
+        # date_offset=0 means "at the first NAV point" -- only correct when
+        # that first point is genuinely inception. For a period-filtered
+        # window (e.g. YTD), the window's start isn't when the initial
+        # cash was actually deployed, so modeling a flow there would
+        # misstate MWR; period-filtered summaries omit cash_flows instead
+        # (MWR reduces to the flow-free case, an honest approximation
+        # rather than a misplaced one).
         cash_flows = [{"date_offset": 0, "amount": -float(portfolio.initial_cash)}]
 
     benchmark_history = await _resolve_benchmark_history(session, portfolio, nav_dates)
@@ -396,7 +480,7 @@ async def _compute_and_persist_performance(
 
     fields = _summary_to_fields(summary)
     snap = await _upsert_performance_snapshot(
-        session, portfolio_id, "DAILY", period_start, period_end, fields
+        session, portfolio_id, period_type, period_start, period_end, fields
     )
 
     await session.commit()
@@ -437,11 +521,14 @@ async def compare_portfolios(
         if not portfolio or portfolio.user_id != requester:
             continue
 
-        snap = await _compute_and_persist_performance(session, pid)
+        snap = await _compute_and_persist_performance(session, pid, period=period)
         if not snap:
             snap_result = await session.execute(
                 select(PerformanceSnapshot)
-                .where(PerformanceSnapshot.portfolio_id == pid)
+                .where(
+                    PerformanceSnapshot.portfolio_id == pid,
+                    PerformanceSnapshot.period_type == _normalize_period_type(period),
+                )
                 .order_by(PerformanceSnapshot.period_end.desc())
                 .limit(1)
             )
@@ -473,16 +560,23 @@ async def get_performance(
     period: str = Query(default="YTD"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get latest performance snapshot for a portfolio."""
+    """Get latest performance snapshot for a portfolio, scoped to ``period``
+    (MTD/QTD/YTD/1M/3M/6M/1Y/3Y/5Y/SI) -- every metric (return, Sharpe,
+    drawdown, ...) is recomputed over that period's NAV window, not just
+    since-inception regardless of what was asked."""
     await _get_portfolio(session, portfolio_id)
-    snap = await _compute_and_persist_performance(session, portfolio_id)
+    snap = await _compute_and_persist_performance(session, portfolio_id, period=period)
     if not snap:
         # Not enough NAV history to compute fresh (e.g. a brand-new
-        # portfolio) — fall back to whatever's already on record (a prior
-        # batch-computed snapshot) instead of clobbering it with null.
+        # portfolio) — fall back to whatever's already on record for this
+        # same period (a prior batch-computed snapshot) instead of
+        # clobbering it with null.
         result = await session.execute(
             select(PerformanceSnapshot)
-            .where(PerformanceSnapshot.portfolio_id == portfolio_id)
+            .where(
+                PerformanceSnapshot.portfolio_id == portfolio_id,
+                PerformanceSnapshot.period_type == _normalize_period_type(period),
+            )
             .order_by(PerformanceSnapshot.period_end.desc())
             .limit(1)
         )
@@ -501,8 +595,14 @@ async def get_returns(
     period: str = Query(default="YTD"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get return time series for a portfolio."""
-    await _get_portfolio(session, portfolio_id)
+    """Get return time series for a portfolio, scoped to ``period``.
+
+    [Bug fix] ``period`` was accepted but never used to filter ``entries``
+    -- every request returned the full since-inception series regardless
+    of what was asked. Now sliced to the same MTD/QTD/YTD/... window
+    _compute_and_persist_performance uses.
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
     await _ensure_nav_snapshot_today(session, portfolio_id)
 
     result = await session.execute(
@@ -511,6 +611,12 @@ async def get_returns(
         .order_by(NAVSnapshot.snapshot_date.asc())
     )
     rows = result.scalars().all()
+    if rows:
+        start = _period_start_date(period, rows[-1].snapshot_date, portfolio.inception_date)
+        if start is not None:
+            windowed = [r for r in rows if r.snapshot_date >= start]
+            if windowed:
+                rows = windowed
     entries = [
         ReturnSeriesEntry(
             date=snap.snapshot_date,
@@ -573,24 +679,49 @@ async def get_rolling_returns(
     portfolio_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
-    """Get rolling return series."""
+    """Get rolling return series (1M/3M/6M/1Y/3Y trading-day windows).
+
+    [Bug fix] Every rolling_* field was previously set to the SAME
+    since-inception cumulative twr_return from the DAILY PerformanceSnapshot
+    row -- rolling_1m and rolling_3y were identical for every date, which
+    isn't a rolling return at all. Now computed for real via
+    performance_engine.compute_rolling_returns over the actual daily
+    NAVSnapshot.daily_return series, one genuinely different value per
+    window size.
+    """
     await _get_portfolio(session, portfolio_id)
 
     result = await session.execute(
-        select(PerformanceSnapshot)
-        .where(
-            PerformanceSnapshot.portfolio_id == portfolio_id,
-            PerformanceSnapshot.period_type == "DAILY",
-        )
-        .order_by(PerformanceSnapshot.period_end.asc())
+        select(NAVSnapshot)
+        .where(NAVSnapshot.portfolio_id == portfolio_id)
+        .order_by(NAVSnapshot.snapshot_date.asc())
     )
     rows = result.scalars().all()
+    dates = [r.snapshot_date for r in rows]
+    daily_returns = [float(r.daily_return) if r.daily_return is not None else 0.0 for r in rows]
+
+    def _rolling_by_date(window_days: int) -> dict[date, float]:
+        values = performance_engine.compute_rolling_returns(daily_returns, window_days)
+        # compute_rolling_returns[i] is the window ending at daily_returns
+        # index i+window_days-1 -> dates[i+window_days-1].
+        return {dates[i + window_days - 1]: v for i, v in enumerate(values)}
+
+    rolling_1m = _rolling_by_date(21)
+    rolling_3m = _rolling_by_date(63)
+    rolling_6m = _rolling_by_date(126)
+    rolling_1y = _rolling_by_date(252)
+    rolling_3y = _rolling_by_date(756)
+
     entries = [
         RollingReturnEntry(
-            date=snap.period_end,
-            rolling_1m=_opt_float(snap.twr_return),
+            date=d,
+            rolling_1m=rolling_1m.get(d),
+            rolling_3m=rolling_3m.get(d),
+            rolling_6m=rolling_6m.get(d),
+            rolling_1y=rolling_1y.get(d),
+            rolling_3y=rolling_3y.get(d),
         )
-        for snap in rows
+        for d in dates
     ]
     return RollingReturnResponse(portfolio_id=portfolio_id, entries=entries)
 
