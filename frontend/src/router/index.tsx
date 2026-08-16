@@ -57,6 +57,7 @@ const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
 const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
 const CustomIndexBuilder = lazy(() => import('@/pages/quant/CustomIndexBuilder'));
 const Settings = lazy(() => import('@/pages/settings/Settings'));
+const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage'));
 const NotFound = lazy(() => import('@/pages/global/NotFound'));
 
 function LoadingFallback() {
@@ -156,6 +157,9 @@ export function AppRouter() {
         <Route path="/quant" element={<QuantDashboard />} />
         <Route path="/quant/backtest" element={<BacktestDashboard />} />
         <Route path="/quant/index-builder" element={<CustomIndexBuilder />} />
+
+        {/* Custom Dashboard */}
+        <Route path="/dashboard" element={<DashboardPage />} />
 
         {/* Settings */}
         <Route path="/settings" element={<Settings />} />

@@ -30,6 +30,8 @@ export { CandlestickChart } from './CandlestickChart';
 export type {
   CandlestickChartProps,
   CandlestickDataPoint,
+  OverlaySeriesDef,
+  OverlayReferenceLine,
 } from './CandlestickChart';
 
 // Bar chart — grouped / stacked (Recharts)

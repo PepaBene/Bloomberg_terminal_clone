@@ -1921,3 +1921,60 @@ async def get_technical_signals(
         "data_quality": "COMPLETE",
         "meta": _build_meta("TECHNICAL_SIGNALS", start),
     }
+
+
+@router.get("/technical-series/{security_id}")
+async def get_technical_series(
+    security_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Full-history technical-indicator time series for chart overlays.
+
+    Unlike ``/technical-signals`` (latest value only), this returns the
+    complete per-date series for each indicator so the frontend can plot
+    them alongside the price chart. Same real EODPrice history and same
+    ``src/engines/technical_studies.py`` math as the snapshot endpoint —
+    just returning the full arrays those functions already compute instead
+    of collapsing them to the last point.
+    """
+    from src.engines.technical_studies import bollinger_bands, ema, macd, rsi, sma
+
+    start = time.perf_counter()
+    sec = await _resolve_security(session, security_id)
+
+    dates, _highs, _lows, closes, _volumes = await _load_ohlcv(session, security_id)
+    if len(closes) < 20:
+        return {
+            "security_id": str(security_id),
+            "ticker": getattr(sec, "ticker", None),
+            "dates": [],
+            "series": {},
+            "data_quality": "INSUFFICIENT_DATA",
+            "meta": _build_meta("TECHNICAL_SERIES", start),
+        }
+
+    macd_values = macd(closes)
+    bb_values = bollinger_bands(closes)
+
+    series = {
+        "SMA_20": sma(closes, 20),
+        "SMA_50": sma(closes, 50),
+        "EMA_12": ema(closes, 12),
+        "EMA_26": ema(closes, 26),
+        "RSI_14": rsi(closes, 14),
+        "MACD": macd_values["macd"],
+        "MACD_SIGNAL": macd_values["signal"],
+        "MACD_HIST": macd_values["histogram"],
+        "BB_UPPER": bb_values["upper"],
+        "BB_MIDDLE": bb_values["middle"],
+        "BB_LOWER": bb_values["lower"],
+    }
+
+    return {
+        "security_id": str(security_id),
+        "ticker": getattr(sec, "ticker", None),
+        "dates": [d.isoformat() for d in dates],
+        "series": {k: [round(v, 4) if v is not None else None for v in vals] for k, vals in series.items()},
+        "data_quality": "COMPLETE",
+        "meta": _build_meta("TECHNICAL_SERIES", start),
+    }

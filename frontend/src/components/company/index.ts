@@ -30,3 +30,7 @@ export type { MaturityWallChartProps, MaturityBucket } from './MaturityWallChart
 // Equity vs credit divergence dual-axis chart
 export { EquityCreditDivergence } from './EquityCreditDivergence';
 export type { EquityCreditDivergenceProps, EquityCreditPoint } from './EquityCreditDivergence';
+
+// Candlestick price chart with toggleable technical-indicator overlays
+export { PriceChartPanel } from './PriceChartPanel';
+export type { PriceChartPanelProps } from './PriceChartPanel';

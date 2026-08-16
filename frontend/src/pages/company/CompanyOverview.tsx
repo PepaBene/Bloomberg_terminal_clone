@@ -6,11 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useSecurityStore } from '@/stores/securityContext';
-import { CandlestickChart, OrderBookDepthChart, VolumeProfileChart } from '@/components/charts';
-import type { CandlestickDataPoint, OrderBookLevel, VolumeProfileLevel } from '@/components/charts';
+import { OrderBookDepthChart, VolumeProfileChart } from '@/components/charts';
+import type { OrderBookLevel, VolumeProfileLevel } from '@/components/charts';
 import { useMarketDepth, useVolumeProfile } from '@/api/hooks/useMarketData';
 import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
+import { PriceChartPanel } from '@/components/company/PriceChartPanel';
 import { SentimentGauge } from '@/components/intelligence';
 import { EmptyState } from '@/components/feedback';
 import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useCorporateActionsUpcoming } from '@/hooks';
@@ -115,14 +116,6 @@ interface HolderItem {
 }
 
 const DEFAULT_HOLDERS: HolderItem[] = [];
-
-// --- OHLC default (empty until API provides real data) ----------------------
-
-const DEFAULT_OHLC: CandlestickDataPoint[] = [];
-
-function StockCandlestick() {
-  return <CandlestickChart data={DEFAULT_OHLC} height={300} showVolume />;
-}
 
 // --- Component ---------------------------------------------------------------
 
@@ -229,7 +222,7 @@ export default function CompanyOverview() {
           {/* Price Chart (OHLC Candlestick) */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Price Chart (6M)</h2>
-            <StockCandlestick />
+            <PriceChartPanel securityId={resolvedId} height={300} />
           </div>
 
           {/* Order Book Depth & Volume Profile — no /v1/market-data/* router
