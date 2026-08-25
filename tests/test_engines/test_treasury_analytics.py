@@ -62,13 +62,20 @@ class TestComputeYTM:
         assert ytm > 5.0
 
     def test_ytm_zero_coupon(self):
-        """T-Bill: price=99.5, maturity=0.25 -> compute discount yield."""
+        """T-Bill: price=99.5, maturity=0.25 -> compute discount yield.
+
+        Regression test: the discount-yield formula must use the
+        market-standard actual/360 basis, not a 365/365.25 calendar-year
+        basis. years_to_maturity=0.25 -> days_to_maturity = 0.25*365.25 =
+        91.3125 -> discount_yield = (0.5/100) * (360/91.3125) * 100 ~= 1.971%
+        (previously asserted 2.0%, which was (0.5/100)*(1/0.25)*100 -- the
+        365.25-basis formula, overstating the yield vs. the 360-basis one).
+        """
         ytm = compute_treasury_ytm(
             coupon_rate=0, face_value=100.0, price=99.5,
             years_to_maturity=0.25, frequency=0,
         )
-        # discount yield = (0.5/100) * (1/0.25) * 100 = 2.0%
-        assert abs(ytm - 2.0) < 0.01
+        assert abs(ytm - 1.9712525667) < 0.0001
 
 
 # ── compute_duration_convexity ──────────────────────────────────────

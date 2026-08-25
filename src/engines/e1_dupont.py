@@ -159,21 +159,40 @@ class DuPontEngine(BaseEngine):
             )
             return await self._ttm_fallback(session, security_id, entity_id)
 
-        period_label = (
-            f"Q{period.fiscal_quarter}_{period.fiscal_year}"
-            if period.fiscal_quarter
-            else str(period.period_end_date)
-        )
-
         # ------------------------------------------------------------------
         # 3. Extract raw values (convert Decimal -> float where not None)
         # ------------------------------------------------------------------
-        net_income = float(inc.net_income) if inc.net_income is not None else None
-        total_revenue = float(inc.total_revenue) if inc.total_revenue is not None else None
-        operating_income = float(inc.operating_income) if inc.operating_income is not None else None
-        pretax_income = float(inc.pretax_income) if inc.pretax_income is not None else None
+        # [Bug fix] Income-statement (flow) figures are summed over the
+        # trailing 4 quarters ending at `period`, mirroring TTMEngine's
+        # flow-field convention (e1_ttm.py: "flow metrics summed across
+        # quarters, stock metrics from latest quarter"). Previously these
+        # were read from a *single* quarter while total_assets/total_equity
+        # (correctly) came from that same quarter's balance sheet -- mixing
+        # a one-quarter flow against a full balance-sheet stock understated
+        # ROE by roughly 4x versus the properly annualised figure.
+        flow_fields = ("net_income", "total_revenue", "operating_income", "pretax_income")
+        idx = periods.index(period)
+        window = periods[idx: idx + 4]
+        ttm_sums: dict[str, float | None] = {f: None for f in flow_fields}
+        quarters_used = 0
+        for p in window:
+            if p.income_statement is None:
+                continue
+            quarters_used += 1
+            for f in flow_fields:
+                val = getattr(p.income_statement, f, None)
+                if val is not None:
+                    ttm_sums[f] = (ttm_sums[f] or 0.0) + float(val)
+
+        net_income = ttm_sums["net_income"]
+        total_revenue = ttm_sums["total_revenue"]
+        operating_income = ttm_sums["operating_income"]
+        pretax_income = ttm_sums["pretax_income"]
         total_assets = float(bs.total_assets) if bs.total_assets is not None else None
         total_equity = float(bs.total_equity) if bs.total_equity is not None else None
+
+        period_label = f"TTM_{period.period_end_date.isoformat()}"
+        partial_ttm = quarters_used < 4
 
         outputs: list[EngineOutput] = []
 
@@ -185,6 +204,13 @@ class DuPontEngine(BaseEngine):
                 value=value,
                 period=period_label,
             )
+
+        def _q(quality: str) -> str:
+            """Downgrade to PARTIAL_TTM (fewer than 4 quarters fed the flow
+            sums) unless a more specific quality flag already applies."""
+            if partial_ttm and quality == "COMPLETE":
+                return "PARTIAL_TTM"
+            return quality
 
         # ------------------------------------------------------------------
         # 4. 3-Factor DuPont
@@ -202,7 +228,7 @@ class DuPontEngine(BaseEngine):
                 net_profit_margin,
                 period_label, period.period_end_date,
                 [_inp("net_income", net_income), _inp("total_revenue", total_revenue)],
-                data_quality=npm_quality,
+                data_quality=_q(npm_quality),
             )
         )
 
@@ -215,6 +241,7 @@ class DuPontEngine(BaseEngine):
                 asset_turnover,
                 period_label, period.period_end_date,
                 [_inp("total_revenue", total_revenue), _inp("total_assets", total_assets)],
+                data_quality=_q("COMPLETE"),
             )
         )
 
@@ -241,7 +268,7 @@ class DuPontEngine(BaseEngine):
 
         # Direct ROE for cross-check
         direct_roe = safe_divide(net_income, total_equity)
-        roe_3f_quality = "COMPLETE"
+        roe_3f_quality = _q("COMPLETE")
         # [Bug 6 fix] propagate NEGATIVE_EQUITY to composite 3F ROE
         if eq_mult_quality == "NEGATIVE_EQUITY":
             roe_3f_quality = "NEGATIVE_EQUITY"
@@ -277,7 +304,10 @@ class DuPontEngine(BaseEngine):
                 direct_roe,
                 period_label, period.period_end_date,
                 [_inp("net_income", net_income), _inp("total_equity", total_equity)],
-                data_quality="NEGATIVE_EQUITY" if (total_equity is not None and total_equity < 0) else "COMPLETE",
+                data_quality=(
+                    "NEGATIVE_EQUITY" if (total_equity is not None and total_equity < 0)
+                    else _q("COMPLETE")
+                ),
             )
         )
 
@@ -294,6 +324,7 @@ class DuPontEngine(BaseEngine):
                 tax_burden,
                 period_label, period.period_end_date,
                 [_inp("net_income", net_income), _inp("pretax_income", pretax_income)],
+                data_quality=_q("COMPLETE"),
             )
         )
 
@@ -306,6 +337,7 @@ class DuPontEngine(BaseEngine):
                 interest_burden,
                 period_label, period.period_end_date,
                 [_inp("pretax_income", pretax_income), _inp("operating_income", operating_income)],
+                data_quality=_q("COMPLETE"),
             )
         )
 
@@ -321,7 +353,7 @@ class DuPontEngine(BaseEngine):
                 operating_margin,
                 period_label, period.period_end_date,
                 [_inp("operating_income", operating_income), _inp("total_revenue", total_revenue)],
-                data_quality=om_quality,
+                data_quality=_q(om_quality),
             )
         )
 
@@ -336,7 +368,7 @@ class DuPontEngine(BaseEngine):
             for f in factors_5:
                 roe_5f *= f  # type: ignore[operator]
 
-        roe_5f_quality = "COMPLETE"
+        roe_5f_quality = _q("COMPLETE")
         # [Bug 6 fix] propagate NEGATIVE_EQUITY to composite 5F ROE
         if eq_mult_quality == "NEGATIVE_EQUITY":
             roe_5f_quality = "NEGATIVE_EQUITY"

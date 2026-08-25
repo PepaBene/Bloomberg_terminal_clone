@@ -102,6 +102,29 @@ ESG_FILING_TYPES = {"10-K"}
 # derived from public filings + EPA data, not a licensed third-party rating.
 PROVIDER = "EDGAR_DISCLOSURE_PROXY"
 
+
+def compute_composite_esg(
+    environmental: float | None,
+    social: float | None,
+    governance: float | None,
+) -> float | None:
+    """Equal-weighted mean of the available ESG pillar scores (0-100).
+
+    The composite ``ESGScore.esg_score`` column was never written by any
+    connector: ``edgar_esg.py`` writes only ``governance_score`` (under
+    provider ``SEC_EDGAR``) and this connector writes only environmental /
+    social (under ``EDGAR_DISCLOSURE_PROXY``), so the overall score was NULL
+    forever. This connector runs last in the weekly ESG chain, so it is the
+    natural aggregation point: it pulls the latest governance pillar and
+    averages whatever pillars are available. Returns ``None`` only when no
+    pillar is present. This is a disclosure-proxy composite, not a licensed
+    third-party ESG rating.
+    """
+    pillars = [p for p in (environmental, social, governance) if p is not None]
+    if not pillars:
+        return None
+    return round(sum(pillars) / len(pillars), 2)
+
 # --------------------------------------------------------------------------
 # Regex patterns -- honest, deterministic disclosure-signal extraction.
 # Each pattern is intentionally narrow (mirrors edgar_esg.py's
@@ -647,6 +670,25 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
                 env_score = rec.get("environmental_score")
                 soc_score = rec.get("social_score")
 
+                # Pull the latest governance pillar (written by edgar_esg.py
+                # under a different provider) so the composite reflects all
+                # three pillars where available.
+                gov_raw = (
+                    await session.execute(
+                        select(ESGScore.governance_score)
+                        .where(
+                            ESGScore.entity_id == entity_id,
+                            ESGScore.governance_score.isnot(None),
+                        )
+                        .order_by(ESGScore.as_of_date.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                gov_score = float(gov_raw) if gov_raw is not None else None
+
+                def _flt(v: Any) -> float | None:
+                    return float(v) if v is not None else None
+
                 # Upsert by (entity_id, provider, as_of_date) -- the unique
                 # index already on esg_scores.
                 existing = await session.execute(
@@ -662,8 +704,18 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
                         existing_score.environmental_score = Decimal(str(env_score))
                     if soc_score is not None:
                         existing_score.social_score = Decimal(str(soc_score))
+                    composite = compute_composite_esg(
+                        _flt(existing_score.environmental_score),
+                        _flt(existing_score.social_score),
+                        gov_score,
+                    )
+                    if composite is not None:
+                        existing_score.esg_score = Decimal(str(composite))
                     stats["updated"] += 1
                 elif env_score is not None or soc_score is not None:
+                    composite = compute_composite_esg(
+                        _flt(env_score), _flt(soc_score), gov_score
+                    )
                     session.add(
                         ESGScore(
                             score_id=uuid.uuid4(),
@@ -676,7 +728,10 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
                             social_score=Decimal(str(soc_score))
                             if soc_score is not None
                             else None,
-                            esg_rating=None,  # Disclosure proxy; no composite rating.
+                            esg_score=Decimal(str(composite))
+                            if composite is not None
+                            else None,
+                            esg_rating=None,  # Disclosure proxy; no letter rating.
                         )
                     )
                     stats["inserted"] += 1

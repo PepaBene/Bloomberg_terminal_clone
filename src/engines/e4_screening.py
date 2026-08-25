@@ -509,23 +509,49 @@ class ScreeningEngine:
     # -- source-specific builders --
 
     def _filter_analytics(self, filt: ScreenFilter):
-        """Build subquery against ``analytics_results`` table.
+        """Build subquery against ``analytics_results``, restricted to each
+        security's LATEST as_of_date for this metric.
 
-        Most metrics are numeric and live in ``AnalyticsResult.value``, but a
-        handful (e.g. ``altman_zone``: SAFE/GREY/DISTRESS) are classification
-        labels with no numeric value -- the engines that compute them store
-        the label in ``data_quality`` instead (see e.g. e3_altman.py's
-        ``altman_zone`` output, which passes ``value=None,
-        data_quality=zone``). Comparing a string filter value against the
-        numeric ``value`` column for those fields raises
-        ``UndefinedFunctionError`` at the DB (operator does not exist:
-        numeric <> character varying), so categorical fields are routed to
-        ``data_quality`` and compared as strings instead.
+        [Bug fix] Previously matched on ANY historical row for the metric
+        (analytics_results is a time series, one row per security per
+        as_of_date), so a security whose value satisfied the filter at some
+        point in the past -- but no longer does -- would still match, and
+        a security whose CURRENT value passes but never had a passing
+        historical snapshot could be excluded depending on operator. Mirrors
+        the same latest-per-security pattern _filter_ownership already uses
+        below for OwnershipSummary.
         """
-        stmt = select(AnalyticsResult.security_id).where(
-            AnalyticsResult.metric_name == filt.field,
+        latest_date_subq = (
+            select(
+                AnalyticsResult.security_id,
+                func.max(AnalyticsResult.as_of_date).label("max_date"),
+            )
+            .where(AnalyticsResult.metric_name == filt.field)
+            .group_by(AnalyticsResult.security_id)
+            .subquery("latest_analytics")
         )
-        if filt.field in _CATEGORICAL_ANALYTICS_FIELDS:
+        stmt = (
+            select(AnalyticsResult.security_id)
+            .join(
+                latest_date_subq,
+                and_(
+                    AnalyticsResult.security_id == latest_date_subq.c.security_id,
+                    AnalyticsResult.as_of_date == latest_date_subq.c.max_date,
+                ),
+            )
+            .where(AnalyticsResult.metric_name == filt.field)
+        )
+
+        # [Bug fix] altman_zone (and any other data_type="categorical"
+        # ANALYTICS_RESULT field) is unscreenable via _apply_numeric_op:
+        # AnalyticsResult.value is a strict Numeric(20,6) column, so
+        # e3_altman.py's classification string ("SAFE"/"GREY"/"DISTRESS")
+        # is written to `value=None` with the actual label stashed in
+        # `data_quality` instead -- a numeric filter against `value` can
+        # never match. Route categorical fields to a string comparison
+        # against data_quality (EQ/IN/NEQ/CONTAINS via _apply_generic_op)
+        # instead.
+        if _ANALYTICS_FIELD_DATA_TYPE.get(filt.field) == "categorical":
             stmt = self._apply_generic_op(stmt, AnalyticsResult.data_quality, filt)
         else:
             stmt = self._apply_numeric_op(stmt, AnalyticsResult.value, filt)
@@ -945,11 +971,10 @@ _FIELD_METADATA: list[dict[str, str]] = [
     {"field_name": "inst_flow_trend_3q", "source": "ANALYTICS_RESULT", "data_type": "categorical", "description": "3-quarter flow trend: ACCUMULATION / DISTRIBUTION / NEUTRAL", "category": "flow", "unit": ""},
 ]
 
-# ANALYTICS_RESULT fields whose value is a classification label stored in
-# AnalyticsResult.data_quality rather than a number in .value -- see
-# _filter_analytics() above for why this routing matters.
-_CATEGORICAL_ANALYTICS_FIELDS: frozenset[str] = frozenset(
-    f["field_name"]
-    for f in _FIELD_METADATA
-    if f["source"] == "ANALYTICS_RESULT" and f["data_type"] == "categorical"
-)
+# field_name -> data_type, for ANALYTICS_RESULT-sourced fields only. Used by
+# _filter_analytics to route "categorical" fields (e.g. altman_zone) to a
+# string comparison against AnalyticsResult.data_quality instead of a
+# numeric comparison against AnalyticsResult.value.
+_ANALYTICS_FIELD_DATA_TYPE: dict[str, str] = {
+    f["field_name"]: f["data_type"] for f in _FIELD_METADATA if f["source"] == "ANALYTICS_RESULT"
+}

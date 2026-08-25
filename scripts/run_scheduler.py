@@ -47,7 +47,7 @@ def validate_schedules() -> bool:
     for job in BATCH_JOBS:
         script_path, _ = _split_job_script(job.script)
         if not script_path.exists():
-            errors.append(f"  {job.name}: script not found -> {job.script}")
+            errors.append(f"  {job.name}: script not found -> {script_path}")
         parts = job.cron.split()
         if len(parts) != 5:
             errors.append(f"  {job.name}: invalid cron expression '{job.cron}' (need 5 fields)")

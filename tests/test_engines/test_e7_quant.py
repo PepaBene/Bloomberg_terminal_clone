@@ -361,6 +361,102 @@ async def test_default_compute_with_benchmark(
 
 
 # ===========================================================================
+# 12b. Beta/correlation must align by date, not position, across a
+#      benchmark calendar gap
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_beta_aligns_by_date_across_benchmark_gap(session: AsyncSession, e7_engine):
+    """Regression test for the position-based alignment bug.
+
+    Security has 100 consecutive daily prices (dates D0..D99). Its per-date
+    return at date Dk (k=1..99) is exactly k*0.001. The benchmark has the
+    SAME per-date return relationship (bench_return(Dk) = 2 * sec_return(Dk)
+    = k*0.002) but is missing a 10-day block in the middle (D45..D54), the
+    kind of calendar gap a holiday mismatch or a listing gap produces.
+
+    Regressing sec (y) on bench (x) at matching dates is a perfect line
+    (sec = 0.5*bench for every date), so date-correct alignment must recover
+    beta ~= 0.5 and r_squared ~= 1.0. The previous position-based code
+    truncated both return series to equal length from the *end*, which -
+    because of the gap - paired each date's security return against a
+    benchmark return from a *different* date, destroying the perfect linear
+    relationship (r_squared collapses well below 1.0).
+    """
+    gap_entity_id = uuid.uuid4()
+    gap_security_id = uuid.uuid4()
+    gap_bench_entity_id = uuid.uuid4()
+    gap_bench_id = uuid.uuid4()
+
+    session.add(Entity(
+        entity_id=gap_entity_id, legal_name="Gap Test Corp",
+        entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+    ))
+    session.add(Entity(
+        entity_id=gap_bench_entity_id, legal_name="Gap Benchmark Index",
+        entity_type="INDEX", status="ACTIVE", source="TEST",
+    ))
+    await session.flush()
+
+    session.add(Security(
+        security_id=gap_security_id, name="Gap Test Corp Common Stock",
+        short_name="GAP", security_type="COMMON_STOCK", asset_class="EQUITY",
+        status="ACTIVE", issuer_entity_id=gap_entity_id,
+    ))
+    session.add(Security(
+        security_id=gap_bench_id, name="Gap Benchmark Index",
+        short_name="GAPBM", security_type="INDEX", asset_class="EQUITY",
+        status="ACTIVE", issuer_entity_id=gap_bench_entity_id,
+    ))
+    await session.flush()
+
+    base_date = date.today() - timedelta(days=150)
+
+    # Security: 100 consecutive daily prices, return(Dk) = k * 0.001.
+    sec_price = 100.0
+    for k in range(100):
+        if k > 0:
+            sec_price *= 1.0 + k * 0.001
+        session.add(EODPrice(
+            security_id=gap_security_id, price_date=base_date + timedelta(days=k),
+            close=sec_price, close_adjusted=sec_price, source="TEST", created_at=NOW,
+        ))
+
+    # Benchmark: same dates MINUS a 10-day gap at k=45..54. No row is
+    # inserted for a skipped k, so bench_price is simply left untouched
+    # across the gap; the first row after the gap (k=55) is array-adjacent
+    # to k=44's row and gets the *same* k*0.002 multiplier every other row
+    # gets, so its observed (D44->D55) return still comes out to exactly
+    # 55*0.002 = 2 * sec_return(D55) -- i.e. every row the benchmark
+    # actually has still obeys the designed 2x relationship for its own
+    # date, whether or not its immediate predecessor row was contiguous.
+    bench_price = 200.0
+    for k in range(100):
+        if 45 <= k <= 54:
+            continue
+        if k != 0:
+            bench_price *= 1.0 + k * 0.002
+        session.add(EODPrice(
+            security_id=gap_bench_id, price_date=base_date + timedelta(days=k),
+            close=bench_price, close_adjusted=bench_price, source="TEST", created_at=NOW,
+        ))
+    await session.flush()
+
+    outputs = await e7_engine.compute(
+        session, gap_security_id, benchmark_id=gap_bench_id,
+    )
+
+    beta_out = _metric(outputs, "beta_market")
+    r_sq_out = _metric(outputs, "beta_r_squared")
+    assert beta_out is not None and beta_out.value is not None
+    assert r_sq_out is not None and r_sq_out.value is not None
+
+    # Date-correct alignment recovers the exact designed relationship.
+    assert beta_out.value == pytest.approx(0.5, abs=1e-6)
+    assert r_sq_out.value == pytest.approx(1.0, abs=1e-6)
+
+
+# ===========================================================================
 # 13. Default compute with insufficient data
 # ===========================================================================
 

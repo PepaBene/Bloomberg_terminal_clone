@@ -216,6 +216,48 @@ async def _load_price_series(
     return dates, prices
 
 
+def _prices_to_return_series(
+    dates: list[date], prices: list[float]
+) -> list[tuple[date, float]]:
+    """Convert an aligned (date, price) series into (date, simple_return) pairs.
+
+    Each return is dated with the *later* of the two prices used to compute
+    it (return[i] uses prices[i-1] and prices[i], dated dates[i]), so two
+    securities' return series can be inner-joined on date rather than on
+    position.
+    """
+    return [
+        (dates[i], (prices[i] - prices[i - 1]) / prices[i - 1])
+        for i in range(1, len(prices))
+        if prices[i - 1] != 0
+    ]
+
+
+def _align_return_series(
+    a: list[tuple[date, float]], b: list[tuple[date, float]]
+) -> tuple[list[float], list[float]]:
+    """Inner-join two (date, return) series on date, in date order.
+
+    [Bug fix] Beta/correlation previously truncated both return series to
+    equal length from the *end* (``sr = sec_returns[-min_len:]``), which
+    aligns by position, not date. Any calendar gap between the two series
+    (a holiday observed by one market and not the other, a listing gap, a
+    missing EODPrice row) silently paired a security's return for trading
+    day N against the benchmark's return for trading day N±k. Joining on the
+    actual date guarantees every (security_return, benchmark_return) pair
+    reflects the same trading day.
+    """
+    b_by_date = dict(b)
+    sr: list[float] = []
+    br: list[float] = []
+    for d, ra in a:
+        rb = b_by_date.get(d)
+        if rb is not None:
+            sr.append(ra)
+            br.append(rb)
+    return sr, br
+
+
 def _prices_to_returns(prices: list[float]) -> list[float]:
     """Convert price series to simple returns."""
     return [(prices[i] - prices[i - 1]) / prices[i - 1]
@@ -267,8 +309,9 @@ class QuantEngine(BaseEngine):
         entity_id = sec.issuer_entity_id
 
         # Load security price series
-        _, sec_prices = await _load_price_series(session, security_id, lookback_days)
-        sec_returns = _prices_to_returns(sec_prices)
+        sec_dates, sec_prices = await _load_price_series(session, security_id, lookback_days)
+        sec_return_pairs = _prices_to_return_series(sec_dates, sec_prices)
+        sec_returns = [r for _, r in sec_return_pairs]
 
         if len(sec_returns) < self.MIN_OBSERVATIONS:
             outputs.append(EngineOutput(
@@ -281,17 +324,22 @@ class QuantEngine(BaseEngine):
             return outputs
 
         # Load benchmark returns if available
+        bench_return_pairs: list[tuple[date, float]] = []
         bench_returns: list[float] | None = None
         if benchmark_id:
-            _, bench_prices = await _load_price_series(session, benchmark_id, lookback_days)
-            bench_returns = _prices_to_returns(bench_prices)
+            bench_dates, bench_prices = await _load_price_series(session, benchmark_id, lookback_days)
+            bench_return_pairs = _prices_to_return_series(bench_dates, bench_prices)
+            bench_returns = [r for _, r in bench_return_pairs]
 
         # ── Beta ──────────────────────────────────────────────────
-        if bench_returns and len(bench_returns) >= self.MIN_OBSERVATIONS:
-            min_len = min(len(sec_returns), len(bench_returns))
-            sr = sec_returns[-min_len:]
-            br = bench_returns[-min_len:]
-
+        # Inner-join on date, not position -- see _align_return_series.
+        sr, br = (
+            _align_return_series(sec_return_pairs, bench_return_pairs)
+            if bench_returns
+            else ([], [])
+        )
+        min_len = len(sr)
+        if bench_returns and min_len >= self.MIN_OBSERVATIONS:
             ols_result = _ols(br, sr)
             if "error" not in ols_result:
                 raw_beta = ols_result["coefficients"]["x"]

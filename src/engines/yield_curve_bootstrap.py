@@ -35,9 +35,10 @@ def bootstrap_zero_curve(
 
     for i, (t, c) in enumerate(zip(tenors, par_rates)):
         if t <= 1.0:
-            # For short tenors (≤ 1 year), zero rate equals par rate
-            z = c
-            df = 1.0 / (1.0 + z * t) if t > 0 else 1.0
+            # For short tenors (<= 1 year), the discount factor follows the
+            # money-market/simple-interest convention par rates are quoted
+            # under.
+            df = 1.0 / (1.0 + c * t) if t > 0 else 1.0
         else:
             # Bootstrap: solve for discount factor at tenor t
             # Par bond: c * sum(df_j) + (1 + c) * df_t = 1
@@ -47,8 +48,19 @@ def bootstrap_zero_curve(
                 if tenors[j] < t  # only use shorter tenor DFs  # noqa: B023
             )
             df = (1.0 - coupon_sum) / (1.0 + c)
-            # Convert DF to continuously compounded zero rate
-            z = -math.log(df) / t if df > 0 and t > 0 else 0.0
+
+        # [Bug fix] Zero rate is always reported on a continuously
+        # compounded basis, derived from the discount factor -- previously
+        # short tenors (<=1Y) reported the raw simple/money-market par
+        # rate directly as `z`, while long tenors (>1Y) reported a
+        # continuously-compounded rate from the discount factor, mixing
+        # two incompatible compounding bases within the same curve (a 6M
+        # point and a 2Y point were not on comparable footing). The
+        # discount factor is basis-neutral once computed via the
+        # appropriate per-bucket method above, so deriving z from df with
+        # one formula for every tenor unifies the basis without changing
+        # how each df itself is computed.
+        z = -math.log(df) / t if df > 0 and t > 0 else c
 
         discount_factors.append(df)
 

@@ -63,3 +63,52 @@ class PortfolioUpdateRequest(BaseModel):
     status: str | None = None
     tags: dict | None = None
     notes: str | None = None
+
+
+class SectorAllocationEntry(BaseModel):
+    sector: str
+    weight: float
+    count: int
+    market_value: float
+
+
+class TopHoldingEntry(BaseModel):
+    ticker: str
+    weight: float
+    market_value: float
+
+
+class ConcentrationSummary(BaseModel):
+    hhi: float
+    classification: str
+    effective_positions: float
+
+
+class PortfolioAnalyticsResponse(BaseModel):
+    """Portfolio-level summary/allocation/concentration/PnL/cash snapshot.
+
+    Computed at request time from live positions (portfolio_analytics.py),
+    the same "no persisted snapshot needed" pattern as the risk dashboard
+    (GET .../risk) -- there is nothing here that benefits from being
+    stored, since it's a pure function of current holdings.
+    """
+
+    portfolio_id: UUID
+    total_positions: int
+    market_value: float
+    cash_pct: float
+    invested_pct: float
+    avg_position_size: float
+    sector_allocation: list[SectorAllocationEntry]
+    top_holdings: list[TopHoldingEntry]
+    concentration: ConcentrationSummary
+    winners_count: int
+    losers_count: int
+    total_gain: float
+    total_loss: float
+    net_pnl: float
+    win_rate: float
+    cash_utilization_status: str
+    cash_utilization_message: str
+    portfolio_age_days: int
+    portfolio_age_years: float

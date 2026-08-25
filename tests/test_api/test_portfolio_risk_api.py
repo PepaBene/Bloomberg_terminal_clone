@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.entity import Entity
 from src.models.portfolio import Portfolio
 from src.models.portfolio_risk import (
     ConcentrationAnalysis,
@@ -16,6 +17,8 @@ from src.models.portfolio_risk import (
     PortfolioStressTestResult,
 )
 from src.models.compliance import ComplianceRule, ComplianceResult, DriftSnapshot
+from src.models.position import Position
+from src.models.security import EODPrice, Security
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -477,6 +480,48 @@ async def test_run_hypothetical_stress_test(client: AsyncClient, session: AsyncS
 
 
 @pytest.mark.asyncio
+async def test_what_if_market_drop_computes_real_projection(client: AsyncClient, session: AsyncSession):
+    """POST /v4/portfolios/{id}/what-if -- regression test for the "no
+    route exists" gap: the frontend's What-If panel already POSTs
+    {scenario} and reads back {projectedNavChange, projectedPnl} (see
+    PortfolioDetail.tsx), which always errored. A beta=1.0 equity position
+    under "market_drop_10" (-10% equity shock) must show a real -10% NAV
+    projection, not null/zero.
+    """
+    p = await _seed_portfolio(session, portfolio_name="What-If Drop", current_cash=Decimal("0.00"))
+    session.add(Position(
+        id=uuid.uuid4(), portfolio_id=p.id, ticker="AAPL", status="OPEN",
+        market_value=Decimal("15000.00"),
+    ))
+    await session.flush()
+
+    resp = await client.post(f"/v4/portfolios/{p.id}/what-if", json={"scenario": "market_drop_10"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["projectedNavChange"] == pytest.approx(-0.10, abs=0.001)
+    assert data["projectedPnl"] == pytest.approx(-1500.0, abs=1.0)
+
+
+@pytest.mark.asyncio
+async def test_what_if_unmapped_scenario_returns_honest_null(client: AsyncClient, session: AsyncSession):
+    """"sector_rotation" has no real per-sector shock model anywhere in
+    this codebase -- must return null projections, not a fabricated
+    number."""
+    p = await _seed_portfolio(session, portfolio_name="What-If Sector")
+    session.add(Position(
+        id=uuid.uuid4(), portfolio_id=p.id, ticker="AAPL", status="OPEN",
+        market_value=Decimal("15000.00"),
+    ))
+    await session.flush()
+
+    resp = await client.post(f"/v4/portfolios/{p.id}/what-if", json={"scenario": "sector_rotation"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["projectedNavChange"] is None
+    assert data["projectedPnl"] is None
+
+
+@pytest.mark.asyncio
 async def test_get_stress_results(client: AsyncClient, session: AsyncSession):
     """GET /v4/portfolios/{id}/risk/stress/results returns past results."""
     p = await _seed_portfolio(session, portfolio_name="Stress Results")
@@ -721,8 +766,23 @@ async def test_get_rebalance_suggestions_with_data(client: AsyncClient, session:
 
 @pytest.mark.asyncio
 async def test_set_target_allocation(client: AsyncClient, session: AsyncSession):
-    """POST /v4/portfolios/{id}/drift/target sets target allocation."""
-    p = await _seed_portfolio(session, portfolio_name="Drift Target")
+    """POST /v4/portfolios/{id}/drift/target sets target allocation and
+    computes REAL drift against current holdings.
+
+    Regression test for the "fabricates zeros" bug (DEEP_AUDIT_2026-07-16
+    Dimension 3): this endpoint used to hardcode every drift metric to
+    0.0/"NONE" no matter what the portfolio actually held. AAPL/MSFT are
+    seeded far above their targets (60%/40% of NAV vs. 10%/8% targets) and
+    GOOG isn't held at all vs. a 7% target, so a real computation must show
+    large SELL/BUY drift, not a fabricated "no drift" result.
+    """
+    p = await _seed_portfolio(session, portfolio_name="Drift Target", current_cash=Decimal("0.00"))
+    session.add_all([
+        Position(id=uuid.uuid4(), portfolio_id=p.id, ticker="AAPL", status="OPEN", market_value=Decimal("12000.00")),
+        Position(id=uuid.uuid4(), portfolio_id=p.id, ticker="MSFT", status="OPEN", market_value=Decimal("8000.00")),
+    ])
+    await session.flush()
+
     resp = await client.post(
         f"/v4/portfolios/{p.id}/drift/target",
         json={"AAPL": 0.10, "MSFT": 0.08, "GOOG": 0.07},
@@ -730,7 +790,13 @@ async def test_set_target_allocation(client: AsyncClient, session: AsyncSession)
     assert resp.status_code == 201
     data = resp.json()
     assert data["target_allocation"]["AAPL"] == 0.10
-    assert data["drift_classification"] == "NONE"
+    assert data["drift_classification"] == "CRITICAL"
+    assert data["rebalance_needed"] is True
+    assert data["total_drift_pct"] == pytest.approx(44.5, abs=0.01)
+    by_ticker = {d["ticker"]: d for d in data["position_drifts"]}
+    assert by_ticker["AAPL"]["current_weight"] == pytest.approx(60.0)
+    assert by_ticker["GOOG"]["current_weight"] == pytest.approx(0.0)
+    assert by_ticker["GOOG"]["target_weight"] == pytest.approx(7.0)
 
 
 @pytest.mark.asyncio
@@ -738,3 +804,74 @@ async def test_drift_404(client: AsyncClient, session: AsyncSession):
     """GET /v4/portfolios/{id}/drift returns 404 for missing portfolio."""
     resp = await client.get(f"/v4/portfolios/{uuid.uuid4()}/drift")
     assert resp.status_code == 404
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Trade List
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_trade_list_no_target_is_empty(client: AsyncClient, session: AsyncSession):
+    """GET /v4/portfolios/{id}/trade-list with no target allocation set
+    returns an honest empty list, not a fabricated one."""
+    p = await _seed_portfolio(session, portfolio_name="Trade List No Target")
+    resp = await client.get(f"/v4/portfolios/{p.id}/trade-list")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["orders"] == []
+    assert data["summary"]["total_orders"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trade_list_generates_real_sell_order(client: AsyncClient, session: AsyncSession):
+    """GET /v4/portfolios/{id}/trade-list computes a real sized order from
+    drift_engine's rebalance suggestion + a real EOD price.
+
+    AAPL is 100% of NAV but the target is 50% -> a real SELL of half the
+    position, sized in whole shares against today's $150 close.
+    """
+    entity = Entity(
+        entity_id=uuid.uuid4(), legal_name="Apple Inc", entity_type="PUBLIC_COMPANY",
+        status="ACTIVE", source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        security_id=uuid.uuid4(), name="Apple Inc Stock", security_type="COMMON_STOCK",
+        asset_class="EQUITY", status="ACTIVE", issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    session.add(EODPrice(
+        security_id=security.security_id, price_date=date.today(), close=Decimal("150.00"), source="TEST",
+    ))
+    await session.flush()
+
+    p = await _seed_portfolio(session, portfolio_name="Trade List Sell", current_cash=Decimal("0.00"))
+    session.add(Position(
+        id=uuid.uuid4(), portfolio_id=p.id, ticker="AAPL", status="OPEN",
+        security_id=security.security_id, market_value=Decimal("15000.00"),
+    ))
+    await _seed_drift_snapshot(session, p.id, target_allocation={"AAPL": 0.50})
+    await session.flush()
+
+    resp = await client.get(f"/v4/portfolios/{p.id}/trade-list")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["summary"]["total_orders"] == 1
+    order = data["orders"][0]
+    assert order["ticker"] == "AAPL"
+    assert order["action"] == "SELL"
+    assert order["shares"] == 50
+    assert order["notional_amount"] == pytest.approx(7500.0)
+
+
+@pytest.mark.asyncio
+async def test_trade_list_csv_format(client: AsyncClient, session: AsyncSession):
+    """GET .../trade-list?format=csv returns broker-compatible CSV."""
+    p = await _seed_portfolio(session, portfolio_name="Trade List CSV")
+    resp = await client.get(f"/v4/portfolios/{p.id}/trade-list?format=csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers["content-type"]
+    assert "ticker,side,quantity" in resp.text

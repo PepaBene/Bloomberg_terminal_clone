@@ -8,24 +8,57 @@ from src.engines.yield_curve_bootstrap import bootstrap_zero_curve, compute_spre
 
 
 def test_bootstrap_single_tenor():
-    """Test bootstrap with a single short tenor."""
+    """Test bootstrap with a single short tenor.
+
+    zero_rate is the continuously-compounded equivalent of the simple/
+    money-market discount factor: df = 1/(1+0.05*1.0), z = -ln(df)/1.0
+    ~= 0.048790 (NOT the raw 5% par rate -- see basis-unification
+    regression test below for why).
+    """
     result = bootstrap_zero_curve([1.0], [0.05])
     assert len(result) == 1
     assert result[0]["tenor_years"] == 1.0
-    assert result[0]["zero_rate"] == pytest.approx(0.05, abs=0.001)
+    assert result[0]["zero_rate"] == pytest.approx(0.048790, abs=0.0001)
     assert result[0]["discount_factor"] > 0
     assert result[0]["discount_factor"] < 1
 
 
 def test_bootstrap_short_tenors():
-    """Test that short tenors (≤1yr) use simple zero rate = par rate."""
+    """Short tenors (<=1yr) still use a money-market discount factor, but
+    the *reported* zero_rate is the continuously-compounded equivalent,
+    not the raw par rate -- see test_zero_rate_basis_unified_across_tenors."""
     tenors = [0.25, 0.5, 1.0]
     par_rates = [0.053, 0.052, 0.048]
     results = bootstrap_zero_curve(tenors, par_rates)
     assert len(results) == 3
-    # For short tenors, zero_rate should equal par_rate
-    for r, p in zip(results, par_rates):
-        assert r["zero_rate"] == pytest.approx(p, abs=0.001)
+    expected_zeros = [0.052652, 0.051335, 0.046884]
+    for r, z in zip(results, expected_zeros):
+        assert r["zero_rate"] == pytest.approx(z, abs=0.0001)
+
+
+def test_zero_rate_basis_unified_across_tenors():
+    """Regression test: zero_rate must use the SAME compounding basis
+    (continuously compounded) for every tenor bucket.
+
+    Before the fix, tenors <=1Y reported the raw par rate as zero_rate
+    (an implicit simple/money-market basis) while tenors >1Y reported a
+    continuously-compounded rate derived from the discount factor -- two
+    incompatible bases mixed in the same curve, so a 1Y point and a 2Y
+    point were not on comparable footing. This constructs a curve where
+    the 1Y par rate exactly equals the 2Y par rate; under a UNIFIED basis
+    the reported 1Y zero_rate must equal what a >1Y tenor with the same
+    discount factor would report -- i.e. it must NOT equal the raw 5% par
+    rate.
+    """
+    results = bootstrap_zero_curve([1.0], [0.05])
+    one_year = results[0]
+    # Under the old (buggy) code this was exactly 0.05 (the raw par rate).
+    assert one_year["zero_rate"] != pytest.approx(0.05, abs=1e-6)
+    # It must instead be the continuously-compounded equivalent of the
+    # same discount factor: z = -ln(df)/t.
+    import math
+    expected = -math.log(one_year["discount_factor"]) / 1.0
+    assert one_year["zero_rate"] == pytest.approx(expected, abs=1e-5)
 
 
 def test_bootstrap_multiple_tenors():

@@ -26,6 +26,39 @@ class BatchJob:
 # ---------------------------------------------------------------------------
 
 BATCH_JOBS: list[BatchJob] = [
+    # ── Entity / Security Master (D1) ─────────────────────────────────
+    #    ROOT OF THE INGESTION CASCADE. Everything downstream (XBRL,
+    #    ownership, ESG, segments, analytics) builds its CIK/ticker work
+    #    lists from these tables. They were reachable only via `make`
+    #    targets and so never ran in a normal deployment, leaving the
+    #    master empty and silently no-oping every downstream job. Scheduled
+    #    here early each morning, before the filing-derived jobs.
+    BatchJob(
+        name="edgar_entities_ingest",
+        cron="0 3 * * *",  # 3 AM daily
+        script="scripts/ingest_edgar.py",
+        sla_minutes=240,
+        domain="D1",
+        description="SEC EDGAR company tickers -> entities + CIK identifiers (entity master).",
+    ),
+    BatchJob(
+        name="gleif_lei_ingest",
+        cron="30 3 * * *",  # 3:30 AM daily (after entity master)
+        script="scripts/ingest_gleif.py",
+        sla_minutes=240,
+        domain="D1",
+        description="GLEIF LEI records -> entity LEI identifiers + legal hierarchy.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="openfigi_securities_ingest",
+        cron="0 4 * * *",  # 4 AM daily (after entity master)
+        script="scripts/ingest_openfigi.py",
+        sla_minutes=240,
+        domain="D1",
+        description="OpenFIGI mapping -> securities + FIGI/ticker identifiers (security master).",
+        depends_on=("edgar_entities_ingest",),
+    ),
     # ── Reference Data ────────────────────────────────────────────────
     BatchJob(
         name="reference_data_refresh",
@@ -218,14 +251,132 @@ BATCH_JOBS: list[BatchJob] = [
         description="Compute Piotroski F-Score, Altman Z-Score, Beneish M-Score for all securities.",
         depends_on=("analytics_ratios",),
     ),
-    # ── NOTE: E5 (risk/VaR), E6 (institutional flows) and E7 (quant) are
-    #    NOT scheduled here. ``run_analytics_batch.py`` only accepts the
-    #    --engine choices: e1, e1_trends, e1_kpis, e2_multiples, e2_wacc,
-    #    e3, all. e5/e6/e7 are not wired into the batch runner (see
-    #    DATA_WIRING_AUDIT.md §5.1) and only ever run live, on-demand, per
-    #    API request. Scheduling them with an invalid --engine choice made
-    #    argparse exit non-zero, so those jobs failed on every fire. They
-    #    have been removed; re-add them only once the runner supports them.
+    # ── E3 Composite Scores (after Piotroski/Altman/Beneish complete —
+    #    CompositeScoreEngine reads their AnalyticsResult rows) ───────────
+    BatchJob(
+        name="analytics_composite_scores",
+        cron="30 21 * * 1-5",  # 9:30 PM ET weekdays (after quality scoring)
+        script="scripts/run_analytics_batch.py --engine e3_composites",
+        sla_minutes=45,
+        domain="ANALYTICS",
+        description=(
+            "Compute earnings-quality/financial-strength/dividend-safety/"
+            "value-trap composite scores -> composite_scores. Was a real, "
+            "correct engine with zero callers anywhere in the batch "
+            "pipeline (only reachable by a direct API call, which itself "
+            "404'd on a score_type case mismatch) -- /scores/*/composites "
+            "and its 4 single-score siblings were permanently empty."
+        ),
+        depends_on=("analytics_quality_scoring",),
+    ),
+    # ── E1 Trends / Industry KPIs / E2 DCF-Comps-FootballField (real
+    #    engines, valid --engine choices in run_analytics_batch.py's
+    #    ENGINE_GROUPS -- e1_trends/e1_kpis/e2_dcf/e2_comps/
+    #    e2_football_field were never actually scheduled anywhere, so a
+    #    security's trend analysis / industry KPIs / DCF / comps /
+    #    football-field range only ever got computed if something else
+    #    (recompute_security, triggered by an XBRL refresh) happened to
+    #    invoke "all". Fundamentals-driven, so a daily backstop cron (no
+    #    --refresh-days) that only picks up new/never-computed securities
+    #    is sufficient -- recompute_security already refreshes existing
+    #    ones on new filings.
+    BatchJob(
+        name="analytics_trends",
+        cron="0 22 * * 1-5",  # 10 PM ET weekdays (after quality scoring settles)
+        script="scripts/run_analytics_batch.py --engine e1_trends",
+        sla_minutes=60,
+        domain="ANALYTICS",
+        description="Compute revenue/earnings/margin trend analysis for all active securities.",
+        depends_on=("analytics_ratios",),
+    ),
+    BatchJob(
+        name="analytics_industry_kpis",
+        cron="10 22 * * 1-5",
+        script="scripts/run_analytics_batch.py --engine e1_kpis",
+        sla_minutes=45,
+        domain="ANALYTICS",
+        description="Compute industry-specific KPIs (rule-of-40, FFO, efficiency ratio, capex intensity, etc.) for all active securities.",
+        depends_on=("analytics_ratios",),
+    ),
+    BatchJob(
+        name="analytics_dcf",
+        cron="20 22 * * 1-5",
+        script="scripts/run_analytics_batch.py --engine e2_dcf",
+        sla_minutes=90,
+        domain="ANALYTICS",
+        description="Compute DCF valuations for all active securities.",
+        depends_on=("analytics_wacc",),
+    ),
+    BatchJob(
+        name="analytics_comps",
+        cron="30 22 * * 1-5",
+        script="scripts/run_analytics_batch.py --engine e2_comps",
+        sla_minutes=90,
+        domain="ANALYTICS",
+        description="Compute comparable-company analysis for all active securities.",
+        depends_on=("analytics_multiples",),
+    ),
+    BatchJob(
+        name="analytics_football_field",
+        cron="0 23 * * 1-5",
+        script="scripts/run_analytics_batch.py --engine e2_football_field",
+        sla_minutes=45,
+        domain="ANALYTICS",
+        description="Assemble DCF + comps football-field valuation ranges for all active securities.",
+        depends_on=("analytics_dcf", "analytics_comps"),
+    ),
+    # ── E5 risk / E7 quant: unlike the fundamentals-driven engines above,
+    #    these depend on the day's new EOD prices, which recompute_security's
+    #    XBRL-triggered refresh never catches -- --refresh-days-scoped
+    #    forces a daily recompute of ONLY this engine (not a full
+    #    whole-security wipe like --refresh-days would cause; see
+    #    reopen_stale_engine_analytics's docstring in run_analytics_batch.py).
+    BatchJob(
+        name="analytics_risk_var",
+        cron="45 19 * * 1-5",  # 7:45 PM ET weekdays (after EOD prices land at 7 PM)
+        script="scripts/run_analytics_batch.py --engine e5_risk --refresh-days-scoped 1",
+        sla_minutes=60,
+        domain="ANALYTICS",
+        description=(
+            "Compute VaR/CVaR/stress/factor-exposure risk metrics for all active "
+            "securities. Was a real, correct engine (E5) with no scheduled caller at "
+            "all -- only ever ran live, on-demand, per API request."
+        ),
+        depends_on=("analytics_ratios", "polygon_eod_ingest"),
+    ),
+    # ── E7 quant runs weekly, not daily: beta/correlation/autocorrelation/
+    #    stationarity are computed over trailing return windows that don't
+    #    materially shift day to day, so a weekly scoped refresh (vs E5's
+    #    daily one) is enough to keep them current without redundant recompute.
+    BatchJob(
+        name="analytics_quant_weekly",
+        cron="0 20 * * 0",  # Sunday 8 PM ET (after the week's EOD prices settle)
+        script="scripts/run_analytics_batch.py --engine e7_quant --refresh-days-scoped 7",
+        sla_minutes=60,
+        domain="ANALYTICS",
+        description=(
+            "Compute beta/correlation/autocorrelation/stationarity quant metrics for "
+            "all active securities. Same previously-unscheduled gap as analytics_risk_var."
+        ),
+        depends_on=("polygon_eod_ingest",),
+    ),
+    # ── E6 institutional flows: depends on 13F/Form4/short-interest
+    #    ownership data, which updates on its own (much slower) cadence --
+    #    weekly refresh matches that, not the daily price-driven cadence
+    #    risk/quant need.
+    BatchJob(
+        name="analytics_institutional_flows",
+        cron="0 9 * * *",  # 9 AM daily (after ownership ingestion settles)
+        script="scripts/run_analytics_batch.py --engine e6 --refresh-days-scoped 7",
+        sla_minutes=60,
+        domain="ANALYTICS",
+        description=(
+            "Compute institutional-ownership flow metrics (accumulation/distribution, "
+            "smart-money signal, squeeze potential) for all active securities. Was a "
+            "real, correct engine (E6) with no scheduled caller at all."
+        ),
+        depends_on=("edgar_13f_ingest",),
+    ),
     # ── Quality ───────────────────────────────────────────────────────
     BatchJob(
         name="quality_check",
@@ -310,6 +461,36 @@ BATCH_JOBS: list[BatchJob] = [
             "credit_ratings for the issuer's fixed-income securities."
         ),
     ),
+    # ── Corporate Events & Fund Holdings (real, tested connectors that
+    #    were Makefile-only and never scheduled -> /deals, /ipos and
+    #    /fund-holdings stayed empty in a normal deployment) ─────────────
+    BatchJob(
+        name="ma_deals_ingest",
+        cron="0 6 * * *",  # 6 AM daily
+        script="scripts/ingest_ma_deals.py --days-back 90",
+        sla_minutes=240,
+        domain="D5",
+        description="SEC EDGAR 8-K merger/acquisition disclosures -> ma_deals.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="ipo_events_ingest",
+        cron="30 6 * * *",  # 6:30 AM daily
+        script="scripts/ingest_ipo.py --days-back 365",
+        sla_minutes=240,
+        domain="D5",
+        description="SEC EDGAR S-1/424B IPO events -> ipo_events.",
+        depends_on=("edgar_entities_ingest",),
+    ),
+    BatchJob(
+        name="nport_holdings_ingest",
+        cron="0 8 * * 1",  # Monday 8 AM (N-PORT filed monthly, quarterly public)
+        script="scripts/ingest_nport.py --days-back 120",
+        sla_minutes=1440,
+        domain="D6",
+        description="SEC N-PORT fund portfolio holdings -> fund_holdings.",
+        depends_on=("edgar_entities_ingest",),
+    ),
     # ── Pillar 1 Supplement: Executives + Macro Policy (real, tested
     #    connectors that were only reachable via manual `make` targets —
     #    the same "orphaned engine" pattern already fixed for Pillar 3) ──
@@ -378,6 +559,19 @@ BATCH_JOBS: list[BatchJob] = [
         domain="P1S",
         description="Buckets debt_tranches by maturity year -> debt_maturity_profiles/maturity_buckets.",
         depends_on=("capital_structure_ingest",),
+    ),
+    BatchJob(
+        name="shares_outstanding_compute",
+        cron="0 6 * * *",  # 6 AM daily (after overnight XBRL polling settles)
+        script="scripts/compute_shares_outstanding.py",
+        sla_minutes=30,
+        domain="P1S",
+        description=(
+            "Fills equity_details.shares_outstanding from the most recent XBRL "
+            "period's basic/diluted shares (feeds market-cap + per-share "
+            "valuation). Was fully orphaned — not in cron or Makefile."
+        ),
+        depends_on=("edgar_xbrl_ingest",),
     ),
     # ── Pillar 3: Intelligence (added in 924e640, never scheduled —
     #    all keyless/free sources except earnings, which reuses
@@ -690,6 +884,44 @@ BATCH_JOBS: list[BatchJob] = [
             "the live per-request DAILY snapshot write path, or that are "
             "rarely queried."
         ),
+    ),
+    # ── Pillar 4: Portfolio risk / attribution / compliance ───────────
+    #    attribution_engine, portfolio_risk_engine (VaR/concentration/
+    #    factor exposure), and compliance_engine were correct
+    #    pure-computation modules with no caller outside the on-demand
+    #    stress-test endpoints, so their result tables had zero writers
+    #    and every read endpoint returned empty/None (DEEP_AUDIT_2026-07-16
+    #    Dimension 2/3, item 53). Runs after the day's EOD-price-driven
+    #    security analytics (VaR, beta) and quality/financial-strength
+    #    composite scores settle so this job's context data is fresh.
+    BatchJob(
+        name="portfolio_risk_batch",
+        cron="30 22 * * 1-5",  # 10:30 PM ET weekdays
+        script="scripts/run_portfolio_risk_batch.py",
+        sla_minutes=60,
+        domain="P4",
+        description=(
+            "Computes and persists real VaR, concentration, factor "
+            "exposure, security-level attribution, and compliance-rule "
+            "results for every portfolio with open positions."
+        ),
+        depends_on=("analytics_risk_var", "analytics_quality_scoring"),
+    ),
+    BatchJob(
+        name="corporate_action_matching",
+        cron="30 6 * * *",  # 6:30 AM daily (after corporate_actions_ingest)
+        script="scripts/match_corporate_actions.py",
+        sla_minutes=30,
+        domain="P4",
+        description=(
+            "Matches newly-ingested corporate_actions rows against open "
+            "portfolio positions and queues PENDING CorporateActionQueue "
+            "rows -- corporate_action_engine.match_corporate_actions_to_"
+            "holdings had no production caller, so GET .../corporate-"
+            "actions returned an empty list even for real, already-"
+            "ingested upcoming dividends/splits on held securities."
+        ),
+        depends_on=("corporate_actions_ingest",),
     ),
 ]
 

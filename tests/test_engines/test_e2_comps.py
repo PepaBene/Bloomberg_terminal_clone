@@ -98,9 +98,24 @@ async def comps_analytics(
         (12.0, 8.0, 7.5, 11.25, 22.5, 45.0),
         (18.0, 12.0, 8.33, 12.5, 25.0, 55.0),
     ]
+    # TTM totals (in dollars, NOT per-share) that _MULTIPLE_DENOM_MAP actually
+    # reads for the EV-based multiples -- ttm_ebitda / ttm_total_revenue.
+    # These were previously absent from this fixture (it only seeded the
+    # stale "ebitda_per_share"/"eps_diluted" names from before [Bug 30 fix]
+    # renamed the map to E1's real TTM output), so the EV implied-price
+    # branch's arithmetic was never actually exercised by these tests --
+    # exactly how the ×shares inflation bug went uncaught.
+    ttm_totals = [
+        # (ttm_diluted_eps, ttm_ebitda, ttm_total_revenue, bvps, dps)
+        (8.0, 500_000_000.0, 1_200_000_000.0, 50.0, 2.0),
+        (7.5, 350_000_000.0, 900_000_000.0, 45.0, 1.8),
+        (8.33, 750_000_000.0, 1_500_000_000.0, 55.0, 2.2),
+    ]
+    net_debts = [200_000_000.0, 150_000_000.0, 300_000_000.0]
 
     for i, sec in enumerate(comps_securities):
         vals = metric_values[i]
+        ttm = ttm_totals[i]
         metrics = [
             ("pe_trailing", "VALUATION", vals[0]),
             ("ev_ebitda", "VALUATION", vals[1]),
@@ -108,6 +123,12 @@ async def comps_analytics(
             ("ebitda_per_share", "PER_SHARE", vals[3]),
             ("revenue_per_share", "PER_SHARE", vals[4]),
             ("book_value_per_share", "PER_SHARE", vals[5]),
+            ("ttm_diluted_eps", "PER_SHARE", ttm[0]),
+            ("ttm_ebitda", "FUNDAMENTAL", ttm[1]),
+            ("ttm_total_revenue", "FUNDAMENTAL", ttm[2]),
+            ("bvps", "PER_SHARE", ttm[3]),
+            ("dps", "PER_SHARE", ttm[4]),
+            ("net_debt", "FUNDAMENTAL", net_debts[i]),
         ]
         for metric_name, category, value in metrics:
             session.add(AnalyticsResult(
@@ -175,6 +196,41 @@ async def test_comps_implied_prices(
 
     implied_metrics = [r for r in results if "_implied" in r.metric_name]
     assert len(implied_metrics) >= 1
+
+
+@pytest.mark.asyncio
+async def test_comps_ev_ebitda_implied_price_not_inflated_by_shares(
+    session: AsyncSession,
+    comps_securities: list[Security],
+    comps_analytics: None,
+):
+    """EV-based implied price must not double-count shares outstanding.
+
+    Regression test for the ×shares bug: ``_compute_implied_price`` was
+    multiplying an already-total TTM EBITDA by ``shares`` a second time,
+    inflating the EV-multiple implied price to billions of dollars per
+    share instead of a sane per-share figure. Subject (comps_securities[0])
+    has peer ev_ebitda values [8.0, 12.0] -> peer_median=10.0, ttm_ebitda=
+    500_000_000, net_debt=200_000_000, shares=50_000_000:
+        implied_ev = 10.0 * 500_000_000 = 5_000_000_000
+        implied_equity = 5_000_000_000 - 200_000_000 = 4_800_000_000
+        implied_price = 4_800_000_000 / 50_000_000 = 96.0
+    The buggy version multiplied implied_ev by shares again, producing an
+    implied_price in the billions.
+    """
+    from src.engines.e2_comps import CompsEngine
+
+    engine = CompsEngine()
+    results = await engine.compute(session, security_id=comps_securities[0].security_id)
+
+    by_name = {r.metric_name: r.value for r in results}
+    assert "comps_ev_ebitda_implied" in by_name
+    implied = by_name["comps_ev_ebitda_implied"]
+    assert implied is not None
+    assert implied == pytest.approx(96.0, rel=1e-6)
+    # Sanity bound: implied price should be in the same order of magnitude
+    # as peer trading prices ($90-$150 in this fixture), not billions.
+    assert 0 < implied < 1_000
 
 
 @pytest.mark.asyncio

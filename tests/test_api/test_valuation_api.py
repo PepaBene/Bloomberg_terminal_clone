@@ -93,12 +93,17 @@ async def valuation_security(session: AsyncSession):
         data_quality="COMPLETE",
     ))
 
-    # Composite scores
+    # Composite scores.
+    # [Bug fix] score_type must match CompositeScoreEngine's actual
+    # persisted convention (lowercase snake_case, e.g. "value_trap_risk"
+    # not "VALUE_TRAP") -- this fixture previously seeded uppercase
+    # strings matching the (buggy) API reader instead of the real writer,
+    # which masked the score_type case/name mismatch entirely.
     for score_type, score_value, classification in [
-        ("EARNINGS_QUALITY", 72.5, "GOOD"),
-        ("FINANCIAL_STRENGTH", 81.0, "STRONG"),
-        ("DIVIDEND_SAFETY", None, "SAFE"),
-        ("VALUE_TRAP", None, "LOW_RISK"),
+        ("earnings_quality", 72.5, "GOOD"),
+        ("financial_strength", 81.0, "STRONG"),
+        ("dividend_safety", None, "SAFE"),
+        ("value_trap_risk", None, "LOW_RISK"),
     ]:
         session.add(CompositeScore(
             score_id=uuid.uuid4(),
@@ -212,7 +217,7 @@ async def test_earnings_quality_endpoint(client, valuation_security):
     resp = await client.get(f"/v2/analytics/scores/{valuation_security.security_id}/earnings-quality")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["score_type"] == "EARNINGS_QUALITY"
+    assert data["score_type"] == "earnings_quality"
     assert data["score_value"] == pytest.approx(72.5, abs=0.1)
     assert data["classification"] == "GOOD"
     assert len(data["components"]) == 2
@@ -224,7 +229,7 @@ async def test_financial_strength_endpoint(client, valuation_security):
     resp = await client.get(f"/v2/analytics/scores/{valuation_security.security_id}/financial-strength")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["score_type"] == "FINANCIAL_STRENGTH"
+    assert data["score_type"] == "financial_strength"
     assert data["score_value"] == pytest.approx(81.0, abs=0.1)
 
 
@@ -234,7 +239,7 @@ async def test_dividend_safety_endpoint(client, valuation_security):
     resp = await client.get(f"/v2/analytics/scores/{valuation_security.security_id}/dividend-safety")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["score_type"] == "DIVIDEND_SAFETY"
+    assert data["score_type"] == "dividend_safety"
     assert data["classification"] == "SAFE"
 
 
@@ -244,7 +249,7 @@ async def test_value_trap_endpoint(client, valuation_security):
     resp = await client.get(f"/v2/analytics/scores/{valuation_security.security_id}/value-trap")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["score_type"] == "VALUE_TRAP"
+    assert data["score_type"] == "value_trap_risk"
     assert data["classification"] == "LOW_RISK"
 
 
@@ -253,3 +258,59 @@ async def test_composite_score_404(client):
     """GET /v2/analytics/scores/{bad_id}/earnings-quality returns 404."""
     resp = await client.get(f"/v2/analytics/scores/{uuid.uuid4()}/earnings-quality")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_composite_score_components_from_real_engine_shape(session: AsyncSession, client):
+    """Regression test: components must survive the shape
+    CompositeScoreEngine actually persists (e3_composites.py), not just
+    the schema-shaped list this module's other fixture used.
+
+    The engine writes a dict keyed by component name, each a dict with
+    "raw"/"score"/"weight" (or "points" for dividend_safety/value_trap),
+    plus scalar roll-up keys ("composite", "classification") mixed into
+    the SAME dict. Previously `cs.components if isinstance(cs.components,
+    list) else []` discarded this entirely -- it's never actually a list.
+    """
+    entity = Entity(
+        entity_id=uuid.uuid4(), legal_name="Composite Shape Test Corp",
+        entity_type="PUBLIC_COMPANY", status="ACTIVE", source="TEST",
+    )
+    session.add(entity)
+    await session.flush()
+    security = Security(
+        security_id=uuid.uuid4(), name="Composite Shape Test Corp Stock",
+        security_type="COMMON_STOCK", asset_class="EQUITY", status="ACTIVE",
+        issuer_entity_id=entity.entity_id,
+    )
+    session.add(security)
+    await session.flush()
+
+    session.add(CompositeScore(
+        score_id=uuid.uuid4(),
+        security_id=security.security_id,
+        entity_id=entity.entity_id,
+        calculation_date=date.today(),
+        score_type="earnings_quality",
+        score_value=65.0,
+        classification="MODERATE",
+        components={
+            "accruals_ratio": {"raw": -0.05, "score": 70.0, "weight": 0.30},
+            "ocf_to_net_income": {"raw": 1.1, "score": 80.0, "weight": 0.30},
+            "composite": 65.0,
+            "classification": "MODERATE",
+        },
+        data_quality="COMPLETE",
+    ))
+    await session.flush()
+
+    resp = await client.get(f"/v2/analytics/scores/{security.security_id}/earnings-quality")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    names = {c["name"] for c in data["components"]}
+    assert names == {"accruals_ratio", "ocf_to_net_income"}
+    accruals = next(c for c in data["components"] if c["name"] == "accruals_ratio")
+    assert accruals["raw_value"] == pytest.approx(-0.05)
+    assert accruals["score"] == pytest.approx(70.0)
+    assert accruals["weight"] == pytest.approx(0.30)

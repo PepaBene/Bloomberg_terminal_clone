@@ -10,18 +10,23 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_optional_user, get_session
-from src.engines import csv_upload_engine, nav_engine
+from src.engines import csv_upload_engine, nav_engine, portfolio_analytics
 from src.engines.portfolio_parser import parse_csv, match_holdings_to_securities
+from src.models.entity import Entity
 from src.models.portfolio import Portfolio
 from src.models.position import Position
-from src.models.security import EODPrice, SecurityIdentifier
+from src.models.security import EODPrice, Security, SecurityIdentifier
 from src.models.transaction import Transaction
 from src.models.nav_snapshot import NAVSnapshot, CorporateActionQueue
 from src.schemas.portfolio import (
+    ConcentrationSummary,
+    PortfolioAnalyticsResponse,
     PortfolioCreateRequest,
     PortfolioListResponse,
     PortfolioResponse,
     PortfolioUpdateRequest,
+    SectorAllocationEntry,
+    TopHoldingEntry,
 )
 from src.schemas.position import PositionAddRequest, PositionResponse, PositionUpdateRequest
 from src.schemas.transaction_schema import (
@@ -608,6 +613,102 @@ async def list_positions(
         )
         for pos in rows
     ]
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/analytics",
+    response_model=PortfolioAnalyticsResponse,
+)
+async def get_portfolio_analytics(
+    portfolio_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Portfolio-level summary: allocation, concentration, PnL, cash.
+
+    [Gap fix] portfolio_analytics.py was a correct pure-computation engine
+    with zero callers anywhere (DEEP_AUDIT_2026-07-16) -- there was no
+    endpoint exposing HHI/sector-allocation/top-holdings/cash-utilization
+    as a single payload at all. Computed at request time from live
+    positions, the same pattern as the risk dashboard (GET .../risk).
+    """
+    portfolio = await _get_portfolio(session, portfolio_id)
+    await _refresh_portfolio_positions(session, portfolio_id)
+
+    pos_rows = (
+        await session.execute(
+            select(Position).where(
+                Position.portfolio_id == portfolio_id,
+                Position.status == "OPEN",
+            )
+        )
+    ).scalars().all()
+
+    positions: list[dict] = []
+    for pos in pos_rows:
+        sector = None
+        if pos.security_id is not None:
+            sec = (
+                await session.execute(
+                    select(Security).where(Security.security_id == pos.security_id)
+                )
+            ).scalar_one_or_none()
+            if sec is not None and sec.issuer_entity_id is not None:
+                entity = (
+                    await session.execute(
+                        select(Entity).where(Entity.entity_id == sec.issuer_entity_id)
+                    )
+                ).scalar_one_or_none()
+                if entity is not None:
+                    sector = entity.gics_sector
+        positions.append({
+            "ticker": pos.ticker,
+            "market_value": float(pos.market_value) if pos.market_value is not None else 0.0,
+            "weight": float(pos.weight) if pos.weight is not None else 0.0,
+            "unrealized_pnl": float(pos.unrealized_pnl) if pos.unrealized_pnl is not None else 0.0,
+            "sector": sector,
+        })
+
+    cash = float(portfolio.current_cash or 0.0)
+    nav = cash + sum(p["market_value"] for p in positions)
+
+    summary = portfolio_analytics.compute_portfolio_summary(positions, cash, nav)
+    sector_allocation = portfolio_analytics.compute_sector_allocation(positions)
+    top_holdings = portfolio_analytics.compute_top_holdings(positions, n=5)
+    hhi = portfolio_analytics.compute_concentration_hhi([p["weight"] for p in positions])
+    pnl = portfolio_analytics.compute_unrealized_pnl_summary(positions)
+    cash_util = portfolio_analytics.compute_cash_utilization(cash, nav)
+    age = portfolio_analytics.compute_portfolio_age(
+        portfolio.inception_date.isoformat(), date.today().isoformat()
+    )
+
+    return PortfolioAnalyticsResponse(
+        portfolio_id=portfolio_id,
+        total_positions=summary["total_positions"],
+        market_value=summary["market_value"],
+        cash_pct=summary["cash_pct"],
+        invested_pct=summary["invested_pct"],
+        avg_position_size=summary["avg_position_size"],
+        sector_allocation=[SectorAllocationEntry(**s) for s in sector_allocation],
+        top_holdings=[
+            TopHoldingEntry(ticker=p["ticker"], weight=p["weight"], market_value=p["market_value"])
+            for p in top_holdings
+        ],
+        concentration=ConcentrationSummary(
+            hhi=round(hhi, 4),
+            classification=portfolio_analytics.classify_concentration(hhi),
+            effective_positions=round(portfolio_analytics.compute_effective_positions(hhi), 2),
+        ),
+        winners_count=pnl["winners_count"],
+        losers_count=pnl["losers_count"],
+        total_gain=pnl["total_gain"],
+        total_loss=pnl["total_loss"],
+        net_pnl=pnl["net_pnl"],
+        win_rate=pnl["win_rate"],
+        cash_utilization_status=cash_util["status"],
+        cash_utilization_message=cash_util["message"],
+        portfolio_age_days=age["days"],
+        portfolio_age_years=age["years"],
+    )
 
 
 @router.post(

@@ -442,8 +442,12 @@ class CompsEngine(BaseEngine):
         # EV-based multiple
         if shares is None or shares <= 0:
             return None
-        # EV = multiple × denom_per_share × shares
-        implied_ev = peer_median * denom_val * shares
+        # denom_val (ttm_ebitda / ttm_total_revenue) is already a TOTAL-dollar
+        # TTM figure, not per-share -- EV = multiple × total_denom directly.
+        # [Bug fix] previously multiplied by `shares` a second time here,
+        # inflating implied_ev (and therefore implied_equity/implied_price)
+        # by the share count (~1e9x for large-cap issuers).
+        implied_ev = peer_median * denom_val
         debt = net_debt if net_debt is not None else 0.0
         implied_equity = implied_ev - debt
         if implied_equity <= 0:

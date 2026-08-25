@@ -461,17 +461,37 @@ async def get_ttm(
     """Trailing twelve month financial metrics."""
     sec = await _resolve_security(session, security_id)
 
+    # [Bug fix] TTMEngine (e1_ttm.py) and DuPontEngine's primary path label
+    # their period as f"TTM_{period_end_date.isoformat()}" (e.g.
+    # "TTM_2025-03-31"), while DuPont's degraded fallback path uses the
+    # bare literal "TTM" -- this previously filtered on `period == "TTM"`
+    # exactly, which never matches the dated label, so this endpoint 404'd
+    # even when TTM data had been computed and persisted. `period LIKE
+    # 'TTM%'` matches both forms.
     result = await session.execute(
         select(AnalyticsResult)
         .where(
             AnalyticsResult.security_id == security_id,
             AnalyticsResult.engine_id == "E1",
-            AnalyticsResult.period == "TTM",
+            AnalyticsResult.period.like("TTM%"),
         )
+        .order_by(AnalyticsResult.as_of_date.desc())
     )
-    rows = result.scalars().all()
-    if not rows:
+    all_rows = result.scalars().all()
+    if not all_rows:
         raise HTTPException(status_code=404, detail="No TTM data available")
+
+    # AnalyticsResult is a time series (multiple TTM snapshots can exist
+    # over time); keep only the latest as_of_date row per metric_name,
+    # mirroring the same first-seen-wins-after-desc-order pattern used by
+    # IndustryKPIEngine._load_ttm.
+    seen: set[str] = set()
+    rows = []
+    for r in all_rows:
+        if r.metric_name in seen:
+            continue
+        seen.add(r.metric_name)
+        rows.append(r)
 
     return TTMResponse(
         security_id=security_id,
@@ -524,11 +544,16 @@ async def get_multiple_history(
     """Historical time series for a valuation multiple."""
     await _resolve_security(session, security_id)
 
+    # [Bug fix] e2_multiples.py persists MultipleTimeSeries.multiple_type in
+    # lowercase (e.g. "pe_trailing", matching AnalyticsResult.metric_name),
+    # but this endpoint compared against `multiple.upper()` -- never
+    # matching any stored row, so /multiples/{id}/history was always empty.
+    multiple_type = multiple.lower()
     result = await session.execute(
         select(MultipleTimeSeries)
         .where(
             MultipleTimeSeries.security_id == security_id,
-            MultipleTimeSeries.multiple_type == multiple.upper(),
+            MultipleTimeSeries.multiple_type == multiple_type,
         )
         .order_by(MultipleTimeSeries.calculation_date.desc())
         .limit(periods)
@@ -537,7 +562,7 @@ async def get_multiple_history(
 
     return MultipleHistoryResponse(
         security_id=security_id,
-        multiple_type=multiple.upper(),
+        multiple_type=multiple_type,
         data_points=[
             MultipleHistoryPoint(
                 calculation_date=r.calculation_date,
@@ -1397,6 +1422,66 @@ async def get_football_field(
 # Composite Quality Scores (E3 — Part 2)
 # ---------------------------------------------------------------------------
 
+# [Bug fix] score_type as persisted by CompositeScoreEngine (e3_composites.py
+# _persist_composite calls) is lowercase snake_case ("earnings_quality",
+# "financial_strength", "dividend_safety", "value_trap_risk"). These
+# endpoints previously queried/compared against uppercase strings
+# ("EARNINGS_QUALITY", ..., and "VALUE_TRAP" -- missing the "_risk" suffix
+# entirely) that never matched any persisted row, so every one of these
+# endpoints 404'd even after the engine ran and wrote real data.
+_EARNINGS_QUALITY = "earnings_quality"
+_FINANCIAL_STRENGTH = "financial_strength"
+_DIVIDEND_SAFETY = "dividend_safety"
+_VALUE_TRAP = "value_trap_risk"
+
+# Keys inside a composite's `components` dict that are scalar roll-up
+# fields (already surfaced via the response's top-level score_value /
+# classification), not per-component breakdowns -- skipped when flattening
+# to the list[CompositeScoreComponent] shape below.
+_COMPOSITE_SCALAR_KEYS = {
+    "composite", "classification", "total_points",
+    "total_trap_points", "checks_performed",
+}
+
+
+def _composite_components_to_list(components: Any) -> list[dict]:
+    """Flatten CompositeScoreEngine's persisted ``components`` dict into
+    the ``list[CompositeScoreComponent]`` shape the API schema expects.
+
+    [Bug fix] Previously: ``cs.components if isinstance(cs.components, list)
+    else []`` -- but the engine ALWAYS persists a dict (one entry per
+    component, e.g. ``{"accruals_ratio": {"raw": ..., "score": ...,
+    "weight": ...}, "composite": ..., "classification": ...}``), so this
+    check was always False and every component breakdown was silently
+    dropped, even when the composite score itself computed correctly.
+
+    The four score types don't share one internal key convention (some use
+    "score"/"weight", dividend_safety uses "raw"/"points", value_trap_risk
+    uses "points" plus ad-hoc raw metric keys) so this reads whichever of
+    the known key spellings is present rather than assuming one.
+    """
+    if isinstance(components, list):
+        # Already schema-shaped (e.g. a future writer emits the list form
+        # directly) -- pass through as-is.
+        return [c for c in components if isinstance(c, dict)]
+    if not isinstance(components, dict):
+        return []
+    out: list[dict] = []
+    for name, val in components.items():
+        if name in _COMPOSITE_SCALAR_KEYS or not isinstance(val, dict):
+            continue
+        out.append({
+            "name": name,
+            "raw_value": val.get("raw_value", val.get("raw")),
+            "score": val.get("score", val.get("points")),
+            "weight": val.get("weight"),
+            "note": (
+                f"triggered={val['triggered']}" if "triggered" in val else None
+            ),
+        })
+    return out
+
+
 @router.get("/scores/{security_id}/composites", response_model=AllCompositeScoresResponse)
 async def get_composite_scores(
     security_id: uuid.UUID,
@@ -1428,7 +1513,7 @@ async def get_composite_scores(
             score_type=cs.score_type,
             score_value=float(cs.score_value) if cs.score_value is not None else None,
             classification=cs.classification,
-            components=cs.components if isinstance(cs.components, list) else [],
+            components=_composite_components_to_list(cs.components),
             data_quality=cs.data_quality,
         )
 
@@ -1437,10 +1522,10 @@ async def get_composite_scores(
         entity_id=sec.issuer_entity_id,
         ticker=getattr(sec, "ticker", None),
         as_of_date=rows[0].calculation_date if rows else None,
-        earnings_quality=_to_response(by_type.get("EARNINGS_QUALITY")),
-        financial_strength=_to_response(by_type.get("FINANCIAL_STRENGTH")),
-        dividend_safety=_to_response(by_type.get("DIVIDEND_SAFETY")),
-        value_trap=_to_response(by_type.get("VALUE_TRAP")),
+        earnings_quality=_to_response(by_type.get(_EARNINGS_QUALITY)),
+        financial_strength=_to_response(by_type.get(_FINANCIAL_STRENGTH)),
+        dividend_safety=_to_response(by_type.get(_DIVIDEND_SAFETY)),
+        value_trap=_to_response(by_type.get(_VALUE_TRAP)),
     )
 
 
@@ -1454,7 +1539,7 @@ async def get_earnings_quality(
     result = await session.execute(
         select(CompositeScore).where(
             CompositeScore.security_id == security_id,
-            CompositeScore.score_type == "EARNINGS_QUALITY",
+            CompositeScore.score_type == _EARNINGS_QUALITY,
         ).order_by(CompositeScore.calculation_date.desc()).limit(1)
     )
     cs = result.scalar_one_or_none()
@@ -1464,7 +1549,7 @@ async def get_earnings_quality(
         score_type=cs.score_type,
         score_value=float(cs.score_value) if cs.score_value is not None else None,
         classification=cs.classification,
-        components=cs.components if isinstance(cs.components, list) else [],
+        components=_composite_components_to_list(cs.components),
         data_quality=cs.data_quality,
     )
 
@@ -1479,7 +1564,7 @@ async def get_financial_strength(
     result = await session.execute(
         select(CompositeScore).where(
             CompositeScore.security_id == security_id,
-            CompositeScore.score_type == "FINANCIAL_STRENGTH",
+            CompositeScore.score_type == _FINANCIAL_STRENGTH,
         ).order_by(CompositeScore.calculation_date.desc()).limit(1)
     )
     cs = result.scalar_one_or_none()
@@ -1489,7 +1574,7 @@ async def get_financial_strength(
         score_type=cs.score_type,
         score_value=float(cs.score_value) if cs.score_value is not None else None,
         classification=cs.classification,
-        components=cs.components if isinstance(cs.components, list) else [],
+        components=_composite_components_to_list(cs.components),
         data_quality=cs.data_quality,
     )
 
@@ -1504,7 +1589,7 @@ async def get_dividend_safety(
     result = await session.execute(
         select(CompositeScore).where(
             CompositeScore.security_id == security_id,
-            CompositeScore.score_type == "DIVIDEND_SAFETY",
+            CompositeScore.score_type == _DIVIDEND_SAFETY,
         ).order_by(CompositeScore.calculation_date.desc()).limit(1)
     )
     cs = result.scalar_one_or_none()
@@ -1514,7 +1599,7 @@ async def get_dividend_safety(
         score_type=cs.score_type,
         score_value=float(cs.score_value) if cs.score_value is not None else None,
         classification=cs.classification,
-        components=cs.components if isinstance(cs.components, list) else [],
+        components=_composite_components_to_list(cs.components),
         data_quality=cs.data_quality,
     )
 
@@ -1529,7 +1614,7 @@ async def get_value_trap(
     result = await session.execute(
         select(CompositeScore).where(
             CompositeScore.security_id == security_id,
-            CompositeScore.score_type == "VALUE_TRAP",
+            CompositeScore.score_type == _VALUE_TRAP,
         ).order_by(CompositeScore.calculation_date.desc()).limit(1)
     )
     cs = result.scalar_one_or_none()
@@ -1539,7 +1624,7 @@ async def get_value_trap(
         score_type=cs.score_type,
         score_value=float(cs.score_value) if cs.score_value is not None else None,
         classification=cs.classification,
-        components=cs.components if isinstance(cs.components, list) else [],
+        components=_composite_components_to_list(cs.components),
         data_quality=cs.data_quality,
     )
 
@@ -1549,16 +1634,186 @@ async def get_value_trap(
 # ---------------------------------------------------------------------------
 
 # Factor definitions: each factor maps to underlying AnalyticsResult metric names.
+# [Bug fix] Most of these previously named metrics that no engine ever
+# emits ("pe_trailing"/"pb" were correct, but "ev_to_ebitda", "beta",
+# "std_5y", "market_cap", "price_momentum_12m"/"_6m",
+# "revenue_growth_1y"/"eps_growth_1y" do not exist as AnalyticsResult
+# metric_name values anywhere) -- so factor_values/correlation/IC were
+# silently computed over near-empty data for 4 of 6 factors regardless of
+# the factor_performance fix below. Corrected to the real metric names:
+# ev_ebitda (e2_multiples), factor_momentum/factor_size (e5_risk factor
+# exposures), annualized_volatility + beta_market (e5_risk/e7_quant),
+# revenue_yoy/eps_yoy (e1_ratios).
 _FACTORS = ["value", "momentum", "quality", "size", "volatility", "growth"]
 _FACTOR_METRICS: dict[str, list[str]] = {
-    "value": ["pe_trailing", "pb", "ev_to_ebitda", "fcf_yield"],
-    "momentum": ["price_momentum_12m", "price_momentum_6m"],
+    "value": ["pe_trailing", "pb", "ev_ebitda", "fcf_yield"],
+    "momentum": ["factor_momentum"],
     "quality": ["roe", "roa", "gross_margin"],
-    "size": ["market_cap"],
-    "volatility": ["beta", "std_5y"],
-    "growth": ["revenue_growth_1y", "eps_growth_1y"],
+    "size": ["factor_size"],
+    "volatility": ["annualized_volatility", "beta_market"],
+    "growth": ["revenue_yoy", "eps_yoy"],
 }
 _ALL_METRIC_NAMES = [m for metrics in _FACTOR_METRICS.values() for m in metrics]
+
+# Metrics where a LOWER raw value means a stronger factor score (cheaper
+# valuation = more "value"), so they're negated before averaging/ranking.
+_INVERT_FOR_SCORING = {"pe_trailing", "pb", "ev_ebitda"}
+
+# Minimum securities with a usable score for a factor before attempting a
+# real quintile-spread performance calculation; below this, the split
+# would be statistically meaningless, so the factor reports zeros.
+_MIN_SECURITIES_FOR_FACTOR_PERFORMANCE = 6
+
+
+async def _compute_factor_performance(
+    session: AsyncSession,
+    sec_metrics: dict[str, dict[str, float]],
+) -> list[dict[str, Any]]:
+    """Compute factor-portfolio performance (mtd/qtd/ytd/1y/sharpe/ic).
+
+    [Bug fix] Previously hardcoded to 0.0 for every field. Methodology: for
+    each factor, rank securities by their averaged (sign-adjusted) CURRENT
+    factor score, split into top/bottom terciles, and track a static
+    long-top / short-bottom equal-weighted spread portfolio's daily returns
+    from real EODPrice history. This is a *current-membership* factor
+    portfolio, not a fully rebalanced historical backtest — this codebase
+    has no stored historical factor-score time series (see the
+    /factor-exposure endpoint's note below on the same limitation for
+    Fama-French style factors) — but it is real arithmetic over real price
+    data for whichever securities currently rank at the extremes, not a
+    fabricated number.
+
+    IC (information coefficient) is the Spearman rank correlation between
+    each security's current factor score and its trailing-1y realized
+    return, over the same top/bottom universe used for the spread
+    portfolio (bounded query cost — the full universe can be large).
+    """
+    from src.engines.e7_quant import _spearman_corr
+
+    today = date.today()
+    one_year_start = today - timedelta(days=365)
+    lookback_start = today - timedelta(days=400)  # buffer past 1y for weekends/holidays
+
+    results: list[dict[str, Any]] = []
+    for factor in _FACTORS:
+        metric_names = _FACTOR_METRICS[factor]
+
+        scores: dict[str, float] = {}
+        for sec_id, metrics in sec_metrics.items():
+            vals = [
+                (-v if m in _INVERT_FOR_SCORING else v)
+                for m in metric_names
+                if (v := metrics.get(m)) is not None
+            ]
+            if vals:
+                scores[sec_id] = sum(vals) / len(vals)
+
+        if len(scores) < _MIN_SECURITIES_FOR_FACTOR_PERFORMANCE:
+            results.append({
+                "factor": factor.capitalize(),
+                "mtd": 0.0, "qtd": 0.0, "ytd": 0.0, "oneYear": 0.0,
+                "sharpe": 0.0, "ic": 0.0,
+            })
+            continue
+
+        ranked = sorted(scores.items(), key=lambda kv: kv[1])
+        tercile = max(1, len(ranked) // 3)
+        bottom_ids = {sid for sid, _ in ranked[:tercile]}
+        top_ids = {sid for sid, _ in ranked[-tercile:]}
+        relevant_ids = top_ids | bottom_ids
+
+        price_rows = (await session.execute(
+            select(
+                EODPrice.security_id, EODPrice.price_date,
+                EODPrice.close_adjusted, EODPrice.close,
+            ).where(
+                EODPrice.security_id.in_([uuid.UUID(sid) for sid in relevant_ids]),
+                EODPrice.price_date >= lookback_start,
+            ).order_by(EODPrice.security_id, EODPrice.price_date)
+        )).all()
+
+        prices_by_sec: dict[str, list[tuple[date, float]]] = defaultdict(list)
+        for sid, pdate, close_adj, close in price_rows:
+            px = float(close_adj or close or 0)
+            if px > 0:
+                prices_by_sec[str(sid)].append((pdate, px))
+
+        returns_by_sec: dict[str, dict[date, float]] = {}
+        for sid, series in prices_by_sec.items():
+            series.sort(key=lambda t: t[0])
+            rets: dict[date, float] = {}
+            for i in range(1, len(series)):
+                _, prev_p = series[i - 1]
+                cur_d, cur_p = series[i]
+                if prev_p > 0:
+                    rets[cur_d] = (cur_p - prev_p) / prev_p
+            returns_by_sec[sid] = rets
+
+        all_dates = sorted({d for rets in returns_by_sec.values() for d in rets})
+        spread_by_date: dict[date, float] = {}
+        for d in all_dates:
+            top_rets = [returns_by_sec[sid][d] for sid in top_ids if d in returns_by_sec.get(sid, {})]
+            bot_rets = [returns_by_sec[sid][d] for sid in bottom_ids if d in returns_by_sec.get(sid, {})]
+            if top_rets and bot_rets:
+                spread_by_date[d] = (sum(top_rets) / len(top_rets)) - (sum(bot_rets) / len(bot_rets))
+
+        def _compound(start_date: date) -> float:
+            window = [r for d, r in spread_by_date.items() if d >= start_date]
+            if not window:
+                return 0.0
+            cum = 1.0
+            for r in window:
+                cum *= (1.0 + r)
+            return cum - 1.0
+
+        month_start = today.replace(day=1)
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        quarter_start = today.replace(month=quarter_month, day=1)
+        year_start = today.replace(month=1, day=1)
+
+        mtd = _compound(month_start)
+        qtd = _compound(quarter_start)
+        ytd = _compound(year_start)
+        one_year = _compound(one_year_start)
+
+        daily_vals = [r for d, r in spread_by_date.items() if d >= one_year_start]
+        if len(daily_vals) >= 2:
+            mu = sum(daily_vals) / len(daily_vals)
+            var = sum((v - mu) ** 2 for v in daily_vals) / (len(daily_vals) - 1)
+            sd = var ** 0.5
+            sharpe = (mu / sd) * (252 ** 0.5) if sd > 0 else 0.0
+        else:
+            sharpe = 0.0
+
+        ic = 0.0
+        ic_scores: list[float] = []
+        ic_returns: list[float] = []
+        for sid in relevant_ids:
+            series = prices_by_sec.get(sid)
+            if not series:
+                continue
+            in_window = [(d, p) for d, p in series if d >= one_year_start]
+            if len(in_window) < 2:
+                continue
+            first_p, last_p = in_window[0][1], in_window[-1][1]
+            if first_p > 0:
+                ic_scores.append(scores[sid])
+                ic_returns.append((last_p - first_p) / first_p)
+        if len(ic_scores) >= 5:
+            ic_val, _ = _spearman_corr(ic_scores, ic_returns)
+            ic = round(ic_val, 4) if ic_val is not None else 0.0
+
+        results.append({
+            "factor": factor.capitalize(),
+            "mtd": round(mtd, 6),
+            "qtd": round(qtd, 6),
+            "ytd": round(ytd, 6),
+            "oneYear": round(one_year, 6),
+            "sharpe": round(sharpe, 4),
+            "ic": ic,
+        })
+
+    return results
 
 
 @router.get("/correlation")
@@ -1593,19 +1848,9 @@ async def get_correlation(
         sec_metrics[str(row.security_id)][row.metric_name] = float(row.value)
 
     # ------------------------------------------------------------------
-    # 2. Factor performance defaults (real return series would go here)
+    # 2. Factor performance: real quintile-spread portfolio returns
     # ------------------------------------------------------------------
-    factor_performance: list[dict[str, Any]] = []
-    for factor in _FACTORS:
-        factor_performance.append({
-            "factor": factor.capitalize(),
-            "mtd": 0.0,
-            "qtd": 0.0,
-            "ytd": 0.0,
-            "oneYear": 0.0,
-            "sharpe": 0.0,
-            "ic": 0.0,
-        })
+    factor_performance = await _compute_factor_performance(session, sec_metrics)
 
     # ------------------------------------------------------------------
     # 3. Correlation matrix (identity when data is sparse)

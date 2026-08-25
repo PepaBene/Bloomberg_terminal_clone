@@ -409,6 +409,13 @@ async def test_load_inserts_then_updates_scores(session):
     first_env_score = rows[0].environmental_score
     assert first_env_score is not None
     assert rows[0].social_score is not None
+    # Composite esg_score is now populated (previously NULL forever). With no
+    # governance pillar present, it is the mean of environmental + social.
+    assert rows[0].esg_score is not None
+    expected = round(
+        (float(rows[0].environmental_score) + float(rows[0].social_score)) / 2, 2
+    )
+    assert float(rows[0].esg_score) == pytest.approx(expected)
 
     metric_rows = (await session.execute(select(ESGMetric))).scalars().all()
     assert len(metric_rows) >= 6

@@ -3,7 +3,7 @@
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── VaR ─────────────────────────────────────────────────────────────
@@ -148,3 +148,28 @@ class RiskDashboardResponse(BaseModel):
     var_summary: VaRResponse | None = None
     concentration_summary: ConcentrationResponse | None = None
     factor_summary: FactorExposureResponse | None = None
+
+
+# ── What-If ─────────────────────────────────────────────────────────
+
+
+class WhatIfRequest(BaseModel):
+    """Named-scenario what-if request, matching the existing frontend
+    What-If Analysis panel (frontend/src/pages/portfolio/PortfolioDetail.tsx)."""
+
+    scenario: str
+
+
+class WhatIfResponse(BaseModel):
+    """Named-scenario what-if projection.
+
+    Field names/casing match the frontend's pre-existing (previously
+    unservable) contract exactly -- ``projectedNavChange``/``projectedPnl``,
+    not this codebase's usual snake_case -- so the panel starts working
+    without a frontend change.
+    """
+
+    projected_nav_change: float | None = Field(default=None, alias="projectedNavChange")
+    projected_pnl: float | None = Field(default=None, alias="projectedPnl")
+
+    model_config = {"populate_by_name": True}

@@ -32,7 +32,7 @@ def compute_ohlson_o_score(
     T4 = +0.0757 * (CL/CA)                      (CL ratio — CA = CL + WC)
     T5 = -2.37 * (NI/TA)                        (ROA)
     T6 = -1.83 * (FFO/TL)                       (cash flow coverage)
-    T7 = +0.285 * OENEG                         (1 if TL>TA else 0)
+    T7 = -1.72 * OENEG                          (1 if TL>TA else 0)
     T8 = +0.285 * INTWO                         (1 if NI<0 for last 2 years else 0)
     T9 = -0.521 * CHIN                          (change in NI: (NI-NI_lag)/(|NI|+|NI_lag|))
 
@@ -100,8 +100,10 @@ def compute_ohlson_o_score(
         t6 = -1.83 * 1.0  # assume good coverage if no liabilities
 
     # T7: OENEG (1 if TL > TA, else 0)
+    # [Bug fix] was 0.285 -- INTWO's coefficient (T8, below), copy-pasted
+    # onto OENEG. Ohlson (1980) Model 1's published OENEG weight is -1.72.
     oeneg_val = 1.0 if tl > ta else 0.0
-    t7 = 0.285 * oeneg_val
+    t7 = -1.72 * oeneg_val
 
     # T8: INTWO (1 if NI was negative for both of last 2 years, else 0)
     intwo_val = 1.0 if consecutive_loss_years >= 2 else 0.0

@@ -76,9 +76,17 @@ def compute_treasury_ytm(
     if years_to_maturity <= 0:
         return 0.0
 
-    # T-Bill: discount yield formula
+    # T-Bill: discount yield formula.
+    # [Bug fix] The bank-discount-yield convention universally used to quote
+    # T-Bill discount rates annualizes on an actual/360 basis, NOT a
+    # calendar-year (365/365.25) basis: discount_yield = (FV-P)/FV *
+    # (360/days_to_maturity). Every caller in this codebase computes
+    # years_to_maturity as days/365.25, so `1.0/years_to_maturity` was
+    # `365.25/days` -- the wrong basis, overstating the discount yield
+    # relative to the market-standard actual/360 quote.
     if coupon_rate == 0 and years_to_maturity < 1.0:
-        discount_yield = ((face_value - price) / face_value) * (1.0 / years_to_maturity) * 100.0
+        days_to_maturity = years_to_maturity * 365.25
+        discount_yield = ((face_value - price) / face_value) * (360.0 / days_to_maturity) * 100.0
         return round(discount_yield, 6)
 
     # Coupon bond: Newton-Raphson

@@ -32,9 +32,9 @@ import logging
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 sys.path.insert(0, ".")
@@ -42,7 +42,7 @@ sys.path.insert(0, ".")
 from src.database import get_session_factory  # noqa: E402
 from src.models.security import Security  # noqa: E402
 from src.engines.base import EngineOutput  # noqa: E402
-from src.models.analytics import AnalyticsResult  # noqa: E402
+from src.models.analytics import AnalyticsResult, CalculationLineage  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("analytics_batch")
@@ -75,6 +75,9 @@ ENGINE_GROUPS: dict[str, list[str]] = {
     "e2_comps": ["comps"],
     "e2_football_field": ["football_field"],
     "e3": ["piotroski", "altman", "beneish"],
+    # composites depends on piotroski/altman/beneish (and E1 ratios) already
+    # having written the AnalyticsResult rows it reads, hence its place at
+    # the end of "all" below rather than grouped with "e3".
     "e3_composites": ["composites"],
     "e5_risk": ["risk"],
     "e6": ["flows"],
@@ -84,8 +87,9 @@ ENGINE_GROUPS: dict[str, list[str]] = {
     # to satisfy that dependency the same way "all"'s existing ordering
     # already documents for wacc->dcf and dcf/comps->football_field.
     "all": ["ttm", "ratios", "dupont", "trends", "industry_kpis",
-            "wacc", "piotroski", "altman", "beneish", "composites", "multiples",
-            "dcf", "comps", "football_field", "risk", "quant", "flows"],
+            "wacc", "piotroski", "altman", "beneish", "multiples",
+            "dcf", "comps", "football_field", "risk", "quant", "flows",
+            "composites"],
 }
 
 
@@ -142,6 +146,9 @@ def _load_engine(key: str):
     if key == "flows":
         from src.engines.e6_flows import InstitutionalFlowEngine
         return InstitutionalFlowEngine
+    if key == "composites":
+        from src.engines.e3_composites import CompositeScoreEngine
+        return CompositeScoreEngine
     raise ValueError(f"unknown engine key: {key}")
 
 
@@ -183,6 +190,24 @@ async def _persist_outputs(session: AsyncSession, outputs: list[EngineOutput]) -
             data_quality=out.data_quality,
             inputs=out.inputs,
             calculation_version=out.calculation_version,
+        ))
+        # [Bug fix] CalculationLineage had no writer anywhere in the
+        # codebase, so GET /v2/analytics/audit/{id}/{metric} 404'd
+        # permanently even though the exact same lineage data (inputs) was
+        # already being computed and persisted per-metric on AnalyticsResult
+        # -- it just wasn't ALSO copied into the dedicated audit table.
+        # calculation_formula stays None: EngineOutput has no formula-string
+        # field, so there's nothing honest to backfill it with.
+        session.add(CalculationLineage(
+            security_id=out.security_id,
+            entity_id=out.entity_id,
+            engine_id=out.engine_id,
+            engine_version=out.calculation_version,
+            output_metric=out.metric_name,
+            output_value=out.value if isinstance(out.value, (int, float)) else None,
+            period=out.period,
+            calculation_formula=None,
+            inputs=out.inputs or [],
         ))
     await session.flush()
     return len(outputs)
@@ -279,6 +304,63 @@ async def reopen_stale_analytics(session: AsyncSession, days: int) -> int:
     return len(stale)
 
 
+async def reopen_stale_engine_analytics(session: AsyncSession, engine_key: str, days: int) -> int:
+    """Invalidate ONLY one engine's analytics for securities not recomputed
+    in ``days`` days -- unlike reopen_stale_analytics (whole-security), this
+    leaves every other engine's AnalyticsResult rows for the same security
+    untouched.
+
+    Needed for engines whose inputs change on a cadence recompute_security's
+    XBRL-triggered refresh never catches (E5 risk / E7 quant depend on daily
+    EOD prices, not filings) -- but reopen_stale_analytics's whole-security
+    DELETE FROM analytics_results WHERE security_id=:s would, if scheduled
+    daily for just one engine, silently force a full from-scratch recompute
+    of EVERY engine (ratios, DCF, comps, ...) for that security every day.
+    Only safe to use for a ``--engine`` group that maps to exactly one
+    sub-engine key (e5_risk/e6/e7_quant), since only then does `engine_id`
+    uniquely identify that engine's own AnalyticsResult rows.
+    """
+    engine_id = _load_engine(engine_key)().engine_id
+    dt = _progress_type(engine_key)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = await session.execute(
+        text(
+            """
+            SELECT DISTINCT subject_key FROM ingestion_progress
+            WHERE data_type = :dt
+              AND last_success_at < :cutoff
+            """
+        ),
+        {"dt": dt, "cutoff": cutoff},
+    )
+    stale = [r[0] for r in rows.all()]
+    for sk in stale:
+        # [Bug fix] analytics_results.security_id is a UUID-typed column;
+        # a raw text() DELETE binding a bare string (or the wrong Python
+        # type) can silently match zero rows depending on dialect/driver
+        # UUID handling (e.g. SQLAlchemy's UUID type decorator stores
+        # values hyphen-free on SQLite) -- the DELETE appears to succeed
+        # while deleting nothing. Using the ORM-mapped delete() construct
+        # instead routes the bind through AnalyticsResult.security_id's
+        # own type decorator, which handles this correctly on any dialect.
+        await session.execute(
+            delete(AnalyticsResult).where(
+                AnalyticsResult.security_id == uuid.UUID(sk),
+                AnalyticsResult.engine_id == engine_id,
+            )
+        )
+        await session.execute(
+            text("DELETE FROM ingestion_progress WHERE data_type = :dt AND subject_key = :s"),
+            {"dt": dt, "s": sk},
+        )
+    await session.commit()
+    logger.info(
+        "Reopened %d stale securities for %s recompute (>%dd), scoped to engine_id=%s.",
+        len(stale), engine_key, days, engine_id,
+    )
+    return len(stale)
+
+
 async def _reset(session: AsyncSession, engine_keys: list[str]) -> None:
     """Clean-slate rebuild: wipe analytics_results + analytics progress rows.
 
@@ -297,7 +379,7 @@ async def _reset(session: AsyncSession, engine_keys: list[str]) -> None:
 
 async def run_engine(engine_name: str, *, dry_run: bool = False,
                      max_minutes: float | None = None, reset: bool = False,
-                     refresh_days: int = 0) -> None:
+                     refresh_days: int = 0, refresh_days_scoped: int = 0) -> None:
     keys = ENGINE_GROUPS[engine_name]
     logger.info("Analytics batch: engine=%s sub-engines=%s dry_run=%s max_minutes=%s",
                 engine_name, keys, dry_run, max_minutes)
@@ -309,6 +391,14 @@ async def run_engine(engine_name: str, *, dry_run: bool = False,
             await _reset(session, keys)
         if refresh_days > 0 and not dry_run:
             await reopen_stale_analytics(session, refresh_days)
+        if refresh_days_scoped > 0 and not dry_run:
+            if len(keys) != 1:
+                raise ValueError(
+                    f"--refresh-days-scoped requires a single-sub-engine --engine group "
+                    f"(got {engine_name} -> {keys}); engine_id only uniquely identifies "
+                    f"one sub-engine's rows when the group has exactly one."
+                )
+            await reopen_stale_engine_analytics(session, keys[0], refresh_days_scoped)
 
         security_ids = await _active_security_ids(session)
         logger.info("Found %d active securities", len(security_ids))
@@ -419,8 +509,20 @@ def main() -> None:
     parser.add_argument("--reset", action="store_true",
                         help="Truncate analytics_results + clear progress, then recompute")
     parser.add_argument("--refresh-days", type=int, default=0,
-                        help="Before running, invalidate analytics for securities "
-                             "not recomputed in N days so they get refreshed")
+                        help="Before running, invalidate ALL of a security's analytics "
+                             "(every engine, not just the one selected by --engine) for "
+                             "securities not recomputed in N days so they get refreshed. "
+                             "Intended for --engine all; see --refresh-days-scoped for a "
+                             "single-engine-safe alternative.")
+    parser.add_argument("--refresh-days-scoped", type=int, default=0,
+                        help="Like --refresh-days, but invalidates ONLY the selected "
+                             "--engine's own analytics rows, leaving every other engine's "
+                             "data for that security untouched. Required for scheduling a "
+                             "single price-dependent engine (e5_risk, e7_quant, e6) on a "
+                             "recurring cadence shorter than fundamentals-driven recompute "
+                             "-- --refresh-days would otherwise force a full from-scratch "
+                             "recompute of every other engine too. Only valid for an "
+                             "--engine group with exactly one sub-engine.")
     args = parser.parse_args()
 
     if args.status or not args.engine:
@@ -428,7 +530,8 @@ def main() -> None:
         return
     asyncio.run(run_engine(args.engine, dry_run=args.dry_run,
                            max_minutes=args.max_minutes, reset=args.reset,
-                           refresh_days=args.refresh_days))
+                           refresh_days=args.refresh_days,
+                           refresh_days_scoped=args.refresh_days_scoped))
 
 
 if __name__ == "__main__":

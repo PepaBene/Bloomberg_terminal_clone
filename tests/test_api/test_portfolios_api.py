@@ -312,6 +312,48 @@ async def test_delete_position(client: AsyncClient, session: AsyncSession):
     assert resp.json()["status"] == "CLOSED"
 
 
+@pytest.mark.asyncio
+async def test_get_portfolio_analytics_computes_real_values(client: AsyncClient, session: AsyncSession):
+    """GET /v4/portfolios/{id}/analytics returns a real computed summary.
+
+    Regression test: portfolio_analytics.py was a correct pure-computation
+    engine with zero production callers -- there was no endpoint at all
+    exposing HHI/sector-allocation/top-holdings/cash-utilization.
+    """
+    p = await _seed_portfolio(
+        session, portfolio_name="Analytics Test",
+        current_cash=Decimal("20000.00"),
+    )
+    await _seed_position(
+        session, p.id, ticker="AAPL",
+        market_value=Decimal("60000.00"), weight=Decimal("0.6"), unrealized_pnl=Decimal("5000.00"),
+    )
+    await _seed_position(
+        session, p.id, ticker="MSFT",
+        market_value=Decimal("20000.00"), weight=Decimal("0.2"), unrealized_pnl=Decimal("-1000.00"),
+    )
+
+    resp = await client.get(f"/v4/portfolios/{p.id}/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["total_positions"] == 2
+    assert data["market_value"] == pytest.approx(80000.0)
+    # nav = 20000 cash + 80000 mv = 100000 -> cash_pct = 20%.
+    assert data["cash_pct"] == pytest.approx(20.0)
+    assert data["invested_pct"] == pytest.approx(80.0)
+    # Position weights (0.6, 0.2) sum to 0.8, not 1.0 (20% is cash) --
+    # compute_concentration_hhi normalizes by the actual sum first:
+    # (0.75, 0.25) -> HHI = 0.75^2 + 0.25^2 = 0.625, *10000 = 6250 -> CONCENTRATED.
+    assert data["concentration"]["hhi"] == pytest.approx(6250.0, abs=1.0)
+    assert data["concentration"]["classification"] == "CONCENTRATED"
+    assert data["winners_count"] == 1
+    assert data["losers_count"] == 1
+    assert data["net_pnl"] == pytest.approx(4000.0)
+    assert data["top_holdings"][0]["ticker"] == "AAPL"
+    assert data["portfolio_age_days"] > 0
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Transactions
 # ══════════════════════════════════════════════════════════════════════
