@@ -159,6 +159,10 @@ STAGE_COMPUTE: list[str] = [
     "scripts.compute_ownership_summary",
     "scripts.compute_shares_outstanding",
     "scripts.compute_debt_maturity",
+    # Anomaly detection had zero callers anywhere -- Research > Anomalies
+    # could never return data. Idempotent (skips already-recorded
+    # entity/type/window rows), so safe to run every lap.
+    "scripts.compute_anomalies",
     # Derives entities.gics_sector from primary_sic (see script docstring for
     # why this step was missing) -- must run after ingest_entity_sic_enrichment
     # (stage 2) populates primary_sic, and before compute_industry_profiles
