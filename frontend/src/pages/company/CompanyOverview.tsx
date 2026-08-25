@@ -342,12 +342,12 @@ export default function CompanyOverview() {
                   </thead>
                   <tbody>
                     {surprises.map((s: any) => (
-                      <tr key={s.period}>
-                        <td style={{ fontWeight: 500 }}>{s.period}</td>
-                        <td className="right">${s.epsEstimate?.toFixed(2)}</td>
-                        <td className="right" style={{ fontWeight: 600 }}>${s.epsActual?.toFixed(2)}</td>
-                        <td className="right" style={{ color: (s.surprise ?? 0) >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 600 }}>
-                          {s.surprise != null ? `${s.surprise >= 0 ? '+' : ''}${s.surprise.toFixed(1)}%` : '—'}
+                      <tr key={s.id}>
+                        <td style={{ fontWeight: 500 }}>FY{s.fiscal_year} Q{s.fiscal_quarter}</td>
+                        <td className="right">{s.consensus_eps != null ? `$${s.consensus_eps.toFixed(2)}` : '—'}</td>
+                        <td className="right" style={{ fontWeight: 600 }}>{s.actual_eps != null ? `$${s.actual_eps.toFixed(2)}` : '—'}</td>
+                        <td className="right" style={{ color: (s.eps_surprise_pct ?? 0) >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)', fontWeight: 600 }}>
+                          {s.eps_surprise_pct != null ? `${s.eps_surprise_pct >= 0 ? '+' : ''}${s.eps_surprise_pct.toFixed(1)}%` : '—'}
                         </td>
                       </tr>
                     ))}
