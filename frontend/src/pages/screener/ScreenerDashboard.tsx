@@ -6,6 +6,7 @@ import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/scr
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
 import { DemoModeBanner } from '@/components/feedback';
 import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
+import api from '@/api/client';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -171,13 +172,34 @@ export default function ScreenerDashboard() {
   }, [screenName, filters, saveScreen, refetchHistory]);
 
   // --- Load prebuilt screen ---
-  const handleLoadPrebuilt = useCallback((screen: any) => {
-    if (screen?.filters) {
-      setFilters(screen.filters);
-      setBackendResults(null);
-      setIsUsingMock(false);
-    }
+  // The `/screens/library` list only carries `filter_count`, not the actual
+  // filters (see src/api/routers/screening.py:135) -- so there is no local
+  // `screen.filters` to apply. Run the screen server-side by id instead,
+  // which both resolves and executes its filters in one call.
+  const handleLoadPrebuilt = useCallback(async (screen: any) => {
     setShowLoadModal(false);
+    if (!screen?.screen_id) return;
+    setFilters([]);
+    setScreening(true);
+    setIsUsingMock(false);
+    try {
+      const detail = await api.get<any>(`/v2/analytics/screens/library/${screen.screen_id}`);
+      const res = await api.post<any>(`/v2/analytics/screens/library/${screen.screen_id}/run`, {});
+      setBackendResults(res?.results ?? res?.data ?? []);
+      const rawFilters = detail?.filters?.filters ?? [];
+      setFilters(
+        rawFilters.map((f: any) => ({
+          metric: f.field,
+          operator: f.op,
+          value: f.value,
+          valueTo: f.value2 ?? undefined,
+        })),
+      );
+    } catch {
+      setBackendResults(null);
+      setIsUsingMock(true);
+    }
+    setScreening(false);
   }, []);
 
   // --- Load saved screen from history ---
@@ -258,9 +280,12 @@ export default function ScreenerDashboard() {
         />
       </div>
 
-      {/* LivePreviewCount — [Bug 85 fix] shows demo mode when backend unreachable */}
-      {isUsingMock ? (
-        <DemoModeBanner message="Demo mode — backend unavailable. Showing local mock results." />
+      {/* LivePreviewCount — [Bug 85 fix] shows demo mode when backend unreachable.
+          Also covers the zero-filter landing state, which renders MOCK_STOCKS
+          (a hardcoded illustrative sample) rather than any real screen result —
+          that must never be shown as if it were live data. */}
+      {isUsingMock || (filters.length === 0 && backendResults === null) ? (
+        <DemoModeBanner message="Example data — add a filter or load a screen to query real results." />
       ) : (
         <LivePreviewCount count={resultRows.length} total={totalCount ?? resultRows.length} />
       )}

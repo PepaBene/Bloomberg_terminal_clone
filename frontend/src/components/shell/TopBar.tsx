@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSecurityStore } from '@/stores/securityContext';
 import { useAlertsStore } from '@/stores/alertsState';
 import { useNavigationStore } from '@/stores/navigationHistory';
 import { useAuthStore, useLoginModalStore } from '@/stores/authStore';
 import { useLogout } from '@/api/hooks/useAuth';
-import { CommandBar } from '../ui/CommandBar';
+import { useSecuritySearch } from '@/api/hooks/useSecurities';
+import api from '@/api/client';
+import type { SecuritySearchResult } from '@/types/security';
+import { CommandBar, type CommandResult } from '../ui/CommandBar';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -115,9 +118,12 @@ function useBreadcrumbs(): string[] {
 /* ── Component ───────────────────────────────────────────── */
 
 export function TopBar() {
+  const navigate = useNavigate();
   const primary = useSecurityStore((s) => s.primary);
+  const setPrimary = useSecurityStore((s) => s.setPrimary);
   const unread = useAlertsStore((s) => s.unread);
   const stack = useNavigationStore((s) => s.stack);
+  const pushHistory = useNavigationStore((s) => s.push);
   const recent = useMemo(() => stack.slice(-5), [stack]);
   const utcClock = useUtcClock();
   const market = useMarketStatus();
@@ -129,6 +135,70 @@ export function TopBar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const [commandBarOpen, setCommandBarOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+
+  // Global search (Bug: CommandBar previously rendered with no onSearch/
+  // onSelect/results wired at all -- ⌘K opened a modal that could never
+  // show a result no matter what was typed. useSecuritySearch already
+  // existed and worked against a real, live endpoint but had never been
+  // imported anywhere.
+  const { data: searchData } = useSecuritySearch(commandQuery, {
+    enabled: commandBarOpen && commandQuery.trim().length > 0,
+  });
+  const commandResults: CommandResult[] = useMemo(() => {
+    const rows = (searchData as { results?: SecuritySearchResult[] } | undefined)?.results ?? [];
+    return rows.map((r) => ({
+      id: r.security_id,
+      title: r.ticker,
+      subtitle: r.name,
+      meta: r.exchange ?? r.asset_class,
+      group: 'Securities',
+    }));
+  }, [searchData]);
+
+  const handleSelectSecurity = useCallback(
+    async (result: CommandResult) => {
+      const row = ((searchData as { results?: SecuritySearchResult[] } | undefined)?.results ?? [])
+        .find((r) => r.security_id === result.id);
+      if (!row) return;
+      setCommandBarOpen(false);
+      navigate('/company');
+      const security = {
+        security_id: row.security_id,
+        ticker: row.ticker,
+        name: row.name,
+        asset_class: row.asset_class,
+        exchange: row.exchange,
+        figi: null,
+        currency: null,
+        entity_id: null,
+        status: 'ACTIVE',
+        gics_sector: null,
+        gics_industry: null,
+        market_cap: null,
+      };
+      setPrimary(security);
+      pushHistory(security);
+      // The search endpoint only returns lightweight rows (no entity_id),
+      // but company-level panels (profile, financials, news, ...) are keyed
+      // by entity_id, not security_id -- without this, every downstream
+      // /v1/entities/{id} lookup 404s using the wrong id space. Resolve it
+      // from the securities detail endpoint's `issuer_entity_id` once the
+      // user has actually picked a result, rather than eagerly for every
+      // row (which would flood the API with a fetch per keystroke).
+      try {
+        const detail = await api.get<{ issuer_entity_id?: string | null }>(
+          `/v1/securities/${row.security_id}`,
+        );
+        if (detail?.issuer_entity_id) {
+          setPrimary({ ...security, entity_id: detail.issuer_entity_id });
+        }
+      } catch {
+        // Leave entity_id null -- pages fall back to security_id-keyed data.
+      }
+    },
+    [searchData, setPrimary, pushHistory, navigate],
+  );
 
   // Cmd/Ctrl+K shortcut
   const handleKey = useCallback((e: KeyboardEvent) => {
@@ -425,7 +495,13 @@ export function TopBar() {
       `}</style>
 
       {/* Command Bar */}
-      <CommandBar open={commandBarOpen} onClose={() => setCommandBarOpen(false)} />
+      <CommandBar
+        open={commandBarOpen}
+        onClose={() => setCommandBarOpen(false)}
+        onSearch={setCommandQuery}
+        onSelect={handleSelectSecurity}
+        results={commandResults}
+      />
     </>
   );
 }

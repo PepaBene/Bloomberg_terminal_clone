@@ -31,6 +31,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing to database")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of entities to process")
+    parser.add_argument(
+        "--offset", type=int, default=0,
+        help="Skip this many entities (CIK order) before applying --limit -- lets a "
+             "caller page through the full universe across repeated invocations, since "
+             "GDELT's per-entity query rate makes a single run of the whole universe "
+             "impractical (see run_extra_ingestion.py's PAGINATED_MODULES).",
+    )
     parser.add_argument("--feed-url", default=None, help="Controversy JSON feed URL (overrides GDELT)")
     parser.add_argument(
         "--lookback-days",
@@ -41,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _load_entities(session, limit: int | None) -> list[dict]:
+async def _load_entities(session, limit: int | None, offset: int = 0) -> list[dict]:
     """Fetch (CIK, legal_name, entity_id) triples to drive the GDELT queries.
 
     Only entities with a CIK identifier are included. entity_id is passed
@@ -53,6 +60,8 @@ async def _load_entities(session, limit: int | None) -> list[dict]:
         .where(EntityIdentifier.identifier_type == "CIK")
         .order_by(EntityIdentifier.identifier_value)
     )
+    if offset:
+        query = query.offset(offset)
     if limit is not None:
         query = query.limit(limit)
     result = await session.execute(query)
@@ -69,7 +78,7 @@ async def main():
 
         entities: list[dict] = []
         if not args.feed_url:
-            entities = await _load_entities(session, args.limit)
+            entities = await _load_entities(session, args.limit, args.offset)
             logger.info(f"Loaded {len(entities)} entities (CIK + legal name) from the database.")
 
         connector = EsgControversiesConnector(

@@ -257,6 +257,9 @@ def create_app() -> FastAPI:
     from src.api.routers.earnings_intelligence import router as earnings_router
     app.include_router(earnings_router, prefix="/v1")
 
+    from src.api.routers.estimates import router as estimates_router
+    app.include_router(estimates_router, prefix="/v1")
+
     # Pillar 1 Supplement – Part 4: Fund Holdings / Executives
     from src.api.routers.fund_holdings import router as fund_holdings_router
     app.include_router(fund_holdings_router, prefix="/v1")

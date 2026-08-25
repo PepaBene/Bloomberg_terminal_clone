@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,19 @@ def _xml_text(parent: ET.Element | None, tag: str) -> str | None:
     if el is not None and el.text and el.text.strip():
         return el.text.strip()
     return None
+
+
+def _normalize_cik(cik: str | None) -> str | None:
+    """Normalize a CIK to the unpadded form stored in entity_identifiers.
+
+    Ownership XML (Form 3/4/5, shared with ``edgar_form4``) reports
+    zero-padded 10-digit CIKs (e.g. ``0000320193``) whereas
+    ``entity_identifiers.identifier_value`` stores them unpadded (``320193``).
+    """
+    if not cik:
+        return None
+    stripped = cik.strip().lstrip("0")
+    return stripped or "0"
 
 
 def _is_flag(parent: ET.Element | None, tag: str) -> bool:
@@ -111,9 +124,7 @@ class EdgarExecutivesConnector(BaseConnector):
         self.issuer_ciks = issuer_ciks or []
         self.days_back = days_back
         self.max_filings_per_cik = max_filings_per_cik
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
 
@@ -297,7 +308,7 @@ class EdgarExecutivesConnector(BaseConnector):
                     await session.execute(
                         select(EntityIdentifier).where(
                             EntityIdentifier.identifier_type == "CIK",
-                            EntityIdentifier.identifier_value == rec["issuer_cik"],
+                            EntityIdentifier.identifier_value == _normalize_cik(rec["issuer_cik"]),
                         )
                     )
                 ).scalar_one_or_none()

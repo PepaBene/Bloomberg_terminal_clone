@@ -509,11 +509,26 @@ class ScreeningEngine:
     # -- source-specific builders --
 
     def _filter_analytics(self, filt: ScreenFilter):
-        """Build subquery against ``analytics_results`` table."""
+        """Build subquery against ``analytics_results`` table.
+
+        Most metrics are numeric and live in ``AnalyticsResult.value``, but a
+        handful (e.g. ``altman_zone``: SAFE/GREY/DISTRESS) are classification
+        labels with no numeric value -- the engines that compute them store
+        the label in ``data_quality`` instead (see e.g. e3_altman.py's
+        ``altman_zone`` output, which passes ``value=None,
+        data_quality=zone``). Comparing a string filter value against the
+        numeric ``value`` column for those fields raises
+        ``UndefinedFunctionError`` at the DB (operator does not exist:
+        numeric <> character varying), so categorical fields are routed to
+        ``data_quality`` and compared as strings instead.
+        """
         stmt = select(AnalyticsResult.security_id).where(
             AnalyticsResult.metric_name == filt.field,
         )
-        stmt = self._apply_numeric_op(stmt, AnalyticsResult.value, filt)
+        if filt.field in _CATEGORICAL_ANALYTICS_FIELDS:
+            stmt = self._apply_generic_op(stmt, AnalyticsResult.data_quality, filt)
+        else:
+            stmt = self._apply_numeric_op(stmt, AnalyticsResult.value, filt)
         return stmt
 
     def _filter_entity(self, filt: ScreenFilter):
@@ -929,3 +944,12 @@ _FIELD_METADATA: list[dict[str, str]] = [
     {"field_name": "inst_conviction_score", "source": "ANALYTICS_RESULT", "data_type": "numeric", "description": "Institutional conviction score", "category": "flow", "unit": "SCORE"},
     {"field_name": "inst_flow_trend_3q", "source": "ANALYTICS_RESULT", "data_type": "categorical", "description": "3-quarter flow trend: ACCUMULATION / DISTRIBUTION / NEUTRAL", "category": "flow", "unit": ""},
 ]
+
+# ANALYTICS_RESULT fields whose value is a classification label stored in
+# AnalyticsResult.data_quality rather than a number in .value -- see
+# _filter_analytics() above for why this routing matters.
+_CATEGORICAL_ANALYTICS_FIELDS: frozenset[str] = frozenset(
+    f["field_name"]
+    for f in _FIELD_METADATA
+    if f["source"] == "ANALYTICS_RESULT" and f["data_type"] == "categorical"
+)

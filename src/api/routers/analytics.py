@@ -1371,9 +1371,9 @@ async def get_football_field(
             current_price = r.value
         elif r.metric_name == "football_consensus_view":
             # The engine stores the classification (UNDERVALUED / FAIRLY_VALUED /
-            # OVERVALUED / INSUFFICIENT_DATA) in `value`; data_quality only carries
-            # COMPLETE / INSUFFICIENT_DATA.
-            consensus = r.value
+            # OVERVALUED / INSUFFICIENT_DATA) in `data_quality` — `value` is numeric-only
+            # and can't hold it (matches the altman_zone/beneish_flag pattern).
+            consensus = r.data_quality
         elif r.metric_name.startswith("football_"):
             # Parse: football_{method}_{low|mid|high}
             parts = r.metric_name.replace("football_", "").rsplit("_", 1)

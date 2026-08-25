@@ -184,13 +184,14 @@ class FootballFieldEngine(BaseEngine):
         outputs.append(self._o(
             security_id, entity_id, today,
             "football_consensus_view",
-            consensus_view,  # [Bug 35 fix] stored in value instead of data_quality
+            None,  # classification — no numeric value (analytics_results.value is NUMERIC)
             "CLASSIFICATION",
             [
                 make_input("midpoint_count", "computed", float(len(midpoints))),
                 make_input("current_price", "eod_prices", current_price),
             ],
-            data_quality="COMPLETE" if consensus_view != "INSUFFICIENT_DATA" else "INSUFFICIENT_DATA",
+            data_quality=consensus_view,  # carries the classification itself, matching
+                                           # the altman_zone/altman_model/beneish_flag pattern
         ))
 
         # Determine overall quality

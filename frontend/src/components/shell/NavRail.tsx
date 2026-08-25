@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 
 /* ── SVG Icon Components (16x16, stroke-based, Lucide-style) ── */
 
@@ -337,7 +337,18 @@ const styles = {
     boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
     padding: '8px 12px',
     minWidth: 140,
-    pointerEvents: 'none' as const,
+    // Was 'none' -- made the flyout purely decorative, so its "links" could
+    // never be clicked no matter how carefully the mouse was moved onto
+    // them. Combined with the 4px left gap below and mouseleave firing the
+    // instant the cursor left the nav button, the flyout was unreachable.
+    pointerEvents: 'auto' as const,
+  },
+  flyoutSubClickable: {
+    cursor: 'pointer' as const,
+    borderRadius: 3,
+    margin: '0 -6px',
+    padding: '1px 6px',
+    transition: 'background 100ms ease, color 100ms ease',
   },
   flyoutTitle: {
     fontFamily: 'var(--font-ui)',
@@ -382,16 +393,44 @@ interface NavButtonProps {
 function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
   const [hovered, setHovered] = useState(false);
   const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
+  // Bridges the gap between "cursor left the button" and "cursor reached the
+  // flyout" (they're separate elements with a few pixels between them) --
+  // closing was previously instant on mouseleave, so moving the mouse
+  // toward the flyout to click a link always closed it first. A short
+  // grace-period close, cancelled if the cursor lands on either the button
+  // or the flyout before it fires, fixes that without needing exact
+  // geometry/"safe polygon" math.
+  const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimeout.current) {
+      clearTimeout(closeTimeout.current);
+      closeTimeout.current = null;
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelClose();
+    closeTimeout.current = setTimeout(() => {
+      setHovered(false);
+      setButtonRect(null);
+    }, 150);
+  }, [cancelClose]);
+
+  useEffect(() => () => cancelClose(), [cancelClose]);
 
   const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    cancelClose();
     setHovered(true);
     setButtonRect(e.currentTarget.getBoundingClientRect());
-  }, []);
+  }, [cancelClose]);
 
-  const handleMouseLeave = useCallback(() => {
+  const handleClick = useCallback(() => {
+    cancelClose();
     setHovered(false);
     setButtonRect(null);
-  }, []);
+    onClick();
+  }, [cancelClose, onClick]);
 
   const Icon = item.icon;
 
@@ -399,9 +438,9 @@ function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
     <>
       <button
         style={styles.navButton(isActive, hovered)}
-        onClick={onClick}
+        onClick={handleClick}
         onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseLeave={scheduleClose}
         aria-label={item.label}
         aria-current={isActive ? 'page' : undefined}
         data-shortcut={item.shortcut}
@@ -413,7 +452,14 @@ function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
         <span style={styles.label}>{item.label}</span>
       </button>
       {hovered && buttonRect && (
-        <FlyoutTooltip item={item} groupLabel={groupLabel} rect={buttonRect} />
+        <FlyoutTooltip
+          item={item}
+          groupLabel={groupLabel}
+          rect={buttonRect}
+          onEnter={cancelClose}
+          onLeave={scheduleClose}
+          onNavigate={handleClick}
+        />
       )}
     </>
   );
@@ -425,19 +471,44 @@ interface FlyoutTooltipProps {
   item: NavItemDef;
   groupLabel?: string;
   rect: DOMRect;
+  onEnter: () => void;
+  onLeave: () => void;
+  onNavigate: () => void;
 }
 
-function FlyoutTooltip({ item, groupLabel, rect }: FlyoutTooltipProps) {
+function FlyoutTooltip({ item, groupLabel, rect, onEnter, onLeave, onNavigate }: FlyoutTooltipProps) {
   const top = Math.max(4, rect.top);
+  const [hoveredSub, setHoveredSub] = useState<string | null>(null);
 
   return (
-    <div style={{ ...styles.flyout, top }}>
+    <div style={{ ...styles.flyout, top }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
       {groupLabel && <div style={styles.flyoutGroup}>{groupLabel}</div>}
-      <div style={styles.flyoutTitle}>{item.label}</div>
+      <div
+        style={{ ...styles.flyoutTitle, cursor: 'pointer' }}
+        onClick={onNavigate}
+      >
+        {item.label}
+      </div>
       {item.subItems && item.subItems.length > 0 && (
         <div style={{ marginTop: 2 }}>
+          {/* There's no dedicated route per sub-item label (they're
+              illustrative, e.g. Company's "Profile"/"Financials"/"Peers"
+              don't each have their own page) -- clicking one navigates to
+              the parent section, same as clicking the flyout title, rather
+              than being a dead end. */}
           {item.subItems.map((sub) => (
-            <div key={sub} style={styles.flyoutSub}>
+            <div
+              key={sub}
+              style={{
+                ...styles.flyoutSub,
+                ...styles.flyoutSubClickable,
+                background: hoveredSub === sub ? 'var(--color-surface-overlay)' : 'transparent',
+                color: hoveredSub === sub ? 'var(--color-text-primary)' : styles.flyoutSub.color,
+              }}
+              onClick={onNavigate}
+              onMouseEnter={() => setHoveredSub(sub)}
+              onMouseLeave={() => setHoveredSub((cur) => (cur === sub ? null : cur))}
+            >
               {sub}
             </div>
           ))}

@@ -58,6 +58,14 @@ class InstitutionalHolding(Base):
     is_new_position: Mapped[bool | None] = mapped_column(Boolean)
     is_sold_out: Mapped[bool | None] = mapped_column(Boolean)
     source: Mapped[str | None] = mapped_column(String(50))
+    # Parsed from 13F infoTable.votingAuthority (Sole/Shared/None share
+    # counts) and infoTable.investmentDiscretion/putCall -- previously
+    # parsed by the connector and silently discarded before reaching here.
+    voting_sole: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    voting_shared: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    voting_none: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    investment_discretion: Mapped[str | None] = mapped_column(String(10))
+    put_call: Mapped[str | None] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -85,7 +93,7 @@ class InsiderHolding(Base):
     insider_name: Mapped[str | None] = mapped_column(String(200))
     insider_title: Mapped[str | None] = mapped_column(String(100))
     insider_relationship: Mapped[str | None] = mapped_column(String(30))
-    transaction_type: Mapped[str | None] = mapped_column(String(20))
+    transaction_type: Mapped[str | None] = mapped_column(String(30))
     transaction_date: Mapped[date | None] = mapped_column(Date, index=True)
     shares_transacted: Mapped[float | None] = mapped_column(Numeric(20, 2))
     price_per_share: Mapped[float | None] = mapped_column(Numeric(18, 6))

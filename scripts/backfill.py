@@ -54,9 +54,13 @@ from src.ingestion.edgar_executives import EdgarExecutivesConnector
 from src.ingestion.edgar_exhibit21 import EdgarExhibit21Connector
 from src.ingestion.edgar_filing_diff import EdgarFilingDiffConnector
 from src.ingestion.edgar_form4 import EdgarForm4Connector
+from src.ingestion.edgar_ipo import EdgarIpoConnector
+from src.ingestion.edgar_ma_deals import EdgarMaDealsConnector
+from src.ingestion.edgar_nport_funds import EdgarNportFundsConnector
 from src.ingestion.edgar_proxy import EdgarProxyConnector
 from src.ingestion.edgar_segments import EdgarSegmentsConnector
 from src.ingestion.edgar_xbrl import EdgarXBRLConnector
+from src.ingestion.bond_issuances import BondIssuancesConnector
 from src.ingestion.guidance_extraction import GuidanceExtractionConnector
 from src.ingestion.polygon_eod import PolygonEODConnector
 
@@ -165,14 +169,19 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     # provider='SEC_EDGAR'); this connector writes provider='EDGAR_DISCLOSURE_PROXY'
     # (see PROVIDER in edgar_esg_environmental.py). Without the provider filter,
     # any company already covered by "esg" would look done here too.
-    # Measured ~10s/CIK live (up to 5 historical 10-K fetches + an EPA
-    # Envirofacts lookup per CIK) -- the heaviest of the new types, so it
-    # gets the smallest batch_size cap.
+    # Measured ~10s/CIK live *sequentially* (up to 5 historical 10-K fetches +
+    # an EPA Envirofacts lookup per CIK, one company at a time) -- the
+    # heaviest of the new types. The connector now fans out CIKs concurrently
+    # (bounded by `concurrency`, still gated by its own SEC rate limiter, so
+    # this can't exceed the fair-access request rate) and trims filing_limit
+    # from the connector's live-use default of 5 years to 3, so batch_size
+    # can go well past the old sequential-era cap of 5.
     "esg_environmental": EntityCikType(
         "esg_environmental", EdgarESGEnvironmentalConnector, "cik_list",
         "esg_scores", "entity_id",
         extra_where="AND provider = 'EDGAR_DISCLOSURE_PROXY'",
-        batch_size=5,
+        extra_kwargs={"filing_limit": 3, "concurrency": 8},
+        batch_size=25,
     ),
     "subsidiaries": EntityCikType(
         "subsidiaries", EdgarExhibit21Connector, "ciks",
@@ -181,6 +190,31 @@ ENTITY_TYPES: dict[str, EntityCikType] = {
     "segments": EntityCikType(
         "segments", EdgarSegmentsConnector, "ciks",
         "segment_data", "entity_id",
+    ),
+    # -- Migrated from the standalone scripts/ingest_*.py one-shot runner:
+    # same connector_cls(**{kwarg: ciks}, **extra_kwargs) -> connector.run()
+    # shape as everything else here, so they get the same chunked/resumable/
+    # ingestion_progress-tracked treatment for free instead of re-running
+    # from scratch on every restart.
+    "ipo": EntityCikType(
+        "ipo", EdgarIpoConnector, "ciks",
+        "ipo_events", "entity_id", extra_kwargs={"days_back": 365},
+    ),
+    "ma_deals": EntityCikType(
+        "ma_deals", EdgarMaDealsConnector, "ciks",
+        "ma_deals", "acquirer_entity_id", extra_kwargs={"days_back": 90},
+    ),
+    # fund_holdings rows don't carry entity_id directly (they key off
+    # fund_id) -- the has-data check targets `funds` instead, which does
+    # (funds.entity_id, populated when the connector discovers an N-PORT
+    # filer for that CIK).
+    "nport": EntityCikType(
+        "nport", EdgarNportFundsConnector, "fund_ciks",
+        "funds", "entity_id", extra_kwargs={"days_back": 120},
+    ),
+    "bond_issuances": EntityCikType(
+        "bond_issuances", BondIssuancesConnector, "ciks",
+        "bond_issuances", "issuer_entity_id", extra_kwargs={"days_back": 180},
     ),
 }
 
@@ -236,6 +270,7 @@ ALL_TYPES = [
     "ownership_13f",
     "capital_structure", "credit_ratings", "executives", "guidance",
     "esg_environmental", "subsidiaries", "segments",
+    "ipo", "ma_deals", "nport", "bond_issuances",
     "prices",
 ]
 assert set(ALL_TYPES) == set(ENTITY_TYPES) | set(FILER_TYPES) | DATE_TYPES, (

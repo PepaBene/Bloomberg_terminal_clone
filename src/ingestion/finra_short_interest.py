@@ -20,12 +20,17 @@ from src.ingestion.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
-# FINRA short interest query API
-FINRA_API_BASE = "https://api.finra.org/data/group/otcMarket/name/shortInterest"
-FINRA_QUERY_URL = "https://api.finra.org/data/group/otcMarket/name/shortInterest"
+# FINRA short interest query API. The dataset was renamed from "shortInterest"
+# to "consolidatedShortInterest" at some point after this connector was
+# written -- the old name now silently returns HTTP 200 with an empty body
+# (not a 404) for every query, which is why this looked like a per-symbol
+# data gap rather than a broken endpoint. Verified live against the current
+# API.
+FINRA_API_BASE = "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest"
+FINRA_QUERY_URL = "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest"
 
 # FINRA uses a query-based API; we also support a file-based fallback
-FINRA_SHORT_INTEREST_URL = "https://api.finra.org/data/group/otcMarket/name/shortInterest"
+FINRA_SHORT_INTEREST_URL = "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest"
 
 
 class FinraShortInterestConnector(BaseConnector):
@@ -98,12 +103,20 @@ class FinraShortInterestConnector(BaseConnector):
                 "revisionFlag",
             ],
             "dateRangeFilters": [],
-            "domainFilters": filters,
-            "compareFilters": [],
+            "domainFilters": [],
+            # The current API only honors filters passed under
+            # "compareFilters" -- "domainFilters" is accepted (no error) but
+            # silently matches nothing, returning HTTP 200 with an empty
+            # body. Also: "sortFields" now causes a 400 on this dataset.
+            "compareFilters": filters,
             "orFilters": [],
-            "limit": 10,
+            # A per-symbol query returns its FULL settlement history
+            # (bi-weekly since ~2017, verified live) with no guaranteed
+            # ordering and no working sort param -- limit must be large
+            # enough to not silently truncate to old records and miss the
+            # current period.
+            "limit": 250,
             "offset": 0,
-            "sortFields": ["-settlementDate"],
         }
 
         try:

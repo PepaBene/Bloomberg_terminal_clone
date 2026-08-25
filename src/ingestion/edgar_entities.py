@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 from src.models.entity import Entity, EntityIdentifier, EntityName
 from src.temporal.pit import record_entity_history
 
@@ -32,9 +32,7 @@ class EdgarEntityConnector(BaseConnector):
     data_domain = "ENTITY"
 
     def __init__(self):
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
 
     async def extract(self) -> list[dict[str, Any]]:

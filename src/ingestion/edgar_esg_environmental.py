@@ -59,11 +59,15 @@ record with no extractable signal produces no score component (score stays
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -73,9 +77,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
+
+# Disk-persisted EPA Envirofacts cache — each backfill pass runs this
+# connector in a fresh short-lived subprocess, so an in-memory-only cache
+# (like the old ``_epa_cache``) never survives past one ~8-minute pass and
+# every pass re-queries EPA for companies already looked up. Persisting to
+# disk means a company's EPA lookup happens at most once, ever.
+_EPA_CACHE_PATH = Path(__file__).resolve().parent.parent.parent / ".cache" / "epa_envirofacts_cache.json"
 
 # SEC EDGAR endpoints (same as edgar_esg.py)
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
@@ -147,6 +158,49 @@ EPA_GHGRP_EMISSIONS_VALUE_COLUMN = "CO2E_EMISSION"
 EPA_GHGRP_REPORTING_YEAR_COLUMN = "REPORTING_YEAR"
 
 
+class _PlainTextExtractor(HTMLParser):
+    """Collect text nodes, dropping <script>/<style> content (stdlib only —
+    no bs4/lxml dependency, matching the pattern in edgar_proxy.py)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in ("script", "style"):
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style") and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        return " ".join("".join(self._parts).split())
+
+
+def _strip_tags(html: str) -> str:
+    """Return whitespace-collapsed plain text from an HTML/inline-XBRL document.
+
+    SEC 10-K documents fetched via ``FULL_TEXT_URL`` are inline-XBRL HTML —
+    every disclosed number (and often surrounding words) is wrapped in
+    ``<ix:nonFraction>``/``<span>`` tags. The regex patterns below expect
+    plain prose like "emissions of 1,250,000 metric tons"; run directly
+    against raw markup they never match, since the tag boundaries break the
+    phrase apart. Stripping tags reconstructs the original word sequence.
+    """
+    parser = _PlainTextExtractor()
+    try:
+        parser.feed(html)
+    except Exception:  # pragma: no cover - malformed HTML
+        pass
+    return parser.text()
+
+
 def _to_decimal(value: Any) -> Decimal | None:
     if value in (None, "", "N/A"):
         return None
@@ -169,6 +223,7 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
         filing_limit: int = 5,
         enable_epa_enrichment: bool = True,
         epa_base_url: str | None = None,
+        concurrency: int = 5,
     ) -> None:
         """Initialize the connector.
 
@@ -180,19 +235,47 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
                       Envirofacts GHGRP lookup (best-effort; skipped
                       gracefully on any failure or no facility match).
             epa_base_url: Override for settings.EPA_ENVIROFACTS_BASE_URL.
+            concurrency: Max CIKs processed concurrently in extract(). Safe
+                      to raise — every actual HTTP call still goes through
+                      the shared ``rate_limiter`` token bucket, so this only
+                      controls how many CIKs have requests in flight at
+                      once, not the aggregate request rate.
         """
         self.cik_list = cik_list or []
         self.filing_limit = filing_limit
         self.enable_epa_enrichment = enable_epa_enrichment
         self.epa_base_url = (epa_base_url or getattr(settings, "EPA_ENVIROFACTS_BASE_URL", "")).rstrip("/")
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.concurrency = max(1, concurrency)
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
-        # Per-run cache so multiple filings for the same CIK don't repeat
-        # the EPA lookup.
-        self._epa_cache: dict[str, dict[str, Any] | None] = {}
+        # Disk-persisted so repeat lookups across separate backfill passes
+        # (each a fresh subprocess) are avoided, not just repeat filings for
+        # the same CIK within one run. Best-effort load: a missing/corrupt
+        # cache file just starts empty, never blocks extraction.
+        self._epa_cache: dict[str, dict[str, Any] | None] = self._load_epa_cache()
+
+    @staticmethod
+    def _load_epa_cache() -> dict[str, dict[str, Any] | None]:
+        try:
+            raw = json.loads(_EPA_CACHE_PATH.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+        for entry in raw.values():
+            if entry and entry.get("co2e_emission_metric_tons") is not None:
+                entry["co2e_emission_metric_tons"] = _to_decimal(
+                    entry["co2e_emission_metric_tons"]
+                )
+        return raw
+
+    def _save_epa_cache(self) -> None:
+        try:
+            _EPA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _EPA_CACHE_PATH.write_text(
+                json.dumps(self._epa_cache, default=str)
+            )
+        except OSError as exc:  # noqa: BLE001 - best-effort persistence
+            logger.debug("[%s] Failed to persist EPA cache: %s", self.name, exc)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -254,10 +337,10 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
         return filings
 
     async def _fetch_filing_text(self, filing: dict[str, Any]) -> str | None:
-        """Fetch the full text of a filing document."""
+        """Fetch a filing document and return its plain text (tags stripped)."""
         try:
             resp = await self._sec_get(filing["url"])
-            return resp.text
+            return _strip_tags(resp.text)
         except Exception as e:
             logger.warning(
                 "Failed to fetch filing text for CIK %s (%s): %s",
@@ -348,41 +431,57 @@ class EdgarESGEnvironmentalConnector(BaseConnector):
         self._epa_cache[entity_name] = result
         return result
 
+    async def _extract_one(self, cik: str) -> list[dict[str, Any]]:
+        """Fetch + assemble records for a single CIK (filing index, EPA, filing text)."""
+        filings = await self._fetch_filing_index(cik)
+        logger.info(
+            "  EDGAR ESG Environmental: CIK %s — found %d 10-K filing(s)",
+            cik,
+            len(filings),
+        )
+        if not filings:
+            return []
+
+        entity_name = filings[0].get("entity_name")
+        epa_data = await self._fetch_epa_emissions(entity_name) if entity_name else None
+
+        records: list[dict[str, Any]] = []
+        for filing in filings:
+            text = await self._fetch_filing_text(filing)
+            if text:
+                records.append({
+                    "cik": cik,
+                    "entity_name": entity_name,
+                    "form_type": filing["form_type"],
+                    "accession_number": filing["accession_number"],
+                    "filing_date": filing["filing_date"],
+                    "text": text,
+                    "epa_emissions": epa_data,
+                })
+        return records
+
     async def extract(self) -> list[dict[str, Any]]:
-        """Pull 10-K filing text from SEC EDGAR, with best-effort EPA enrichment."""
+        """Pull 10-K filing text from SEC EDGAR, with best-effort EPA enrichment.
+
+        CIKs are processed concurrently (bounded by ``self.concurrency``) —
+        this is I/O-bound work gated by the shared ``rate_limiter``, so
+        overlapping CIKs' waits doesn't exceed SEC's request rate, it just
+        stops one company's 6 sequential round-trips from blocking the next
+        company's from starting.
+        """
         if not self.cik_list:
             logger.warning("[%s] No CIK list provided — skipping extraction", self.name)
             return []
 
-        records: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(self.concurrency)
 
-        for cik in self.cik_list:
-            filings = await self._fetch_filing_index(cik)
-            logger.info(
-                "  EDGAR ESG Environmental: CIK %s — found %d 10-K filing(s)",
-                cik,
-                len(filings),
-            )
-            if not filings:
-                continue
+        async def _bounded(cik: str) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await self._extract_one(cik)
 
-            entity_name = filings[0].get("entity_name")
-            epa_data = await self._fetch_epa_emissions(entity_name) if entity_name else None
-
-            for filing in filings:
-                text = await self._fetch_filing_text(filing)
-                if text:
-                    records.append({
-                        "cik": cik,
-                        "entity_name": entity_name,
-                        "form_type": filing["form_type"],
-                        "accession_number": filing["accession_number"],
-                        "filing_date": filing["filing_date"],
-                        "text": text,
-                        "epa_emissions": epa_data,
-                    })
-
-        return records
+        results = await asyncio.gather(*(_bounded(cik) for cik in self.cik_list))
+        self._save_epa_cache()
+        return [rec for batch in results for rec in batch]
 
     async def validate(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Validate extracted filing records."""

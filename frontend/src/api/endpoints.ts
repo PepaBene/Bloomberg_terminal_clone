@@ -150,77 +150,127 @@ export const ANALYTICS = {
 } as const;
 
 // Fixed Income
+//
+// This whole block was originally built against an invented `/v1/fi/...`
+// path pattern that the backend never implements. Cross-referenced against
+// the live OpenAPI schema (2026-08-25) and corrected below. Real FI routes
+// are split across three prefixes:
+//   - /v1/fixed-income/...  (src/api/routers/fi_{bonds,treasuries,yield_curve,
+//     ratings,spreads,issuances,agency_bonds}.py -- basic CRUD/listing)
+//   - /v2/analytics/bonds/... and /v2/analytics/entities/...  (fi_bond_analytics,
+//     fi_duration, fi_spread_analytics, fi_credit_quality, fi_risk,
+//     fi_screening, fi_cross_asset, fi_issuer_profile.py -- all declare
+//     `APIRouter(prefix="/v2/analytics")` directly rather than getting a
+//     prefix from app.py, which is easy to miss when tracing app.py alone)
+//   - /v3/fi/...  (fi_intelligence.py -- narrative/briefing endpoints)
+//
+// Where no real backend route exists at all for a field (not just a wrong
+// path), it's left pointing at its old placeholder and commented as a
+// genuinely missing feature -- same convention as COMPETITIVE.swot below.
 export const FI = {
   bonds: {
-    list: '/v1/fi/bonds',
-    detail: (cusip: string) => `/v1/fi/bonds/${cusip}`,
-    prices: (cusip: string) => `/v1/fi/bonds/${cusip}/prices`,
-    spreads: (cusip: string) => `/v1/fi/bonds/${cusip}/spreads`,
-    byIssuer: (entityId: string) => `/v1/fi/bonds/issuer/${entityId}`,
-    search: '/v1/fi/bonds/search',
-    cashFlows: (cusip: string) => `/v1/fi/bonds/${cusip}/cash-flows`,
-    callSchedule: (cusip: string) => `/v1/fi/bonds/${cusip}/call-schedule`,
+    list: '/v1/fixed-income/bonds',
+    detail: (cusip: string) => `/v1/fixed-income/bonds/${cusip}`,
+    prices: (cusip: string) => `/v1/fixed-income/bonds/${cusip}/price`,
+    // Current spread level lives under /v2/analytics (fi_bond_analytics.py);
+    // /v1/fixed-income/bonds/{cusip}/spread-history is the historical series.
+    spreads: (cusip: string) => `/v2/analytics/bonds/${cusip}/spreads`,
+    byIssuer: (entityId: string) => `/v1/fixed-income/issuers/${entityId}/bonds`,
+    search: '/v1/fixed-income/bonds/search',
+    cashFlows: (cusip: string) => `/v2/analytics/bonds/${cusip}/cash-flows`,
+    callSchedule: (cusip: string) => `/v1/fixed-income/bonds/${cusip}/call-schedule`,
+    // No covenants endpoint exists server-side at all (not a path issue --
+    // covenant data isn't modeled/ingested). Genuinely missing feature.
     covenants: (cusip: string) => `/v1/fi/bonds/${cusip}/covenants`,
-    comparables: (cusip: string) => `/v1/fi/bonds/${cusip}/comparables`,
+    // Closest real analog to "comparables" is the relative-value endpoint.
+    comparables: (cusip: string) => `/v2/analytics/bonds/${cusip}/relative-value`,
   },
   treasuries: {
-    list: '/v1/fi/treasuries',
-    detail: (cusip: string) => `/v1/fi/treasuries/${cusip}`,
-    onTheRun: '/v1/fi/treasuries/on-the-run',
-    auction: '/v1/fi/treasuries/auction',
-    auctionHistory: '/v1/fi/treasuries/auction/history',
+    list: '/v1/fixed-income/treasuries',
+    detail: (cusip: string) => `/v1/fixed-income/treasuries/${cusip}`,
+    onTheRun: '/v1/fixed-income/treasuries/on-the-run',
+    auction: '/v1/fixed-income/treasuries/auction-calendar',
+    auctionHistory: '/v1/fixed-income/treasuries/auction-results',
   },
   yieldCurve: {
-    current: '/v1/fi/yield-curve',
-    spreads: '/v1/fi/yield-curve/spreads',
-    history: '/v1/fi/yield-curve/history',
-    forward: '/v1/fi/yield-curve/forward',
+    current: '/v1/fixed-income/yield-curve',
+    spreads: '/v1/fixed-income/yield-curve/spreads',
+    history: '/v1/fixed-income/yield-curve/history',
+    // No dedicated fixed-income forward-curve endpoint; the closest real
+    // resource is the macro-domain forward curve (different underlying
+    // model/source, not a true substitute).
+    forward: '/v1/macro/yield-curve/forwards',
+    // real (TIPS)/breakeven/swap curves and per-country sovereign curves are
+    // not implemented server-side at all -- genuinely missing features.
     real: '/v1/fi/yield-curve/real',
     breakeven: '/v1/fi/yield-curve/breakeven',
     swap: '/v1/fi/yield-curve/swap',
     sovereign: (countryCode: string) => `/v1/fi/yield-curve/sovereign/${countryCode}`,
   },
   ratings: {
-    byEntity: (entityId: string) => `/v1/fi/ratings/${entityId}`,
-    history: (entityId: string) => `/v1/fi/ratings/${entityId}/history`,
-    recentChanges: '/v1/fi/ratings/changes',
+    byEntity: (entityId: string) => `/v1/fixed-income/ratings/entity/${entityId}`,
+    history: (entityId: string) => `/v1/fixed-income/ratings/entity/${entityId}/history`,
+    recentChanges: '/v1/fixed-income/ratings/recent',
+    // No ratings-distribution endpoint exists server-side -- missing feature.
     distribution: '/v1/fi/ratings/distribution',
-    transitionMatrix: '/v1/fi/ratings/transition-matrix',
+    transitionMatrix: '/v1/fixed-income/ratings/migration-matrix',
+    // No per-entity outlook endpoint exists server-side -- missing feature.
     outlook: (entityId: string) => `/v1/fi/ratings/${entityId}/outlook`,
   },
+  // fi_credit_quality.py (mounted at /v2/analytics) exposes a different,
+  // narrower surface than this block assumes: bond-level credit momentum,
+  // entity-level credit-momentum/refinancing-risk, and a fallen-angel watch
+  // list -- there is no per-entity score/ratios/peers/trend/recoveryRate/
+  // cds/cdsCurve anywhere in the API (CDS data isn't ingested at all). Only
+  // the two fields with a genuine real analog are remapped; the rest are
+  // left as documented missing features rather than pointed at a
+  // differently-shaped resource that would render misleading data.
   credit: {
     score: (entityId: string) => `/v1/fi/credit/${entityId}/score`,
     ratios: (entityId: string) => `/v1/fi/credit/${entityId}/ratios`,
     peers: (entityId: string) => `/v1/fi/credit/${entityId}/peers`,
-    trend: (entityId: string) => `/v1/fi/credit/${entityId}/trend`,
-    sectorSpreads: '/v1/fi/credit/sector-spreads',
-    distressed: '/v1/fi/credit/distressed',
+    trend: (entityId: string) => `/v2/analytics/entities/${entityId}/credit-momentum`,
+    // No sector-broken-out spreads endpoint exists server-side; the closest
+    // real resource is the general spreads series list.
+    sectorSpreads: '/v1/fixed-income/spreads',
+    distressed: '/v2/analytics/entities/fallen-angel-watch',
     defaultProbability: (entityId: string) => `/v1/fi/credit/${entityId}/default-probability`,
     recoveryRate: (entityId: string) => `/v1/fi/credit/${entityId}/recovery-rate`,
     cds: (entityId: string) => `/v1/fi/credit/${entityId}/cds`,
     cdsCurve: (entityId: string) => `/v1/fi/credit/${entityId}/cds/curve`,
   },
+  // This block's shape (generic POST-with-body calculators, no cusip) never
+  // matches the real /v2/analytics/bonds/* surface, which is either
+  // cusip-keyed GETs (duration, key-rate-durations, risk-metrics...) or
+  // differently-scoped portfolio POSTs. Only the 3 fields with a genuine
+  // 1:1 real match are remapped; the rest are documented as needing a
+  // caller-signature redesign, not a path fix.
   analytics: {
-    price: '/v1/fi/analytics/price',
-    yield: '/v1/fi/analytics/yield',
+    price: '/v2/analytics/bonds/price-from-yield',
+    yield: '/v2/analytics/bonds/yield-from-price',
     duration: '/v1/fi/analytics/duration',
     oas: '/v1/fi/analytics/oas',
     spread: '/v1/fi/analytics/spread',
     convexity: '/v1/fi/analytics/convexity',
     keyRate: '/v1/fi/analytics/key-rate',
     totalReturn: '/v1/fi/analytics/total-return',
-    scenario: '/v1/fi/analytics/scenario',
+    scenario: '/v2/analytics/bonds/scenario-analysis',
     rollDown: '/v1/fi/analytics/roll-down',
   },
-  screen: '/v1/fi/screen/bonds',
-  newIssues: '/v1/fi/new-issues',
-  newIssuesPipeline: '/v1/fi/new-issues/pipeline',
+  screen: '/v2/analytics/bonds/screen',
+  newIssues: '/v1/fixed-income/issuances',
+  newIssuesPipeline: '/v3/fi/issuance/pipeline',
+  // No bond-index endpoints exist server-side (the only /indices routes are
+  // the unrelated custom equity index builder under /v1/analytics/indices)
+  // -- genuinely missing feature.
   indices: {
     list: '/v1/fi/indices',
     detail: (indexId: string) => `/v1/fi/indices/${indexId}`,
     constituents: (indexId: string) => `/v1/fi/indices/${indexId}/constituents`,
     returns: (indexId: string) => `/v1/fi/indices/${indexId}/returns`,
   },
+  // No municipal-bond or mortgage-pool endpoints/data exist server-side at
+  // all -- genuinely missing features, not path issues.
   muni: {
     list: '/v1/fi/muni',
     detail: (cusip: string) => `/v1/fi/muni/${cusip}`,
@@ -635,25 +685,45 @@ export const RESEARCH = {
 // Macro & Economic Data
 // ---------------------------------------------------------------------------
 
+// NOTE: like FI above, most of this block is speculative `/v1/macro/X`
+// paths that don't match any real backend route (the real API only exposes
+// generic /v1/macro/indicators/{code}/... plus a handful of /v3/global/macro
+// endpoints -- see src/api/routers/macro.py and global_intelligence.py).
+// `dashboard` below was repointed at the one real dashboard-shaped endpoint
+// that exists, but it's actually the *global* (per-country) macro dashboard
+// -- a different shape than what MacroDashboard.tsx wants ({kpis, nfp,
+// unemployment} for the US). No backend route currently returns that shape,
+// so the page still falls back to its honest local placeholders; this just
+// stops the request from 404ing. gdp/pmi/consumerConfidence/etc. still 404
+// and need the same indicator-code-based remap (PMI in particular isn't
+// even ingested -- see src/ingestion/fred_macro.py's FRED_SEED_SERIES).
 export const MACRO = {
   indicators: '/v1/macro/indicators',
   indicatorDetail: (indicatorId: string) => `/v1/macro/indicators/${indicatorId}`,
   indicatorHistory: (indicatorId: string) => `/v1/macro/indicators/${indicatorId}/history`,
-  gdp: '/v1/macro/gdp',
+  // Real backend has no dedicated /gdp resource -- GDP is just one series
+  // under the generic indicator-code-driven endpoint (FRED series "GDP").
+  // /values returns the {data: [...]} time-series shape MacroDashboard.tsx
+  // already expects; gdpByCountry has no real analog (US-only ingestion).
+  gdp: '/v1/macro/indicators/GDP/values',
   gdpByCountry: (code: string) => `/v1/macro/gdp/${code}`,
   inflation: '/v1/macro/inflation',
   inflationByCountry: (code: string) => `/v1/macro/inflation/${code}`,
   employment: '/v1/macro/employment',
   employmentByCountry: (code: string) => `/v1/macro/employment/${code}`,
   yieldCurve: '/v1/yield-curve',
+  // PMI isn't ingested from any source at all (see FRED_SEED_SERIES in
+  // src/ingestion/fred_macro.py) -- genuinely missing data, not a path fix.
   pmi: '/v1/macro/pmi',
-  consumerConfidence: '/v1/macro/consumer-confidence',
+  // FRED series "UMCSENT" (Univ. of Michigan Consumer Sentiment) is ingested;
+  // same /values time-series shape as gdp above.
+  consumerConfidence: '/v1/macro/indicators/UMCSENT/values',
   housingStarts: '/v1/macro/housing-starts',
   retailSales: '/v1/macro/retail-sales',
   industrialProduction: '/v1/macro/industrial-production',
   tradeBalance: '/v1/macro/trade-balance',
   moneySupply: '/v1/macro/money-supply',
-  dashboard: '/v1/macro/dashboard',
+  dashboard: '/v3/global/macro/dashboard',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -819,9 +889,13 @@ export const DEALS = {
 // ---------------------------------------------------------------------------
 
 export const FI_AGENCY = {
-  list: '/v1/fi/agency',
-  detail: (cusip: string) => `/v1/fi/agency/${cusip}`,
-  byIssuer: (issuerId: string) => `/v1/fi/agency/issuer/${issuerId}`,
+  list: '/v1/fixed-income/agency-bonds',
+  detail: (cusip: string) => `/v1/fixed-income/agency-bonds/${cusip}`,
+  // Real backend groups by agency_type, not by issuer entity -- there is no
+  // by-issuer lookup server-side.
+  byAgencyType: (agencyType: string) => `/v1/fixed-income/agency-bonds/by-agency/${agencyType}`,
+  // spreads/newIssues have no dedicated agency-bonds endpoint server-side;
+  // left unfixed pending a proper backend/frontend cross-check.
   spreads: '/v1/fi/agency/spreads',
   newIssues: '/v1/fi/agency/new-issues',
 } as const;

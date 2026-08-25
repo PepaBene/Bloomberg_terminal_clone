@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 from src.ingestion.xbrl_taxonomy import (
     BALANCE_SHEET_MAP,
     CASH_FLOW_MAP,
@@ -42,9 +42,7 @@ class EdgarXBRLConnector(BaseConnector):
             ciks: List of CIK numbers to fetch. If None, must be set before extract().
         """
         self.ciks = ciks or []
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
 

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,7 @@ class Edgar13FConnector(BaseConnector):
         self.ciks = ciks or []
         self.max_filings_per_cik = max_filings_per_cik
         self.concurrency = concurrency
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
 
@@ -198,9 +196,29 @@ class Edgar13FConnector(BaseConnector):
                     shares_str = sh_amt.text.strip()
 
             investment_discretion = _text("investmentDiscretion")
-            voting_sole = _text("Sole")
-            voting_shared = _text("Shared")
-            voting_none = _text("None")
+            put_call = _text("putCall")
+
+            # Sole/Shared/None are nested under votingAuthority, not direct
+            # children of infoTable -- must search within that element.
+            voting_el = entry.find("ns:votingAuthority", NS_13F)
+            if voting_el is None:
+                voting_el = entry.find("{*}votingAuthority")
+            if voting_el is None:
+                voting_el = entry.find("votingAuthority")
+
+            def _voting_text(tag: str) -> str | None:
+                if voting_el is None:
+                    return None
+                el = voting_el.find(f"ns:{tag}", NS_13F)
+                if el is None:
+                    el = voting_el.find(f"{{*}}{tag}")
+                if el is None:
+                    el = voting_el.find(tag)
+                return el.text.strip() if el is not None and el.text else None
+
+            voting_sole = _voting_text("Sole")
+            voting_shared = _voting_text("Shared")
+            voting_none = _voting_text("None")
 
             # Parse numeric values
             market_value = None
@@ -217,6 +235,14 @@ class Edgar13FConnector(BaseConnector):
                 except ValueError:
                     pass
 
+            def _voting_float(s: str | None) -> float | None:
+                if not s:
+                    return None
+                try:
+                    return float(s)
+                except ValueError:
+                    return None
+
             holdings.append({
                 "name_of_issuer": name_of_issuer,
                 "title_of_class": title_of_class,
@@ -224,6 +250,10 @@ class Edgar13FConnector(BaseConnector):
                 "market_value": market_value,
                 "shares": shares,
                 "investment_discretion": investment_discretion,
+                "put_call": put_call,
+                "voting_sole": _voting_float(voting_sole),
+                "voting_shared": _voting_float(voting_shared),
+                "voting_none": _voting_float(voting_none),
             })
 
         return holdings
@@ -351,6 +381,11 @@ class Edgar13FConnector(BaseConnector):
                     "market_value": h.get("market_value"),
                     "report_date": rec.get("report_date", rec.get("filing_date")),
                     "filing_date": rec.get("filing_date"),
+                    "investment_discretion": h.get("investment_discretion"),
+                    "put_call": h.get("put_call"),
+                    "voting_sole": h.get("voting_sole"),
+                    "voting_shared": h.get("voting_shared"),
+                    "voting_none": h.get("voting_none"),
                 })
 
             transformed.append({
@@ -450,6 +485,11 @@ class Edgar13FConnector(BaseConnector):
                             shares_held=Decimal(str(holding_data["shares_held"])) if holding_data.get("shares_held") else None,
                             market_value=Decimal(str(holding_data["market_value"])) if holding_data.get("market_value") else None,
                             source="SEC_EDGAR_13F",
+                            investment_discretion=holding_data.get("investment_discretion"),
+                            put_call=holding_data.get("put_call"),
+                            voting_sole=Decimal(str(holding_data["voting_sole"])) if holding_data.get("voting_sole") is not None else None,
+                            voting_shared=Decimal(str(holding_data["voting_shared"])) if holding_data.get("voting_shared") is not None else None,
+                            voting_none=Decimal(str(holding_data["voting_none"])) if holding_data.get("voting_none") is not None else None,
                         )
                         session.add(holding)
                         stats["inserted"] += 1

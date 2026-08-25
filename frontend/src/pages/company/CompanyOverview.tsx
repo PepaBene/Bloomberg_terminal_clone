@@ -12,7 +12,13 @@ import { KeyMetricsGrid } from '@/components/company/KeyMetricsGrid';
 import type { MetricItem } from '@/components/company/KeyMetricsGrid';
 import { SentimentGauge } from '@/components/intelligence';
 import { EmptyState } from '@/components/feedback';
-import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useCorporateActionsUpcoming } from '@/hooks';
+import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores } from '@/hooks';
+// `useCorporateActions` from '@/hooks' (useMissingDomains.ts) hits
+// /v1/entities/{id}/corporate-actions, which no backend route serves (422).
+// The real route is /v1/securities/{id}/corporate-actions, exposed by this
+// same-named hook in api/hooks/useSecurities.ts -- imported directly here to
+// dodge the barrel-file name collision rather than renaming either export.
+import { useCorporateActions } from '@/api/hooks/useSecurities';
 import { TimeSeriesChart } from '@/components/charts';
 
 // --- Helpers -----------------------------------------------------------------
@@ -158,11 +164,18 @@ export default function CompanyOverview() {
   }));
 
   // New hooks for Phase 1
+  // technicalSignals/compositeScores live under /v2/analytics, which is
+  // keyed by security_id everywhere (see the KPI comment above) -- unlike
+  // entity/news/earnings, they must NOT use resolvedId once that prefers
+  // entity_id, or they 404 for any security whose entity_id happens to be
+  // populated.
   const { data: sentimentHistory } = useSentimentHistory(resolvedId);
   const { data: earningsSurprises } = useEarningsSurprises(resolvedId);
-  const { data: technicalSignals } = useTechnicalSignals(resolvedId);
-  const { data: compositeScores } = useCompositeScores(resolvedId);
-  const { data: corpActions } = useCorporateActionsUpcoming();
+  const { data: technicalSignals } = useTechnicalSignals(primary?.security_id);
+  const { data: compositeScores } = useCompositeScores(primary?.security_id);
+  const { data: corpActions } = useCorporateActions(primary?.security_id ?? '', {
+    enabled: !!primary?.security_id,
+  });
 
   const isLoading = loadingCompany;
 
@@ -296,7 +309,14 @@ export default function CompanyOverview() {
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Corporate Actions</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {((corpActions as any[]) ?? DEFAULT_CORP_ACTIONS).map((a: any, i: number) => (
+              {(
+                ((corpActions as { data?: any[] })?.data ?? DEFAULT_CORP_ACTIONS).map((a: any) => ({
+                  date: a.ex_date ?? a.announcement_date ?? '—',
+                  type: a.action_type,
+                  description: a.action_subtype ?? a.action_type,
+                  status: a.status,
+                }))
+              ).map((a: any, i: number) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px 0', borderBottom: '1px solid var(--color-surface-border)' }}>
                   <span style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', minWidth: '80px' }}>{a.date}</span>
                   <span style={{

@@ -32,6 +32,7 @@ FRED_SEED_SERIES = [
     {"series_id": "DGS10", "category": "RATES", "name": "10-Year Treasury Constant Maturity Rate", "unit": "Percent", "frequency": "DAILY", "sa": "NSA"},
     {"series_id": "DGS2", "category": "RATES", "name": "2-Year Treasury Constant Maturity Rate", "unit": "Percent", "frequency": "DAILY", "sa": "NSA"},
     {"series_id": "T10Y2Y", "category": "RATES", "name": "10-Year Minus 2-Year Treasury Spread", "unit": "Percent", "frequency": "DAILY", "sa": "NSA"},
+    {"series_id": "VIXCLS", "category": "RATES", "name": "CBOE Volatility Index (VIX)", "unit": "Index", "frequency": "DAILY", "sa": "NSA"},
     # Housing
     {"series_id": "HOUST", "category": "HOUSING", "name": "Housing Starts: Total", "unit": "Thousands of Units", "frequency": "MONTHLY", "sa": "SAAR"},
     # Consumer

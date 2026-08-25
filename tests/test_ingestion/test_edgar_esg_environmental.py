@@ -14,12 +14,28 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+import src.ingestion.edgar_esg_environmental as edgar_esg_environmental_module
 from src.ingestion.edgar_esg_environmental import (
     EPA_GHGRP_EMISSIONS_TABLE,
     EPA_GHGRP_FACILITY_TABLE,
     PROVIDER,
     EdgarESGEnvironmentalConnector,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_epa_cache(tmp_path, monkeypatch):
+    """Point the module's disk-persisted EPA cache at a per-test tmp path.
+
+    Without this, the cache file is a real, shared path on disk
+    (.cache/epa_envirofacts_cache.json) — a lookup cached by one test (e.g.
+    a successful "Acme Corp" match) would leak into a later test expecting a
+    miss/failure for the same entity_name, since the connector loads
+    whatever's on disk regardless of which test constructed it.
+    """
+    monkeypatch.setattr(
+        edgar_esg_environmental_module, "_EPA_CACHE_PATH", tmp_path / "epa_cache.json"
+    )
 
 # A realistic-looking 10-K excerpt covering every regex signal this
 # connector looks for. Deliberately hand-constructed (not a real filing).

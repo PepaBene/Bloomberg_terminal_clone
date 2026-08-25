@@ -56,8 +56,22 @@ class OwnershipRollup:
         }
 
 
+# NUMERIC(8,4) columns (institutional_percent/insider_percent/top_10_concentration)
+# cap at +/-9999.9999. Legitimate percentages are 0-100; anything beyond this
+# bound means the shares-outstanding denominator is bad/stale data, not a
+# real ownership figure -- drop it rather than let it overflow the column and
+# crash (and roll back) the whole batch.
+_PERCENT_MAX = 9999.9999
+
+
 def _round(value: float | None, digits: int = 4) -> float | None:
-    return round(value, digits) if value is not None else None
+    if value is None:
+        return None
+    value = round(value, digits)
+    if abs(value) > _PERCENT_MAX:
+        logger.warning("Discarding out-of-range percent value %.4f (bad shares_outstanding?)", value)
+        return None
+    return value
 
 
 def aggregate_ownership(

@@ -60,17 +60,18 @@ async def run(dry_run: bool = False, limit: int | None = None) -> None:
         for security_id in security_ids:
             try:
                 rollup = await compute_for_security(session, security_id)
+                if rollup is None:
+                    continue
+                if not dry_run:
+                    await _upsert(session, rollup.as_summary_values(security_id))
+                    await session.commit()
+                computed += 1
             except Exception:
                 logger.exception("Failed to compute ownership for %s", security_id)
+                if not dry_run:
+                    await session.rollback()
                 continue
-            if rollup is None:
-                continue
-            computed += 1
-            if not dry_run:
-                await _upsert(session, rollup.as_summary_values(security_id))
 
-        if not dry_run:
-            await session.commit()
         logger.info(
             "Ownership summary run complete: %d summaries %s",
             computed,

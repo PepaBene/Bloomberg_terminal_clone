@@ -31,7 +31,7 @@ from src.ingestion.nlp_utils import (
     extract_revenue_percentages,
     find_entity_mentions,
 )
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +67,7 @@ class Edgar10KNLPConnector(BaseConnector):
         self.cik_list = cik_list or []
         self.known_entity_names = known_entity_names or []
         self.filing_limit = filing_limit
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
 

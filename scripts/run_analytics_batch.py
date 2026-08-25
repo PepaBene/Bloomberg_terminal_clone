@@ -75,11 +75,16 @@ ENGINE_GROUPS: dict[str, list[str]] = {
     "e2_comps": ["comps"],
     "e2_football_field": ["football_field"],
     "e3": ["piotroski", "altman", "beneish"],
+    "e3_composites": ["composites"],
     "e5_risk": ["risk"],
     "e6": ["flows"],
     "e7_quant": ["quant"],
+    # "composites" reads pre-computed E1 ratios + E3 scores (piotroski/altman/
+    # beneish), so it must come after all four -- placed right after "beneish"
+    # to satisfy that dependency the same way "all"'s existing ordering
+    # already documents for wacc->dcf and dcf/comps->football_field.
     "all": ["ttm", "ratios", "dupont", "trends", "industry_kpis",
-            "wacc", "piotroski", "altman", "beneish", "multiples",
+            "wacc", "piotroski", "altman", "beneish", "composites", "multiples",
             "dcf", "comps", "football_field", "risk", "quant", "flows"],
 }
 
@@ -131,6 +136,9 @@ def _load_engine(key: str):
     if key == "beneish":
         from src.engines.e3_beneish import BeneishEngine
         return BeneishEngine
+    if key == "composites":
+        from src.engines.e3_composites import CompositeScoreEngine
+        return CompositeScoreEngine
     if key == "flows":
         from src.engines.e6_flows import InstitutionalFlowEngine
         return InstitutionalFlowEngine
@@ -341,9 +349,37 @@ async def run_engine(engine_name: str, *, dry_run: bool = False,
                     # Persist metrics + mark securities done in ONE transaction,
                     # so a kill before commit leaves no half-written state and no
                     # duplicates (the chunk simply reruns next pass).
-                    await _persist_outputs(session, outputs)
-                    await _mark_done(session, key, chunk, datetime.now(timezone.utc))
-                    await session.commit()
+                    try:
+                        await _persist_outputs(session, outputs)
+                        await _mark_done(session, key, chunk, datetime.now(timezone.utc))
+                        await session.commit()
+                    except Exception:
+                        # One security with out-of-range/invalid data (e.g. a
+                        # numeric overflow) fails the whole bulk flush, which
+                        # would otherwise stall every OTHER security in the
+                        # chunk forever (they get retried and re-fail as a
+                        # group every pass). Fall back to persisting one
+                        # security at a time so a single bad row only blocks
+                        # itself — it stays undone and is retried next run,
+                        # but the rest of the chunk makes progress now.
+                        logger.exception(
+                            "%s: bulk persist failed for chunk %d-%d — "
+                            "retrying per-security", key, i, i + len(chunk))
+                        await session.rollback()
+                        recovered: list[EngineOutput] = []
+                        for sid in chunk:
+                            sid_outputs = [o for o in outputs if o.security_id == sid]
+                            try:
+                                await _persist_outputs(session, sid_outputs)
+                                await _mark_done(session, key, [sid], datetime.now(timezone.utc))
+                                await session.commit()
+                                recovered.extend(sid_outputs)
+                            except Exception:
+                                logger.exception(
+                                    "%s: persist failed for security %s — "
+                                    "skipping (will retry next run)", key, sid)
+                                await session.rollback()
+                        outputs = recovered
                 total_outputs += len(outputs)
                 logger.info("  %s: chunk %d-%d → %d metrics (running %d)",
                             key, i, i + len(chunk), len(outputs), total_outputs)

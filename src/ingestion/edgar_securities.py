@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 from src.models.entity import Entity, EntityIdentifier
 from src.models.security import EquityDetails, Security
 
@@ -81,7 +81,7 @@ async def enrich_securities_from_edgar(
     that have both CIK identifiers and linked securities.
     """
     stats = {"enriched": 0, "skipped": 0, "errors": 0}
-    rate_limiter = RateLimiter(max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
+    rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
     headers = {"User-Agent": settings.SEC_USER_AGENT}
 
     # Find entities with CIK that have linked securities with empty equity details

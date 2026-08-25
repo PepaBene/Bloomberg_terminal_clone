@@ -53,7 +53,10 @@ class GeopoliticalEventResponse(BaseModel):
     event_type: str | None = None
     title: str
     description: str | None = None
-    countries_involved: list | None = None
+    # JSONB column; GDELT-sourced rows store a dict (e.g. {"source_country": ...})
+    # rather than a list -- matches the list|dict pattern already used below
+    # for commodity_impact/sector_impact instead of assuming list-only.
+    countries_involved: list | dict | None = None
     severity: str | None = None
     status: str | None = None
     start_date: date | None = None

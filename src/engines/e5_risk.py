@@ -198,9 +198,10 @@ class RiskEngine(BaseEngine):
             select(Security).where(Security.security_id == security_id)
         )
         sec = sec_result.scalar_one_or_none()
-        if sec is None:
+        if sec is None or sec.issuer_entity_id is None:
+            logger.warning("Risk: security %s not found or has no issuer", security_id)
             return []
-        entity_id = sec.issuer_entity_id or security_id
+        entity_id = sec.issuer_entity_id
 
         # Load price data
         dates, returns, closes, volumes, hl_ratios = await _load_returns(

@@ -36,6 +36,11 @@ class InstitutionalHoldingResponse(BaseModel):
     is_new_position: bool | None = None
     is_sold_out: bool | None = None
     source: str | None = None
+    investment_discretion: str | None = None
+    put_call: str | None = None
+    voting_sole: float | None = None
+    voting_shared: float | None = None
+    voting_none: float | None = None
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}

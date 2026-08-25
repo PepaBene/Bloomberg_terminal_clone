@@ -261,9 +261,10 @@ class QuantEngine(BaseEngine):
             select(Security).where(Security.security_id == security_id)
         )
         sec = sec_result.scalar_one_or_none()
-        if sec is None:
+        if sec is None or sec.issuer_entity_id is None:
+            logger.warning("Quant: security %s not found or has no issuer", security_id)
             return []
-        entity_id = sec.issuer_entity_id or security_id
+        entity_id = sec.issuer_entity_id
 
         # Load security price series
         _, sec_prices = await _load_price_series(session, security_id, lookback_days)

@@ -39,15 +39,20 @@ const MOCK_SECTOR_CONCENTRATION: { name: string; value: number }[] = [
 
 export default function RiskDashboard() {
   // [Bug 89 fix] — Source portfolioId from route params or store
+  // The 'default' string fallback used to be passed straight to the API as
+  // if it were a real portfolio id -- with no portfolios created yet, that
+  // 422s (not a valid UUID) on every load of this page. Leave it undefined
+  // when there's no real portfolio so the queries stay disabled and the
+  // panels render their honest empty state instead.
   const { portfolioId: routePortfolioId } = useParams<{ portfolioId: string }>();
   const primary = useSecurityStore((s) => s.primary);
-  const portfolioId = routePortfolioId ?? (primary as any)?.portfolio_id ?? 'default';
+  const portfolioId = routePortfolioId ?? (primary as any)?.portfolio_id ?? undefined;
 
   // [Bug 89 fix] — Use proper portfolio risk hooks instead of security-level analytics hooks
-  const { data: apiVaR } = useVaR(portfolioId, { enabled: !!portfolioId });
-  const { data: apiStress } = useStressHistorical(portfolioId, { enabled: !!portfolioId });
-  const { data: apiConcentration } = useConcentration(portfolioId, { enabled: !!portfolioId });
-  const { data: apiFactors } = useRiskFactors(portfolioId, { enabled: !!portfolioId });
+  const { data: apiVaR } = useVaR(portfolioId ?? '', { enabled: !!portfolioId });
+  const { data: apiStress } = useStressHistorical(portfolioId ?? '', { enabled: !!portfolioId });
+  const { data: apiConcentration } = useConcentration(portfolioId ?? '', { enabled: !!portfolioId });
+  const { data: apiFactors } = useRiskFactors(portfolioId ?? '', { enabled: !!portfolioId });
 
   // Map API data with mock fallback
   const activeKPIs = (apiVaR as any)?.kpis ?? MOCK_RISK_KPIS;

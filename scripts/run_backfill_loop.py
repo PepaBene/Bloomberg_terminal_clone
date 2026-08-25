@@ -64,12 +64,29 @@ def parse_args() -> argparse.Namespace:
 
 def _remaining_safe(lookback_days: int) -> bool:
     """Completion check that never raises — a transient DB drop must not end the
-    loop. Retries a few times; if it still can't tell, assume work remains."""
-    for attempt in range(3):
+    loop. Retries a few times; if it still can't tell, assume work remains.
+
+    A single "nothing remaining" result is not trusted on its own: right after
+    a pass crashes mid-teardown (e.g. "RuntimeError: Event loop is closed"
+    while closing an asyncpg connection), a freshly-opened session can come
+    back with a silently-empty/wrong result instead of raising — this once
+    caused the loop to declare "Backfill complete" and exit while thousands
+    of genuinely-pending ipo/ma_deals/nport/bond_issuances rows sat untouched
+    in the DB. Requiring two independent "nothing remaining" reads in a row,
+    each on its own fresh connection, makes that false-positive far less
+    likely without weakening the retry-on-exception behavior below.
+    """
+    confirmations = 0
+    for attempt in range(4):
         try:
-            return asyncio.run(_remaining(lookback_days))
+            if asyncio.run(_remaining(lookback_days)):
+                return True
+            confirmations += 1
+            if confirmations >= 2:
+                return False
         except Exception as e:  # asyncpg connection drop, etc.
             print(f"  (completion check retry {attempt + 1}: {e})", flush=True)
+            confirmations = 0
             time.sleep(5)
     return True  # can't confirm complete → keep going
 

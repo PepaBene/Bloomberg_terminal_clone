@@ -5,6 +5,7 @@ InsiderHolding records tracking insider buy/sell transactions.
 """
 
 import logging
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.ingestion.base import BaseConnector
-from src.ingestion.rate_limiter import RateLimiter
+from src.ingestion.redis_rate_limiter import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,12 @@ TRANSACTION_CODES = {
     "J": "OTHER",
     "K": "EQUITY_SWAP",
     "U": "DISPOSITION_TENDER",
+    # Synthetic code (not an official SEC transaction code) for a Form 3/5
+    # <...Holding> element -- an initial/annual reported POSITION, not a
+    # transaction. Previously these forms were skipped entirely (only Form
+    # 4 "changes" were captured), so an insider's very first reported stake
+    # was never recorded at all.
+    "H": "INITIAL_HOLDING",
 }
 
 # Mapping of Form 4 transaction codes to the Pillar 3 `transaction_type`
@@ -61,6 +68,7 @@ P3_TRANSACTION_TYPE = {
     "U": "SELL",
     "I": "OTHER",
     "J": "OTHER",
+    "H": "INITIAL_HOLDING",  # synthetic Form 3/5 holding code, see TRANSACTION_CODES
 }
 
 # P3 transaction types that represent shares flowing TO the insider (positive net).
@@ -102,9 +110,7 @@ class EdgarForm4Connector(BaseConnector):
         self.issuer_ciks = issuer_ciks or []
         self.days_back = days_back
         self.max_filings_per_cik = max_filings_per_cik
-        self.rate_limiter = RateLimiter(
-            max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0
-        )
+        self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
 
@@ -153,21 +159,28 @@ class EdgarForm4Connector(BaseConnector):
             logger.warning(f"Failed to fetch filing index for {accession}: {e}")
             return None
 
-        # Find the Form 4 XML document
+        # Find the ownership XML document (shared schema across Form 3/4/5).
+        # Filenames vary: modern filings use "primary_doc.xml" or
+        # "form4.xml"/"doc4.xml"; many Form 3/5 filings (and older Form 4s)
+        # instead use a plain "ownership.xml".
         xml_doc = None
         directory = index_data.get("directory", {})
         items = directory.get("item", [])
         for item in items:
             name = item.get("name", "").lower()
-            if name.endswith(".xml") and ("form4" in name or "doc4" in name or "primary_doc" in name):
+            if name.endswith(".xml") and (
+                "form4" in name or "doc4" in name or "primary_doc" in name or "ownership" in name
+            ):
                 xml_doc = item["name"]
                 break
 
-        # Fallback: any XML file
+        # Fallback: any XML file that isn't an XBRL viewer "R<n>.xml"
+        # rendering artifact. The old bare "r" not in name check also
+        # excluded legitimate files like "ownership.xml" (contains "r").
         if xml_doc is None:
             for item in items:
                 name = item.get("name", "").lower()
-                if name.endswith(".xml") and "r" not in name:  # skip R files
+                if name.endswith(".xml") and not re.match(r"^r\d+\.xml$", name):
                     xml_doc = item["name"]
                     break
 
@@ -243,6 +256,9 @@ class EdgarForm4Connector(BaseConnector):
                 if _flag("isTenPercentOwner") and result["insider_relationship"] is None:
                     result["insider_relationship"] = "TEN_PERCENT_OWNER"
 
+        period_el = root.find(".//periodOfReport")
+        period_of_report = period_el.text.strip() if period_el is not None and period_el.text else None
+
         # Non-derivative transactions
         for txn in root.findall(".//nonDerivativeTransaction"):
             transaction = self._parse_transaction(txn)
@@ -254,6 +270,21 @@ class EdgarForm4Connector(BaseConnector):
             transaction = self._parse_transaction(txn, is_derivative=True)
             if transaction:
                 result["transactions"].append(transaction)
+
+        # Form 3 (initial ownership) and, often, Form 5 (annual) carry no
+        # transactions at all -- just a reported POSITION as of the filing.
+        # These live in <nonDerivativeHolding>/<derivativeHolding>, a
+        # sibling element to *Transaction with no transactionDate of its
+        # own, so periodOfReport substitutes as the as-of date.
+        for holding in root.findall(".//nonDerivativeHolding"):
+            parsed = self._parse_holding(holding, period_of_report)
+            if parsed:
+                result["transactions"].append(parsed)
+
+        for holding in root.findall(".//derivativeHolding"):
+            parsed = self._parse_holding(holding, period_of_report, is_derivative=True)
+            if parsed:
+                result["transactions"].append(parsed)
 
         return result
 
@@ -324,6 +355,45 @@ class EdgarForm4Connector(BaseConnector):
             "is_derivative": is_derivative,
         }
 
+    def _parse_holding(
+        self, holding_element: ET.Element, period_of_report: str | None,
+        is_derivative: bool = False,
+    ) -> dict[str, Any] | None:
+        """Parse a Form 3/5 <...Holding> element -- a reported position, not a
+        transaction. No transactionDate exists on a holding, so
+        periodOfReport (the filing's as-of date) substitutes for it."""
+        def _text(parent: ET.Element, tag: str) -> str | None:
+            el = parent.find(f".//{tag}")
+            return el.text.strip() if el is not None and el.text else None
+
+        if not period_of_report:
+            return None
+
+        security_title = _text(holding_element, "securityTitle/value")
+        shares_str = _text(holding_element, "postTransactionAmounts/sharesOwnedFollowingTransaction/value")
+        ownership_nature = _text(holding_element, "ownershipNature/directOrIndirectOwnership/value")
+
+        shares = None
+        if shares_str:
+            try:
+                shares = float(shares_str)
+            except ValueError:
+                pass
+
+        return {
+            "security_title": security_title,
+            "transaction_date": period_of_report,
+            "transaction_code": "H",
+            "transaction_type": "INITIAL_HOLDING",
+            "shares_transacted": None,
+            "price_per_share": None,
+            "total_value": None,
+            "acquired_disposed": None,
+            "shares_owned_after": shares,
+            "ownership_nature": ownership_nature,
+            "is_derivative": is_derivative,
+        }
+
     async def extract(self) -> list[dict[str, Any]]:
         """Pull Form 4 filing data from SEC EDGAR for configured issuer CIKs."""
         if not self.issuer_ciks:
@@ -348,7 +418,10 @@ class EdgarForm4Connector(BaseConnector):
 
             form4_count = 0
             for i, form in enumerate(forms):
-                if form not in ("4", "4/A"):
+                # Form 3 = initial ownership, Form 4 = changes, Form 5 =
+                # annual/exempt. All three share the same ownershipDocument
+                # XML schema. Form 3/5 previously silently skipped entirely.
+                if form not in ("3", "3/A", "4", "4/A", "5", "5/A"):
                     continue
 
                 filing_date_str = filing_dates[i] if i < len(filing_dates) else ""
