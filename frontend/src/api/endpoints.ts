@@ -596,8 +596,11 @@ export const WATCHLISTS = {
   detail: (id: string) => `/v4/portfolios/watchlists/${id}`,
   update: (id: string) => `/v4/portfolios/watchlists/${id}`,
   delete: (id: string) => `/v4/portfolios/watchlists/${id}`,
-  addItem: (id: string) => `/v4/portfolios/watchlists/${id}/items`,
-  removeItem: (id: string, itemId: string) => `/v4/portfolios/watchlists/${id}/items/${itemId}`,
+  // Real routes are entity_id path params, not a JSON body against an
+  // "/items" collection (src/api/routers/portfolio_watchlists.py):
+  // POST .../{wl_id}/add/{entity_id}, DELETE .../{wl_id}/remove/{entity_id}.
+  addItem: (id: string, entityId: string) => `/v4/portfolios/watchlists/${id}/add/${entityId}`,
+  removeItem: (id: string, entityId: string) => `/v4/portfolios/watchlists/${id}/remove/${entityId}`,
   alerts: (id: string) => `/v4/portfolios/watchlists/${id}/alerts`,
   digest: (id: string) => `/v4/portfolios/watchlists/${id}/alerts/digest`,
   performance: (id: string) => `/v4/portfolios/watchlists/${id}/performance`,

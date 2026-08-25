@@ -249,11 +249,28 @@ class FilerCikType:
     target_key_col: str      # column on that table holding the filer's CIK
     extra_kwargs: dict = field(default_factory=dict)
     kind: str = "filer_cik"
+    # Full `SELECT EXISTS(...)` expression (binds :cik) overriding the default
+    # `target_table`/`target_key_col` template, for when "has data" can't be
+    # expressed as a single-table cik-column lookup.
+    has_data_sql: str | None = None
 
 
 FILER_TYPES: dict[str, FilerCikType] = {
+    # [Bug fix] target_table was "institution_profiles", which gets a row
+    # for every discovered filer unconditionally (see Edgar13FConnector.load)
+    # regardless of whether any real per-position holding was ever parsed --
+    # this made every filer look "done" after one attempt even when 100% of
+    # its holdings were silently skipped (see edgar_13f.py's CUSIP-resolution
+    # fix). The real signal is a row in institutional_holdings, joined back
+    # to institution_profiles for the cik.
     "ownership_13f": FilerCikType(
-        "ownership_13f", Edgar13FConnector, "ciks", "institution_profiles", "cik"
+        "ownership_13f", Edgar13FConnector, "ciks", "institution_profiles", "cik",
+        has_data_sql=(
+            "SELECT EXISTS("
+            "SELECT 1 FROM institutional_holdings ih "
+            "JOIN institution_profiles ip ON ip.institution_id = ih.institution_id "
+            "WHERE ip.cik = :cik)"
+        ),
     ),
 }
 
@@ -551,12 +568,12 @@ async def _run_filer_batch(session: AsyncSession, cfg: FilerCikType, batch_size:
         err = f"{type(e).__name__}: {e}"[:400]
         logger.warning("[%s] batch failed: %s", cfg.key, err)
 
+    has_data_query = cfg.has_data_sql or (
+        f"SELECT EXISTS(SELECT 1 FROM {cfg.target_table} WHERE {cfg.target_key_col} = :cik)"
+    )
     for cik in ciks:
         has = False if err else bool(
-            await session.scalar(
-                text(f"SELECT EXISTS(SELECT 1 FROM {cfg.target_table} WHERE {cfg.target_key_col} = :cik)"),
-                {"cik": cik},
-            )
+            await session.scalar(text(has_data_query), {"cik": cik})
         )
         await _record(session, cfg.key, cik, entity_id=None, has_data=has, error=err)
     await session.commit()
@@ -720,6 +737,20 @@ async def reconcile(session: AsyncSession) -> None:
             {"dt": cfg.key},
         )
     for cfg in FILER_TYPES.values():
+        # Same institution_profiles-vs-institutional_holdings distinction as
+        # the per-batch has-data check above -- reuse cfg.has_data_sql's cik
+        # source (institutional_holdings JOIN institution_profiles) instead
+        # of a bare institution_profiles.cik scan, so a freshly-discovered
+        # filer that merely has a profile (no real holdings yet) doesn't get
+        # seeded straight to SUCCESS.
+        cik_source = (
+            "SELECT DISTINCT ip.cik AS cik FROM institutional_holdings ih "
+            "JOIN institution_profiles ip ON ip.institution_id = ih.institution_id "
+            "WHERE ip.cik IS NOT NULL"
+            if cfg.has_data_sql else
+            f"SELECT DISTINCT {cfg.target_key_col} AS cik FROM {cfg.target_table} "
+            f"WHERE {cfg.target_key_col} IS NOT NULL"
+        )
         await session.execute(
             text(
                 f"""
@@ -728,8 +759,7 @@ async def reconcile(session: AsyncSession) -> None:
                      rows_ingested, last_attempt_at, last_success_at, created_at, updated_at)
                 SELECT gen_random_uuid(), :dt, d.cik, NULL, 'SUCCESS', 1, 0,
                        now(), now(), now(), now()
-                FROM (SELECT DISTINCT {cfg.target_key_col} AS cik FROM {cfg.target_table}
-                      WHERE {cfg.target_key_col} IS NOT NULL) d
+                FROM ({cik_source}) d
                 ON CONFLICT (data_type, subject_key) DO NOTHING
                 """
             ),

@@ -446,12 +446,16 @@ function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
     setButtonRect(e.currentTarget.getBoundingClientRect());
   }, [cancelClose]);
 
-  const handleClick = useCallback(() => {
+  const closeFlyout = useCallback(() => {
     cancelClose();
     setHovered(false);
     setButtonRect(null);
+  }, [cancelClose]);
+
+  const handleClick = useCallback(() => {
+    closeFlyout();
     onClick();
-  }, [cancelClose, onClick]);
+  }, [closeFlyout, onClick]);
 
   const Icon = item.icon;
 
@@ -480,6 +484,7 @@ function NavButton({ item, isActive, groupLabel, onClick }: NavButtonProps) {
           onEnter={cancelClose}
           onLeave={scheduleClose}
           onNavigate={handleClick}
+          onClose={closeFlyout}
         />
       )}
     </>
@@ -495,9 +500,26 @@ interface FlyoutTooltipProps {
   onEnter: () => void;
   onLeave: () => void;
   onNavigate: () => void;
+  onClose: () => void;
 }
 
-function FlyoutTooltip({ item, groupLabel, rect, onEnter, onLeave, onNavigate }: FlyoutTooltipProps) {
+// Real routes for specific sub-item labels, verified against
+// src/router/index.tsx. Most sub-items are illustrative (no dedicated page
+// exists per label -- e.g. Company's "Peers"), so this only lists the ones
+// that resolve to an actual distinct route; everything else falls back to
+// the parent section (item.path) via onNavigate, same as clicking the
+// flyout title.
+const SUBITEM_ROUTES: Record<string, Record<string, string>> = {
+  screener: { 'Fixed Income': '/screener/fi' },
+  company: { Financials: '/company/financials' },
+  fi: { Spreads: '/fi/credit', Issuance: '/fi/issuance' },
+  macro: { 'Central Banks': '/macro/central-banks' },
+  global: { Commodities: '/global/commodities' },
+  watchlist: { Alerts: '/alerts' },
+};
+
+function FlyoutTooltip({ item, groupLabel, rect, onEnter, onLeave, onNavigate, onClose }: FlyoutTooltipProps) {
+  const navigate = useNavigate();
   const top = Math.max(4, rect.top);
   const [hoveredSub, setHoveredSub] = useState<string | null>(null);
 
@@ -512,11 +534,10 @@ function FlyoutTooltip({ item, groupLabel, rect, onEnter, onLeave, onNavigate }:
       </div>
       {item.subItems && item.subItems.length > 0 && (
         <div style={{ marginTop: 2 }}>
-          {/* There's no dedicated route per sub-item label (they're
-              illustrative, e.g. Company's "Profile"/"Financials"/"Peers"
-              don't each have their own page) -- clicking one navigates to
-              the parent section, same as clicking the flyout title, rather
-              than being a dead end. */}
+          {/* Most sub-item labels are illustrative (no dedicated route per
+              label -- e.g. Company's "Profile"/"Peers") and fall back to
+              navigating the parent section, same as the flyout title. A few
+              (SUBITEM_ROUTES above) map to a real distinct page. */}
           {item.subItems.map((sub) => (
             <div
               key={sub}
@@ -526,7 +547,15 @@ function FlyoutTooltip({ item, groupLabel, rect, onEnter, onLeave, onNavigate }:
                 background: hoveredSub === sub ? 'var(--color-surface-overlay)' : 'transparent',
                 color: hoveredSub === sub ? 'var(--color-text-primary)' : styles.flyoutSub.color,
               }}
-              onClick={onNavigate}
+              onClick={() => {
+                const route = SUBITEM_ROUTES[item.id]?.[sub];
+                if (route) {
+                  onClose();
+                  navigate(route);
+                } else {
+                  onNavigate();
+                }
+              }}
               onMouseEnter={() => setHoveredSub(sub)}
               onMouseLeave={() => setHoveredSub((cur) => (cur === sub ? null : cur))}
             >

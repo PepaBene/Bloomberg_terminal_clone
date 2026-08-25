@@ -67,8 +67,8 @@ export function useDeleteWatchlist() {
 export function useAddWatchlistItem(watchlistId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) =>
-      api.post(WATCHLISTS.addItem(watchlistId), body),
+    mutationFn: (entityId: string) =>
+      api.post(WATCHLISTS.addItem(watchlistId, entityId)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['watchlists', watchlistId] });
     },
@@ -78,8 +78,8 @@ export function useAddWatchlistItem(watchlistId: string) {
 export function useRemoveWatchlistItem(watchlistId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (itemId: string) =>
-      api.delete(WATCHLISTS.removeItem(watchlistId, itemId)),
+    mutationFn: (entityId: string) =>
+      api.delete(WATCHLISTS.removeItem(watchlistId, entityId)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['watchlists', watchlistId] });
     },

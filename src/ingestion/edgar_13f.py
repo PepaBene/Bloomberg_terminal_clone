@@ -6,6 +6,7 @@ and creates InstitutionProfile + InstitutionalHolding records.
 
 import asyncio
 import logging
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
@@ -29,6 +30,38 @@ ARCHIVES_BASE_URL = "https://www.sec.gov/Archives/edgar/data"
 NS_13F = {
     "ns": "http://www.sec.gov/edgar/document/thirteenf/informationtable",
 }
+
+# CUSIP is licensed data (CUSIP Global Services / ABA) -- no free bulk source
+# maps it to our securities, and none of the free identifiers we do carry
+# (ticker, FIGI) appear anywhere in a 13F infoTable, which only reports
+# nameOfIssuer + cusip. Every holding's cusip lookup below misses because
+# security_identifiers has zero CUSIP rows, so every single 13F holding was
+# being silently skipped (0 rows in institutional_holdings despite
+# ownership_13f showing "100%" -- that coverage number only ever checked
+# for an institution_profiles row, not real holdings). This is an
+# approximate fallback, not authoritative: normalize both the 13F-reported
+# issuer name and our stored security name (strip corporate suffixes,
+# punctuation, share-class markers) and match on that. Ambiguous/unmatched
+# names still get skipped rather than guessing wrong.
+_ISSUER_SUFFIX_RE = re.compile(
+    r"\b(INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LLC|LP|L P|PLC|"
+    r"SA|AG|NV|TRUST|GROUP|HOLDINGS?|SPONSORED|ADR|ADS|"
+    r"CL\s*[A-Z]|CLASS\s*[A-Z]|COM(MON)?|NEW|DEL|SHS?)\b\.?",
+    re.IGNORECASE,
+)
+_NON_ALNUM_RE = re.compile(r"[^A-Z0-9 ]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_issuer_name(name: str | None) -> str:
+    if not name:
+        return ""
+    n = name.upper()
+    n = _NON_ALNUM_RE.sub(" ", n)
+    # Repeat once -- suffixes can be stacked (e.g. "... CORP COM NEW").
+    n = _ISSUER_SUFFIX_RE.sub(" ", n)
+    n = _ISSUER_SUFFIX_RE.sub(" ", n)
+    return _WHITESPACE_RE.sub(" ", n).strip()
 
 
 class Edgar13FConnector(BaseConnector):
@@ -63,6 +96,9 @@ class Edgar13FConnector(BaseConnector):
         self.rate_limiter = RedisRateLimiter(key="sec_edgar", max_requests=settings.SEC_RATE_LIMIT, per_seconds=1.0)
         self.headers = {"User-Agent": settings.SEC_USER_AGENT}
         self._client: httpx.AsyncClient | None = None
+        # Same issuer name (e.g. "APPLE INC") recurs across every institution's
+        # filing -- cache the resolution per run instead of re-querying it.
+        self._name_resolution_cache: dict[str, uuid.UUID | None] = {}
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -396,6 +432,39 @@ class Edgar13FConnector(BaseConnector):
         logger.info(f"Transformed {len(transformed)} institutional holder records")
         return transformed
 
+    async def _resolve_by_issuer_name(
+        self, session: AsyncSession, name_of_issuer: str | None
+    ) -> uuid.UUID | None:
+        """Approximate CUSIP fallback -- see the module docstring above
+        _normalize_issuer_name for why this exists. Only accepts an exact
+        match on the normalized name; ambiguous candidates are left
+        unresolved rather than guessed.
+        """
+        from src.models.security import Security
+
+        norm = _normalize_issuer_name(name_of_issuer)
+        if not norm:
+            return None
+        if norm in self._name_resolution_cache:
+            return self._name_resolution_cache[norm]
+
+        first_word = norm.split(" ", 1)[0]
+        result = await session.execute(
+            select(Security.security_id, Security.name)
+            .where(
+                Security.name.ilike(f"%{first_word}%"),
+                Security.status == "ACTIVE",
+            )
+            .limit(25)
+        )
+        resolved: uuid.UUID | None = None
+        for security_id, candidate_name in result.all():
+            if _normalize_issuer_name(candidate_name) == norm:
+                resolved = security_id
+                break
+        self._name_resolution_cache[norm] = resolved
+        return resolved
+
     async def load(
         self, records: list[dict[str, Any]], session: AsyncSession
     ) -> dict[str, int]:
@@ -447,7 +516,10 @@ class Edgar13FConnector(BaseConnector):
 
                         report_date_val = date.fromisoformat(report_date_str)
 
-                        # Resolve security_id from CUSIP
+                        # Resolve security_id from CUSIP (works once any CUSIP
+                        # mapping exists), falling back to approximate issuer-
+                        # name matching (see _normalize_issuer_name docstring
+                        # above) since none does today.
                         sec_result = await session.execute(
                             select(SecurityIdentifier).where(
                                 SecurityIdentifier.identifier_type == "CUSIP",
@@ -455,11 +527,14 @@ class Edgar13FConnector(BaseConnector):
                             )
                         )
                         sec_ident = sec_result.scalar_one_or_none()
-                        if sec_ident is None:
+                        security_id = sec_ident.security_id if sec_ident else None
+                        if security_id is None:
+                            security_id = await self._resolve_by_issuer_name(
+                                session, holding_data.get("name_of_issuer")
+                            )
+                        if security_id is None:
                             stats["skipped"] += 1
                             continue
-
-                        security_id = sec_ident.security_id
 
                         # Check for duplicate
                         existing = await session.execute(

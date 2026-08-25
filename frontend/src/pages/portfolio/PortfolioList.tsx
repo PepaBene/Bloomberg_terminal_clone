@@ -2,23 +2,19 @@
 // Portfolio List — Portfolio Management Overview
 // ---------------------------------------------------------------------------
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useToastStore } from '@/stores/toastStore';
 
 // --- Helpers -----------------------------------------------------------------
 
-function signalColor(value: number): string {
-  return value >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
+function signalColor(value: number | undefined): string {
+  return (value ?? 0) >= 0 ? 'var(--color-signal-positive)' : 'var(--color-signal-negative)';
 }
 
-function formatPct(value: number): string {
-  const sign = value >= 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function formatCurrency(value: number): string {
+function formatCurrency(value: number | undefined): string {
+  if (value === undefined) return '—';
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
   return `$${value.toFixed(2)}`;
@@ -41,22 +37,32 @@ function Skeleton({ width = '100%', height = '1em' }: { width?: string; height?:
   );
 }
 
-interface PortfolioRow {
+// Real shape of GET /v4/portfolios (src/schemas/portfolio.py:PortfolioResponse) --
+// there is no NAV/day-change/MTD/YTD on the wire anywhere for portfolios, only
+// cash + type + status. Per-portfolio market value/P&L comes from a separate
+// GET .../analytics call, fetched below one per row.
+interface ApiPortfolio {
   id: string;
-  name: string;
-  nav: number;
-  dayChange: number;
-  mtdReturn: number;
-  ytdReturn: number;
-  positions: number;
-  status: 'Active' | 'Paper' | 'Archived';
+  portfolio_name: string;
+  portfolio_type: string;
+  base_currency: string;
+  initial_cash: number;
+  current_cash: number;
+  status: string;
 }
 
-function statusBadgeClass(status: PortfolioRow['status']): string {
-  switch (status) {
-    case 'Active':   return 'terminal-badge terminal-badge-positive';
-    case 'Paper':    return 'terminal-badge terminal-badge-neutral';
-    case 'Archived': return 'terminal-badge';
+interface PortfolioAnalytics {
+  total_positions: number;
+  market_value: number;
+  net_pnl: number;
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'ACTIVE':   return 'terminal-badge terminal-badge-positive';
+    case 'PAPER':    return 'terminal-badge terminal-badge-neutral';
+    case 'ARCHIVED': return 'terminal-badge';
+    default:         return 'terminal-badge terminal-badge-neutral';
   }
 }
 
@@ -67,16 +73,42 @@ export default function PortfolioList() {
   const queryClient = useQueryClient();
 
   // Fetch portfolios
-  const { data: portfolioData, isLoading } = useQuery<PortfolioRow[]>({
+  const { data: portfolioData, isLoading } = useQuery<ApiPortfolio[]>({
     queryKey: ['portfolios'],
     queryFn: () => api.get('/v4/portfolios'),
     retry: 0,
   });
   const portfolios = portfolioData ?? [];
 
+  // Per-portfolio market value / P&L / position count -- not present on the
+  // list endpoint, computed at request time from live positions.
+  const analyticsQueries = useQueries({
+    queries: portfolios.map((p) => ({
+      queryKey: ['portfolio-analytics', p.id],
+      queryFn: () => api.get<PortfolioAnalytics>(`/v4/portfolios/${p.id}/analytics`),
+      retry: 0,
+      staleTime: 30_000,
+    })),
+  });
+  const analyticsById = new Map(
+    portfolios.map((p, i) => [p.id, analyticsQueries[i]?.data]),
+  );
+
   // Create portfolio mutation
+  // [Bug fix] PortfolioCreateRequest (src/schemas/portfolio.py) requires
+  // portfolio_name/inception_date/initial_cash -- this previously posted
+  // {name: "New Portfolio"}, which 422'd every time (wrong field entirely,
+  // two other required fields missing). portfolio_name also has a real
+  // uq_portfolio_user_name unique constraint, so a second click with the
+  // same hardcoded name would have collided even once the fields were
+  // right -- timestamp it instead.
   const createMutation = useMutation({
-    mutationFn: (name: string) => api.post('/v4/portfolios', { name }),
+    mutationFn: (portfolioName: string) =>
+      api.post('/v4/portfolios', {
+        portfolio_name: portfolioName,
+        inception_date: new Date().toISOString().slice(0, 10),
+        initial_cash: 0,
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['portfolios'] });
     },
@@ -86,7 +118,7 @@ export default function PortfolioList() {
   });
 
   const handleCreate = () => {
-    createMutation.mutate('New Portfolio');
+    createMutation.mutate(`New Portfolio ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`);
   };
 
   const handleRowClick = (id: string) => {
@@ -161,7 +193,8 @@ export default function PortfolioList() {
             Portfolios
           </h1>
           <p className="terminal-label" style={{ marginTop: '4px' }}>
-            {portfolios.length} portfolios &mdash; Total NAV {formatCurrency(portfolios.reduce((s, p) => s + p.nav, 0))}
+            {portfolios.length} portfolios &mdash; Total Cash{' '}
+            {formatCurrency(portfolios.reduce((s, p) => s + (p.current_cash ?? 0), 0))}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -213,46 +246,49 @@ export default function PortfolioList() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th className="right">NAV</th>
-                <th className="right">Day Chg</th>
-                <th className="right">MTD</th>
-                <th className="right">YTD</th>
+                <th className="right">Market Value</th>
+                <th className="right">Cash</th>
+                <th className="right">Net P&amp;L</th>
                 <th className="right">Positions</th>
+                <th>Type</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {portfolios.length === 0 ? (
                 <tr><td colSpan={7} className="terminal-label" style={{ textAlign: 'center', padding: '20px' }}>No portfolios available.</td></tr>
-              ) : portfolios.map((p) => (
-                <tr
-                  key={p.id}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => handleRowClick(p.id)}
-                >
-                  <td style={{ fontWeight: 500, color: 'var(--color-accent-primary)' }}>
-                    {p.name}
-                  </td>
-                  <td className="right">
-                    {formatCurrency(p.nav)}
-                  </td>
-                  <td className="right" style={{ color: signalColor(p.dayChange) }}>
-                    {formatPct(p.dayChange)}
-                  </td>
-                  <td className="right" style={{ color: signalColor(p.mtdReturn) }}>
-                    {formatPct(p.mtdReturn)}
-                  </td>
-                  <td className="right" style={{ color: signalColor(p.ytdReturn) }}>
-                    {formatPct(p.ytdReturn)}
-                  </td>
-                  <td className="right">
-                    {p.positions}
-                  </td>
-                  <td>
-                    <span className={statusBadgeClass(p.status)}>{p.status}</span>
-                  </td>
-                </tr>
-              ))}
+              ) : portfolios.map((p) => {
+                const analytics = analyticsById.get(p.id);
+                return (
+                  <tr
+                    key={p.id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleRowClick(p.id)}
+                  >
+                    <td style={{ fontWeight: 500, color: 'var(--color-accent-primary)' }}>
+                      {p.portfolio_name}
+                    </td>
+                    <td className="right">
+                      {formatCurrency(analytics?.market_value)}
+                    </td>
+                    <td className="right">
+                      {formatCurrency(p.current_cash)}
+                    </td>
+                    <td className="right" style={{ color: signalColor(analytics?.net_pnl) }}>
+                      {analytics ? formatCurrency(analytics.net_pnl) : '—'}
+                    </td>
+                    <td className="right">
+                      {analytics?.total_positions ?? '—'}
+                    </td>
+                    <td>
+                      {p.portfolio_type}
+                    </td>
+                    <td>
+                      <span className={statusBadgeClass(p.status)}>{p.status}</span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
