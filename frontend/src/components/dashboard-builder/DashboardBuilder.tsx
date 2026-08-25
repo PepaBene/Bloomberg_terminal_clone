@@ -9,6 +9,7 @@ import { useDragResize } from './useDragResize';
 import DragHandle from './DragHandle';
 import ResizeHandle from './ResizeHandle';
 import PanelCatalog from './PanelCatalog';
+import { PanelRenderer } from './PanelRenderer';
 
 const DEFAULT_COLS = 12;
 const DEFAULT_ROWS = 12;
@@ -90,9 +91,7 @@ function PanelSlot({ panel, cols, onLayoutChange, onRemove }: PanelSlotProps) {
 
   const bodyStyle: CSSProperties = {
     flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'auto',
     color: 'var(--color-text-tertiary)',
     fontSize: 'var(--text-xs)',
     fontFamily: 'var(--font-ui)',
@@ -126,7 +125,7 @@ function PanelSlot({ panel, cols, onLayoutChange, onRemove }: PanelSlotProps) {
           </button>
         </div>
         <div style={bodyStyle}>
-          {panel.componentType}
+          <PanelRenderer componentType={panel.componentType} />
         </div>
         <div ref={resizeHandleRef as React.RefObject<HTMLDivElement>} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           <ResizeHandle

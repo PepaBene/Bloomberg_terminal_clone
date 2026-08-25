@@ -259,6 +259,12 @@ export function useTechnicalSignals(secId: string | undefined) {
   });
 }
 
+export function useTechnicalSeries(secId: string | undefined) {
+  return useApiQuery(['analytics', secId, 'technical-series'], ANALYTICS.technicalSeries(secId!), undefined, {
+    enabled: !!secId,
+  });
+}
+
 export function useSeasonality(secId: string | undefined) {
   return useApiQuery(['analytics', secId, 'seasonality'], ANALYTICS.seasonality(secId!), undefined, {
     enabled: !!secId,

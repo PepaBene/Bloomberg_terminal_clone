@@ -1,4 +1,21 @@
+import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { ChartTooltip } from '../charts/ChartTooltip';
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 export interface VaRComponent {
   name: string;
@@ -9,140 +26,123 @@ export interface VaRComponent {
 
 export interface VaRDecompositionProps {
   components: VaRComponent[];
+  height?: number;
 }
 
-export function VaRDecomposition({ components }: VaRDecompositionProps) {
-  const sorted = [...components].sort((a, b) => b.percentContrib - a.percentContrib);
-  const maxPct = Math.max(...sorted.map((c) => c.percentContrib), 0.001);
+/* ------------------------------------------------------------------ */
+/*  Tooltip                                                            */
+/* ------------------------------------------------------------------ */
 
-  const rootStyle: CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0',
-  };
+function DecompTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: VaRComponent }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+
+  return (
+    <ChartTooltip
+      title={row.name}
+      value={`${row.percentContrib.toFixed(1)}%`}
+      series={[
+        { name: 'Component VaR', value: `${row.componentVar.toFixed(2)}%`, color: 'var(--color-accent-primary)' },
+        { name: 'Marginal VaR', value: `${row.marginalVar.toFixed(2)}%`, color: 'var(--color-text-secondary)' },
+      ]}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ranked horizontal bar chart of each position/asset's share of total
+ * portfolio VaR. Severity-thresholded color (>20% critical, >10% warning)
+ * since this is a risk-concentration reading, not series identity.
+ */
+export function VaRDecomposition({ components, height }: VaRDecompositionProps) {
+  const sorted = useMemo(
+    () => [...components].sort((a, b) => b.percentContrib - a.percentContrib),
+    [components],
+  );
+
+  const total = useMemo(
+    () => sorted.reduce((s, c) => s + c.componentVar, 0),
+    [sorted],
+  );
+
+  const chartHeight = height ?? Math.max(sorted.length * 28 + 32, 140);
 
   const headerStyle: CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: '140px 1fr 70px 70px 70px',
-    gap: 'var(--space-2)',
-    padding: '4px 8px',
-    borderBottom: '1px solid var(--color-surface-border)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 'var(--space-2)',
     fontFamily: 'var(--font-ui)',
     fontSize: 'var(--text-xs)',
     color: 'var(--color-text-tertiary)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
   };
 
   return (
-    <div className="animate-in" style={rootStyle}>
+    <div className="animate-in" style={{ width: '100%' }}>
       <div style={headerStyle}>
-        <span>Name</span>
-        <span>Contribution</span>
-        <span style={{ textAlign: 'right' }}>% Contrib</span>
-        <span style={{ textAlign: 'right' }}>Comp VaR</span>
-        <span style={{ textAlign: 'right' }}>Marg VaR</span>
+        <span>Contribution to Total VaR</span>
+        <span style={{ fontFamily: 'var(--font-data)', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)' }}>
+          Total: {total.toFixed(2)}%
+        </span>
       </div>
 
-      {sorted.map((comp, i) => {
-        const barPct = (comp.percentContrib / maxPct) * 100;
-        const isTotal = comp.name.toLowerCase() === 'total';
-
-        const rowStyle: CSSProperties = {
-          display: 'grid',
-          gridTemplateColumns: '140px 1fr 70px 70px 70px',
-          gap: 'var(--space-2)',
-          alignItems: 'center',
-          padding: '6px 8px',
-          borderBottom: '1px solid var(--color-surface-border)',
-          background: isTotal ? 'var(--color-surface-raised)' : 'transparent',
-          transition: 'background 0.1s',
-        };
-
-        return (
-          <div
-            key={i}
-            style={rowStyle}
-            onMouseEnter={(e) => {
-              if (!isTotal)
-                (e.currentTarget as HTMLDivElement).style.background =
-                  'var(--color-surface-raised)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = isTotal
-                ? 'var(--color-surface-raised)'
-                : 'transparent';
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--font-ui)',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-primary)',
-                fontWeight: isTotal ? 700 : 400,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart
+          data={sorted}
+          layout="vertical"
+          margin={{ top: 4, right: 40, bottom: 4, left: 4 }}
+          barCategoryGap="24%"
+        >
+          <CartesianGrid strokeDasharray="none" stroke="var(--color-surface-border)" horizontal={false} />
+          <XAxis
+            type="number"
+            unit="%"
+            tick={{ fill: 'var(--color-text-tertiary)', fontFamily: 'var(--font-data)', fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={110}
+            tick={{ fill: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)', fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <Tooltip content={<DecompTooltip />} cursor={{ fill: 'var(--color-surface-raised)', opacity: 0.4 }} />
+          <Bar dataKey="percentContrib" radius={[0, 2, 2, 0]} maxBarSize={16} isAnimationActive={false}>
+            {sorted.map((c, i) => {
+              const color =
+                c.percentContrib > 20
+                  ? 'var(--color-signal-negative)'
+                  : c.percentContrib > 10
+                  ? 'var(--color-signal-warning)'
+                  : 'var(--color-signal-neutral)';
+              return <Cell key={i} fill={color} />;
+            })}
+            <LabelList
+              dataKey="percentContrib"
+              position="right"
+              formatter={(v: number | string | boolean | null | undefined) => {
+                const n = typeof v === 'number' ? v : Number(v);
+                return Number.isFinite(n) ? `${n.toFixed(1)}%` : '';
               }}
-            >
-              {comp.name}
-            </span>
-
-            <div style={{ height: '8px', display: 'flex', alignItems: 'center' }}>
-              <div
-                style={{
-                  height: '8px',
-                  width: `${barPct}%`,
-                  background:
-                    comp.percentContrib > 20
-                      ? 'var(--color-signal-negative)'
-                      : comp.percentContrib > 10
-                      ? 'var(--color-signal-warning)'
-                      : 'var(--color-signal-neutral)',
-                  borderRadius: '2px',
-                  maxWidth: '100%',
-                }}
-              />
-            </div>
-
-            <span
-              style={{
-                fontFamily: 'var(--font-data)',
-                fontVariantNumeric: 'tabular-nums',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-primary)',
-                textAlign: 'right',
-              }}
-            >
-              {comp.percentContrib.toFixed(1)}%
-            </span>
-
-            <span
-              style={{
-                fontFamily: 'var(--font-data)',
-                fontVariantNumeric: 'tabular-nums',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-secondary)',
-                textAlign: 'right',
-              }}
-            >
-              {comp.componentVar.toFixed(2)}%
-            </span>
-
-            <span
-              style={{
-                fontFamily: 'var(--font-data)',
-                fontVariantNumeric: 'tabular-nums',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-secondary)',
-                textAlign: 'right',
-              }}
-            >
-              {comp.marginalVar.toFixed(2)}%
-            </span>
-          </div>
-        );
-      })}
+              style={{ fontFamily: 'var(--font-data)', fontSize: 10, fill: 'var(--color-text-secondary)' }}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

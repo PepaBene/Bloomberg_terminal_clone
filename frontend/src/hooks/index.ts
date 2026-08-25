@@ -100,6 +100,7 @@ export {
   useDCFModel,
   useFootballField,
   useTechnicalSignals,
+  useTechnicalSeries,
   useSeasonality,
   useFactorExposure,
   useScreener,

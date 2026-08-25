@@ -1,154 +1,204 @@
+import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from 'recharts';
+import { ChartTooltip } from '../charts/ChartTooltip';
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 export interface FactorBeta {
   name: string;
+  /** The diverging value plotted — a raw beta, or an active tilt vs benchmark */
   beta: number;
-  tStat: number;
-  significant: boolean;
+  /** Optional context value shown in the tooltip (e.g. benchmark exposure) */
+  benchmark?: number;
+  /** Optional t-statistic; when omitted, significance styling is skipped */
+  tStat?: number;
+  /** Defaults to true when tStat is not supplied */
+  significant?: boolean;
 }
 
 export interface FactorExposureChartProps {
   factors: FactorBeta[];
+  height?: number;
+  /** Axis/tooltip value formatter — defaults to 2 decimal places */
+  valueFormat?: (v: number) => string;
 }
 
-export function FactorExposureChart({ factors }: FactorExposureChartProps) {
-  const maxAbs = Math.max(...factors.map((f) => Math.abs(f.beta)), 0.001);
+/* ------------------------------------------------------------------ */
+/*  Tooltip                                                            */
+/* ------------------------------------------------------------------ */
 
-  const rootStyle: CSSProperties = {
+interface TooltipPayloadEntry {
+  payload?: FactorBeta;
+}
+
+function FactorTooltip({
+  active,
+  payload,
+  valueFormat,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  valueFormat: (v: number) => string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+
+  const benchmarkLine =
+    row.benchmark != null
+      ? { label: 'Benchmark', value: valueFormat(row.benchmark) }
+      : row.tStat != null
+      ? { label: 't-stat', value: row.tStat.toFixed(2) }
+      : undefined;
+
+  return (
+    <ChartTooltip
+      title={row.tStat != null ? `${row.name} (t = ${row.tStat.toFixed(2)})` : row.name}
+      value={`${row.beta >= 0 ? '+' : ''}${valueFormat(row.beta)}`}
+      {...(benchmarkLine ? { benchmark: benchmarkLine } : {})}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Diverging horizontal bar chart for factor exposure / active tilts.
+ * Bars grow left or right from a zero baseline; color encodes sign, and
+ * (when a t-stat is supplied) desaturates rows below the |t| >= 2
+ * significance threshold rather than pretending every exposure is real.
+ */
+export function FactorExposureChart({ factors, height, valueFormat }: FactorExposureChartProps) {
+  const fmt = valueFormat ?? ((v: number) => v.toFixed(2));
+
+  const rows = useMemo(
+    () =>
+      factors.map((f) => ({
+        ...f,
+        significant: f.significant ?? (f.tStat == null || Math.abs(f.tStat) >= 2),
+      })),
+    [factors],
+  );
+
+  const maxAbs = useMemo(
+    () => Math.max(...rows.map((f) => Math.abs(f.beta)), 0.001),
+    [rows],
+  );
+
+  const hasTStat = rows.some((f) => f.tStat != null);
+  const chartHeight = height ?? Math.max(rows.length * 32 + 40, 140);
+
+  const legendRowStyle: CSSProperties = {
     display: 'flex',
-    flexDirection: 'column',
-    gap: '0',
-  };
-
-  const headerStyle: CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: '130px 1fr 60px 70px',
-    gap: 'var(--space-2)',
-    padding: '4px 8px',
-    borderBottom: '1px solid var(--color-surface-border)',
+    gap: 'var(--space-4)',
+    marginTop: 'var(--space-1)',
     fontFamily: 'var(--font-ui)',
     fontSize: 'var(--text-xs)',
     color: 'var(--color-text-tertiary)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
   };
 
+  const legendItemStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  };
+
+  const swatchStyle = (color: string): CSSProperties => ({
+    width: 8,
+    height: 8,
+    borderRadius: 2,
+    background: color,
+  });
+
   return (
-    <div className="animate-in" style={rootStyle}>
-      <div style={headerStyle}>
-        <span>Factor</span>
-        <span>Beta</span>
-        <span style={{ textAlign: 'right' }}>Beta</span>
-        <span style={{ textAlign: 'right' }}>t-Stat</span>
+    <div className="animate-in" style={{ width: '100%' }}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart
+          data={rows}
+          layout="vertical"
+          margin={{ top: 4, right: 32, bottom: 4, left: 4 }}
+          barCategoryGap="28%"
+        >
+          <CartesianGrid
+            strokeDasharray="none"
+            stroke="var(--color-surface-border)"
+            horizontal={false}
+          />
+          <XAxis
+            type="number"
+            domain={[-maxAbs * 1.15, maxAbs * 1.15]}
+            tick={{ fill: 'var(--color-text-tertiary)', fontFamily: 'var(--font-data)', fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={fmt}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={110}
+            tick={{ fill: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)', fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <ReferenceLine x={0} stroke="var(--color-surface-border-strong)" strokeWidth={1} />
+          <Tooltip
+            content={<FactorTooltip valueFormat={fmt} />}
+            cursor={{ fill: 'var(--color-surface-raised)', opacity: 0.4 }}
+          />
+          <Bar dataKey="beta" radius={[2, 2, 2, 2]} maxBarSize={16} isAnimationActive={false}>
+            {rows.map((f, i) => {
+              const color = !f.significant
+                ? 'var(--color-text-tertiary)'
+                : f.beta >= 0
+                ? 'var(--color-signal-positive)'
+                : 'var(--color-signal-negative)';
+              return <Cell key={i} fill={color} fillOpacity={f.significant ? 1 : 0.55} />;
+            })}
+            <LabelList
+              dataKey="beta"
+              position="right"
+              formatter={(v: number | string | boolean | null | undefined) => {
+                const n = typeof v === 'number' ? v : Number(v);
+                return Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${fmt(n)}` : '';
+              }}
+              style={{ fontFamily: 'var(--font-data)', fontSize: 10, fill: 'var(--color-text-secondary)' }}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      <div style={legendRowStyle}>
+        <span style={legendItemStyle}>
+          <span style={swatchStyle('var(--color-signal-positive)')} />
+          Positive
+        </span>
+        <span style={legendItemStyle}>
+          <span style={swatchStyle('var(--color-signal-negative)')} />
+          Negative
+        </span>
+        {hasTStat && (
+          <span style={legendItemStyle}>
+            <span style={swatchStyle('var(--color-text-tertiary)')} />
+            Not significant (|t| &lt; 2)
+          </span>
+        )}
       </div>
-
-      {factors.map((factor, i) => {
-        const barPct = (Math.abs(factor.beta) / maxAbs) * 48; // max 48% from center
-        const isPositive = factor.beta >= 0;
-        const barColor = !factor.significant
-          ? 'var(--color-text-tertiary)'
-          : isPositive
-          ? 'var(--color-signal-positive)'
-          : 'var(--color-signal-negative)';
-
-        const tStatColor = Math.abs(factor.tStat) >= 2
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-tertiary)';
-
-        const rowStyle: CSSProperties = {
-          display: 'grid',
-          gridTemplateColumns: '130px 1fr 60px 70px',
-          gap: 'var(--space-2)',
-          alignItems: 'center',
-          padding: '6px 8px',
-          borderBottom: '1px solid var(--color-surface-border)',
-          transition: 'background 0.1s',
-          opacity: factor.significant ? 1 : 0.55,
-        };
-
-        return (
-          <div
-            key={i}
-            style={rowStyle}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-raised)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--font-ui)',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-primary)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {factor.name}
-            </span>
-
-            {/* Centered bar track */}
-            <div
-              style={{
-                position: 'relative',
-                height: '10px',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              {/* Zero line */}
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: 0,
-                  bottom: 0,
-                  width: '1px',
-                  background: 'var(--color-surface-border)',
-                }}
-              />
-              {/* Bar */}
-              <div
-                style={{
-                  position: 'absolute',
-                  height: '8px',
-                  width: `${barPct}%`,
-                  left: isPositive ? '50%' : `calc(50% - ${barPct}%)`,
-                  background: barColor,
-                  borderRadius: '2px',
-                }}
-              />
-            </div>
-
-            <span
-              style={{
-                fontFamily: 'var(--font-data)',
-                fontVariantNumeric: 'tabular-nums',
-                fontSize: 'var(--text-xs)',
-                color: barColor,
-                textAlign: 'right',
-              }}
-            >
-              {factor.beta >= 0 ? '+' : ''}{factor.beta.toFixed(2)}
-            </span>
-
-            <span
-              style={{
-                fontFamily: 'var(--font-data)',
-                fontVariantNumeric: 'tabular-nums',
-                fontSize: 'var(--text-xs)',
-                color: tStatColor,
-                textAlign: 'right',
-              }}
-            >
-              {factor.tStat.toFixed(2)}
-            </span>
-          </div>
-        );
-      })}
     </div>
   );
 }

@@ -225,6 +225,28 @@ export function PeerScatter({ peers, xLabel, yLabel, highlightTicker, onLassoSel
         ⬡ Lasso
       </button>
 
+      {/* Size-encoding legend — dot radius = market cap, otherwise only discoverable via hover */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: MARGIN.left,
+          zIndex: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontFamily: 'var(--font-ui)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-text-tertiary)',
+        }}
+      >
+        <svg width={MAX_DOT * 2 + 8} height={MAX_DOT * 2 + 4} style={{ flexShrink: 0, overflow: 'visible' }}>
+          <circle cx={MAX_DOT + 4} cy={MAX_DOT * 2 - MIN_DOT} r={MIN_DOT} fill="none" stroke={C.textTertiary} strokeWidth={1} />
+          <circle cx={MAX_DOT + 4} cy={MAX_DOT} r={MAX_DOT} fill="none" stroke={C.textTertiary} strokeWidth={1} />
+        </svg>
+        <span>Size = market cap</span>
+      </div>
+
       {/* Chart container — relative so the SVG overlay is positioned correctly */}
       <div style={{ position: 'relative' }}>
         <svg ref={svgRef} width={containerWidth} height={height} style={{ display: 'block' }}>

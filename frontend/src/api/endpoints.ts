@@ -139,6 +139,7 @@ export const ANALYTICS = {
   sectorRelative: (secId: string) => `/v2/analytics/sector-relative/${secId}`,
   fairValue: (secId: string) => `/v2/analytics/fair-value/${secId}`,
   technicalSignals: (secId: string) => `/v2/analytics/technical-signals/${secId}`,
+  technicalSeries: (secId: string) => `/v2/analytics/technical-series/${secId}`,
   seasonality: (secId: string) => `/v2/analytics/seasonality/${secId}`,
   correlation: '/v2/analytics/correlation',
   factorExposure: (secId: string) => `/v2/analytics/factor-exposure/${secId}`,
