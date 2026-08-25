@@ -8,6 +8,7 @@ const FinancialStatements = lazy(() => import('@/pages/company/FinancialStatemen
 const ValuationDashboard = lazy(() => import('@/pages/company/ValuationDashboard'));
 const OwnershipDashboard = lazy(() => import('@/pages/company/OwnershipDashboard'));
 const CreditProfile = lazy(() => import('@/pages/company/CreditProfile'));
+const CompanyPeers = lazy(() => import('@/pages/company/CompanyPeers'));
 const CompanyIntelligence = lazy(() => import('@/pages/company/CompanyIntelligence'));
 const ESGDashboard = lazy(() => import('@/pages/company/ESGDashboard'));
 const GovernanceDashboard = lazy(() => import('@/pages/company/GovernanceDashboard'));
@@ -32,6 +33,7 @@ const AdviserChat = lazy(() => import('@/pages/adviser/AdviserChat'));
 const MacroDashboard = lazy(() => import('@/pages/macro/MacroDashboard'));
 const YieldCurveDeepDive = lazy(() => import('@/pages/macro/YieldCurveDeepDive'));
 const CentralBankMonitor = lazy(() => import('@/pages/macro/CentralBankMonitor'));
+const EconomicCalendarPage = lazy(() => import('@/pages/macro/EconomicCalendarPage'));
 const GlobalDashboard = lazy(() => import('@/pages/global/GlobalDashboard'));
 const CountryRisk = lazy(() => import('@/pages/global/CountryRisk'));
 const CommodityDashboard = lazy(() => import('@/pages/global/CommodityDashboard'));
@@ -48,12 +50,15 @@ const ThesisBuilder = lazy(() => import('@/pages/research/ThesisBuilder'));
 const AnalystQA = lazy(() => import('@/pages/research/AnalystQA'));
 const ThemesDashboard = lazy(() => import('@/pages/research/ThemesDashboard'));
 const ModelBuilder = lazy(() => import('@/pages/research/ModelBuilder'));
+const EstimatesPage = lazy(() => import('@/pages/research/EstimatesPage'));
+const TranscriptsPage = lazy(() => import('@/pages/research/TranscriptsPage'));
 const FlowsDashboard = lazy(() => import('@/pages/flows/FlowsDashboard'));
 const CustomData = lazy(() => import('@/pages/custom/CustomData'));
 const QuantDashboard = lazy(() => import('@/pages/quant/QuantDashboard'));
 const DealsView = lazy(() => import('@/pages/deals/DealsView'));
 const SmartMoneyPage = lazy(() => import('@/pages/smartmoney/SmartMoneyPage'));
 const SmartMoneyFilerDetail = lazy(() => import('@/pages/smartmoney/SmartMoneyFilerDetail'));
+const PoliticiansPage = lazy(() => import('@/pages/smartmoney/PoliticiansPage'));
 const IPOMonitor = lazy(() => import('@/pages/market/IPOMonitor'));
 const BacktestDashboard = lazy(() => import('@/pages/quant/BacktestDashboard'));
 const CustomIndexBuilder = lazy(() => import('@/pages/quant/CustomIndexBuilder'));
@@ -82,6 +87,7 @@ export function AppRouter() {
         <Route path="/company/ownership" element={<OwnershipDashboard />} />
         <Route path="/company/filings" element={<FilingsView />} />
         <Route path="/company/credit" element={<CreditProfile />} />
+        <Route path="/company/peers" element={<CompanyPeers />} />
         <Route path="/company/intelligence" element={<CompanyIntelligence />} />
         <Route path="/company/esg" element={<ESGDashboard />} />
         <Route path="/company/governance" element={<GovernanceDashboard />} />
@@ -122,6 +128,7 @@ export function AppRouter() {
         <Route path="/macro" element={<MacroDashboard />} />
         <Route path="/macro/yield-curve" element={<YieldCurveDeepDive />} />
         <Route path="/macro/central-banks" element={<CentralBankMonitor />} />
+        <Route path="/macro/calendar" element={<EconomicCalendarPage />} />
 
         {/* Global */}
         <Route path="/global" element={<GlobalDashboard />} />
@@ -144,6 +151,8 @@ export function AppRouter() {
         <Route path="/research/qa" element={<AnalystQA />} />
         <Route path="/research/themes" element={<ThemesDashboard />} />
         <Route path="/research/model-builder" element={<ModelBuilder />} />
+        <Route path="/research/estimates" element={<EstimatesPage />} />
+        <Route path="/research/transcripts" element={<TranscriptsPage />} />
 
         {/* Flows & Custom */}
         <Route path="/flows" element={<FlowsDashboard />} />
@@ -156,6 +165,7 @@ export function AppRouter() {
         {/* Smart Money */}
         <Route path="/smart-money" element={<SmartMoneyPage />} />
         <Route path="/smart-money/:key" element={<SmartMoneyFilerDetail />} />
+        <Route path="/smart-money/politicians" element={<PoliticiansPage />} />
 
         {/* Quant */}
         <Route path="/quant" element={<QuantDashboard />} />

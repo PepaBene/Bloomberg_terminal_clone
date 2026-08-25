@@ -216,7 +216,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Analysis',
     items: [
       { id: 'screener', icon: IconScreener, label: 'Screener', path: '/screener', shortcut: '2', subItems: ['Equity', 'Fixed Income', 'Custom'] },
-      { id: 'company', icon: IconCompany, label: 'Company', path: '/company', shortcut: '3', subItems: ['Profile', 'Financials', 'Peers'] },
+      { id: 'company', icon: IconCompany, label: 'Company', path: '/company', shortcut: '3', subItems: ['Profile', 'Financials', 'Peers', 'Valuation', 'Ownership', 'Filings', 'ESG', 'Governance', 'Intelligence', 'Structure'] },
       { id: 'sector', icon: IconSector, label: 'Sector', path: '/sector', shortcut: '4', subItems: ['Overview', 'Heatmap', 'Rotation'] },
     ],
   },
@@ -224,7 +224,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'investment',
     label: 'Investment',
     items: [
-      { id: 'fi', icon: IconFixedIncome, label: 'Fixed Inc', path: '/fi', shortcut: '5', subItems: ['Curves', 'Spreads', 'Issuance'] },
+      { id: 'fi', icon: IconFixedIncome, label: 'Fixed Inc', path: '/fi', shortcut: '5', subItems: ['Curves', 'Spreads', 'Issuance', 'Intelligence'] },
       { id: 'portfolio', icon: IconPortfolio, label: 'Portfolio', path: '/portfolio', shortcut: '6', subItems: ['Holdings', 'Attribution', 'Rebalance'] },
       { id: 'risk', icon: IconRisk, label: 'Risk', path: '/risk', shortcut: '7', subItems: ['VaR', 'Stress Test', 'Exposure'] },
       { id: 'adviser', icon: IconAdviser, label: 'Adviser', path: '/adviser', shortcut: 'A', subItems: ['Chat', 'What-If', 'Recommendations'] },
@@ -234,8 +234,8 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'macro',
     label: 'Macro',
     items: [
-      { id: 'macro', icon: IconMacro, label: 'Macro', path: '/macro', shortcut: '8', subItems: ['Indicators', 'Central Banks', 'Calendar'] },
-      { id: 'global', icon: IconGlobal, label: 'Global', path: '/global', shortcut: '9', subItems: ['Markets', 'FX', 'Commodities'] },
+      { id: 'macro', icon: IconMacro, label: 'Macro', path: '/macro', shortcut: '8', subItems: ['Indicators', 'Yield Curve', 'Central Banks', 'Calendar'] },
+      { id: 'global', icon: IconGlobal, label: 'Global', path: '/global', shortcut: '9', subItems: ['Markets', 'FX', 'Commodities', 'Countries', 'Political'] },
     ],
   },
   {
@@ -243,7 +243,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Intelligence',
     items: [
       { id: 'news', icon: IconNews, label: 'News', path: '/news', shortcut: '0', subItems: ['Feed', 'Trending', 'Saved'] },
-      { id: 'research', icon: IconResearch, label: 'Research', path: '/research', shortcut: 'Q', subItems: ['Reports', 'Estimates', 'Transcripts'] },
+      { id: 'research', icon: IconResearch, label: 'Research', path: '/research', shortcut: 'Q', subItems: ['Reports', 'Estimates', 'Transcripts', 'Anomalies', 'Search', 'Thesis', 'Analyst Q&A', 'Themes', 'Model Builder'] },
       { id: 'flows', icon: IconFlows, label: 'Flows', path: '/flows', shortcut: 'W', subItems: ['Fund Flows', 'Positioning', 'Sentiment'] },
       { id: 'smart-money', icon: IconSmartMoney, label: 'Smart $', path: '/smart-money', shortcut: 'T', subItems: ['13F Managers', 'Insiders', 'Politicians'] },
     ],
@@ -504,17 +504,42 @@ interface FlyoutTooltipProps {
 }
 
 // Real routes for specific sub-item labels, verified against
-// src/router/index.tsx. Most sub-items are illustrative (no dedicated page
-// exists per label -- e.g. Company's "Peers"), so this only lists the ones
-// that resolve to an actual distinct route; everything else falls back to
-// the parent section (item.path) via onNavigate, same as clicking the
-// flyout title.
+// src/router/index.tsx. Many of these pages already existed with real
+// backend data wired up but had no navigation path to reach them at all
+// (DATA_WIRING_AUDIT follow-up) -- this list is how they become reachable.
+// A handful of remaining sub-item labels (e.g. Sector's "Rotation", Global's
+// "FX", News's "Saved") have no backend data behind the concept yet and are
+// intentionally left out here; they fall back to the parent section
+// (item.path) via onNavigate, same as clicking the flyout title.
 const SUBITEM_ROUTES: Record<string, Record<string, string>> = {
+  home: { Dashboard: '/dashboard' },
   screener: { 'Fixed Income': '/screener/fi' },
-  company: { Financials: '/company/financials' },
-  fi: { Spreads: '/fi/credit', Issuance: '/fi/issuance' },
-  macro: { 'Central Banks': '/macro/central-banks' },
-  global: { Commodities: '/global/commodities' },
+  company: {
+    Financials: '/company/financials',
+    Peers: '/company/peers',
+    Valuation: '/company/valuation',
+    Ownership: '/company/ownership',
+    Filings: '/company/filings',
+    ESG: '/company/esg',
+    Governance: '/company/governance',
+    Intelligence: '/company/intelligence',
+    Structure: '/company/complex-structure',
+  },
+  fi: { Curves: '/fi/treasuries', Spreads: '/fi/credit', Issuance: '/fi/issuance', Intelligence: '/fi/intelligence' },
+  macro: { 'Yield Curve': '/macro/yield-curve', 'Central Banks': '/macro/central-banks', Calendar: '/macro/calendar' },
+  global: { Commodities: '/global/commodities', Countries: '/global/countries', Political: '/global/political' },
+  research: {
+    Reports: '/research/primers',
+    Estimates: '/research/estimates',
+    Transcripts: '/research/transcripts',
+    Anomalies: '/research/anomalies',
+    Search: '/research/search',
+    Thesis: '/research/thesis',
+    'Analyst Q&A': '/research/qa',
+    Themes: '/research/themes',
+    'Model Builder': '/research/model-builder',
+  },
+  'smart-money': { Politicians: '/smart-money/politicians' },
   watchlist: { Alerts: '/alerts' },
 };
 
