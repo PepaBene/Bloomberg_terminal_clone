@@ -236,14 +236,14 @@ export default function CompanyOverview() {
           {/* Price Chart (OHLC Candlestick) */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Price Chart (6M)</h2>
-            <PriceChartPanel securityId={resolvedId} height={300} />
+            <PriceChartPanel securityId={primary?.security_id} height={300} />
           </div>
 
           {/* Seasonality — monthly returns by year, computed client-side from
               the same real EOD price history above (Bloomberg's SEAG screen). */}
           <div className="terminal-panel">
             <h2 className="terminal-section-title">Seasonality</h2>
-            <SeasonalityChart securityId={resolvedId} height={220} />
+            <SeasonalityChart securityId={primary?.security_id} height={220} />
           </div>
 
           {/* Order Book Depth & Volume Profile — no /v1/market-data/* router

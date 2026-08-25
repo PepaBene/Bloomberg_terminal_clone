@@ -18,6 +18,7 @@ from src.config import settings
 from src.ingestion.base import BaseConnector
 from src.ingestion.redis_rate_limiter import RedisRateLimiter
 from src.models.entity import Entity, EntityIdentifier, EntityName
+from src.models.reference import SICCode
 from src.temporal.pit import record_entity_history
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,17 @@ class EdgarEntityConnector(BaseConnector):
         """
         stats = {"enriched": 0, "skipped": 0, "errors": 0}
 
+        # entities.primary_sic has an FK into sic_codes, but data/sic_codes.json
+        # (the seed list) doesn't cover every SIC code real EDGAR filers report
+        # (e.g. 6200). A single unrecognized code used to abort the whole
+        # batch's flush() -- nothing in the batch got saved, not even entities
+        # with a valid code -- which is why enrichment barely progressed
+        # across many scheduler runs. Look up the known-good set once and
+        # skip (not crash on) codes outside it.
+        valid_sics = set(
+            (await session.execute(select(SICCode.sic_code))).scalars().all()
+        )
+
         # Get entities that came from EDGAR
         result = await session.execute(
             select(Entity, EntityIdentifier)
@@ -215,7 +227,19 @@ class EdgarEntityConnector(BaseConnector):
 
                 # Enrich entity with detail data
                 if detail.get("sic"):
-                    entity.primary_sic = detail["sic"]
+                    sic = detail["sic"]
+                    if sic not in valid_sics:
+                        # EDGAR reports SIC codes the seed reference list
+                        # doesn't cover -- register it with a placeholder
+                        # description rather than skip, so this entity (and
+                        # every future one with the same code) still gets
+                        # enriched instead of permanently retrying and
+                        # failing the same FK check.
+                        session.add(SICCode(sic_code=sic, description=None))
+                        await session.flush()
+                        valid_sics.add(sic)
+                        logger.info(f"Registered unseeded SIC code {sic!r}")
+                    entity.primary_sic = sic
                 if detail.get("fiscalYearEnd"):
                     # EDGAR returns "1231" format, convert to "12-31"
                     fye = detail["fiscalYearEnd"]

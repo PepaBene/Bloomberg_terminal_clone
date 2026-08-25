@@ -159,6 +159,12 @@ STAGE_COMPUTE: list[str] = [
     "scripts.compute_ownership_summary",
     "scripts.compute_shares_outstanding",
     "scripts.compute_debt_maturity",
+    # Derives entities.gics_sector from primary_sic (see script docstring for
+    # why this step was missing) -- must run after ingest_entity_sic_enrichment
+    # (stage 2) populates primary_sic, and before compute_industry_profiles
+    # below, which requires gics_sector to be set.
+    "scripts.assign_gics_from_sic",
+    "scripts.compute_industry_profiles",
 ]
 
 
