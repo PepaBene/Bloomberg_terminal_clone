@@ -14,9 +14,12 @@
 // ---------------------------------------------------------------------------
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { EmptyState } from '@/components/feedback';
+import { useSecurityStore } from '@/stores/securityContext';
+import { useNavigationStore } from '@/stores/navigationHistory';
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -95,6 +98,7 @@ function TableSkeleton({ rows = 4, cols = 4 }: { rows?: number; cols?: number })
 // --- Interfaces -------------------------------------------------------------
 
 interface TopMover {
+  securityId: string | null;
   ticker: string;
   name: string;
   price: number;
@@ -119,6 +123,7 @@ interface EconEvent {
 
 interface MoverEntryDTO {
   rank: number;
+  security_id: string | null;
   ticker: string | null;
   name: string | null;
   price: number | null;
@@ -156,8 +161,37 @@ const fmtNum = (v: number | null | undefined): string =>
 // --- Component ---------------------------------------------------------------
 
 export default function MorningBrief() {
+  const navigate = useNavigate();
+  const setPrimary = useSecurityStore((s) => s.setPrimary);
+  const pushHistory = useNavigationStore((s) => s.push);
   const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
   const [, setTick] = useState(0);
+
+  // Top Movers rows render styled like links (accent color) but had no
+  // click handler at all -- clicking a ticker did nothing, and since every
+  // company-scoped page requires a selected security, that's the most
+  // likely reason someone lands on Company/Risk/etc. and sees "No security
+  // selected" empty states everywhere despite the backend having real data.
+  const goToSecurity = (m: TopMover) => {
+    if (!m.securityId) return;
+    const security = {
+      security_id: m.securityId,
+      ticker: m.ticker,
+      name: m.name,
+      asset_class: 'EQUITY',
+      exchange: null,
+      figi: null,
+      currency: null,
+      entity_id: null,
+      status: 'ACTIVE',
+      gics_sector: null,
+      gics_industry: null,
+      market_cap: null,
+    };
+    setPrimary(security);
+    pushHistory(security);
+    navigate('/company');
+  };
 
   // Tick every 5s to refresh the "last updated" display
   useEffect(() => {
@@ -181,6 +215,7 @@ export default function MorningBrief() {
   const topMovers: TopMover[] = (moversData?.movers ?? [])
     .filter((m) => m.ticker)
     .map((m) => ({
+      securityId: m.security_id,
       ticker: m.ticker as string,
       name: m.name ?? '',
       price: m.price ?? 0,
@@ -308,7 +343,11 @@ export default function MorningBrief() {
                   </thead>
                   <tbody>
                     {topMovers.map((m) => (
-                      <tr key={m.ticker}>
+                      <tr
+                        key={m.ticker}
+                        onClick={() => goToSecurity(m)}
+                        style={{ cursor: m.securityId ? 'pointer' : 'default' }}
+                      >
                         <td style={{ fontWeight: 600, color: 'var(--color-accent-primary)' }}>{m.ticker}</td>
                         <td className="terminal-label">{m.name}</td>
                         <td className="right">${formatPrice(m.price)}</td>

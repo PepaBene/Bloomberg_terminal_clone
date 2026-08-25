@@ -2,11 +2,14 @@
 // Equity Screener Dashboard
 // ---------------------------------------------------------------------------
 import { useState, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ScreenBuilder, ScreenResults, LivePreviewCount } from '@/components/screener';
 import type { ScreenFilter, MetricDef, ScreenResultColumn } from '@/components/screener';
 import { DemoModeBanner } from '@/components/feedback';
 import { useScreenPrebuilt, useScreenHistory, useScreenFields, useRunScreen, useSaveScreen } from '@/hooks';
 import api from '@/api/client';
+import { useSecurityStore } from '@/stores/securityContext';
+import { useNavigationStore } from '@/stores/navigationHistory';
 
 // --- Mock Data (fallback) ----------------------------------------------------
 
@@ -86,6 +89,9 @@ function mapOperatorToBackend(op: string): string {
 // --- Component ---------------------------------------------------------------
 
 export default function ScreenerDashboard() {
+  const navigate = useNavigate();
+  const setPrimary = useSecurityStore((s) => s.setPrimary);
+  const pushHistory = useNavigationStore((s) => s.push);
   const [filters, setFilters] = useState<ScreenFilter[]>([]);
   const [backendResults, setBackendResults] = useState<Record<string, unknown>[] | null>(null);
   const [screening, setScreening] = useState(false);
@@ -245,6 +251,34 @@ export default function ScreenerDashboard() {
   // [Bug 85 fix] — Show null count in mock mode so LivePreviewCount can display fallback message
   const totalCount = backendResults ? backendResults.length : (isUsingMock ? null : MOCK_STOCKS.length);
 
+  // ScreenResults already supported onRowClick -- nobody ever passed one, so
+  // clicking a real screen result did nothing (mock rows have no
+  // security_id to navigate to, so those rows stay inert).
+  const handleRowClick = useCallback(
+    (row: Record<string, unknown>) => {
+      const securityId = row.security_id;
+      if (typeof securityId !== 'string') return;
+      const security = {
+        security_id: securityId,
+        ticker: typeof row.ticker === 'string' ? row.ticker : '',
+        name: typeof row.name === 'string' ? row.name : '',
+        asset_class: 'EQUITY',
+        exchange: null,
+        figi: null,
+        currency: null,
+        entity_id: typeof row.entity_id === 'string' ? row.entity_id : null,
+        status: 'ACTIVE',
+        gics_sector: null,
+        gics_industry: null,
+        market_cap: null,
+      };
+      setPrimary(security);
+      pushHistory(security);
+      navigate('/company');
+    },
+    [setPrimary, pushHistory, navigate],
+  );
+
   return (
     <div className="animate-in" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
 
@@ -292,7 +326,7 @@ export default function ScreenerDashboard() {
 
       {/* ScreenResults replaces inline results table */}
       <div style={{ marginTop: 'var(--panel-gap)' }}>
-        <ScreenResults results={resultRows} columns={RESULT_COLUMNS} />
+        <ScreenResults results={resultRows} columns={RESULT_COLUMNS} onRowClick={handleRowClick} />
       </div>
 
       {/* Prebuilt Screens */}
