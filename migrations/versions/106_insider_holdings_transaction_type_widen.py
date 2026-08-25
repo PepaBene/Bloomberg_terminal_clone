@@ -8,8 +8,8 @@ originally. This only started surfacing once the shared SEC rate limiter
 (src/ingestion/redis_rate_limiter.py) let Form 4 ingestion actually
 complete enough real transactions to hit a DISPOSITION_TO_ISSUER row.
 
-Revision ID: 095
-Revises: 094
+Revision ID: 106
+Revises: 105
 """
 
 from typing import Union
@@ -17,8 +17,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "095"
-down_revision: Union[str, None] = "094"
+revision: str = "106"
+down_revision: Union[str, None] = "105"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 

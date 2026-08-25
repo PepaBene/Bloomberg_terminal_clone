@@ -7,8 +7,8 @@ every query that selects the full ORM row (e.g. GET /v4/portfolios)
 500s with `UndefinedColumnError: column portfolios.deleted_at does not
 exist`.
 
-Revision ID: 096
-Revises: 095
+Revision ID: 107
+Revises: 106
 """
 
 from typing import Union
@@ -16,8 +16,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "096"
-down_revision: Union[str, None] = "095"
+revision: str = "107"
+down_revision: Union[str, None] = "106"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 

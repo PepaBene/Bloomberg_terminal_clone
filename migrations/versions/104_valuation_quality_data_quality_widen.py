@@ -7,8 +7,8 @@ comma-joined flag strings like "HIGH_TERMINAL_DEPENDENCY" (25 chars) into
 dcf_results.data_quality, which fails with StringDataRightTruncationError
 on a database built from migrations alone.
 
-Revision ID: 093
-Revises: 092
+Revision ID: 104
+Revises: 103
 """
 
 from typing import Union
@@ -16,8 +16,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "093"
-down_revision: Union[str, None] = "092"
+revision: str = "104"
+down_revision: Union[str, None] = "103"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 

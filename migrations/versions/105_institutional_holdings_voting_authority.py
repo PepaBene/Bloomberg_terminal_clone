@@ -6,8 +6,8 @@ voting-authority parse itself was reading the wrong XML depth (Sole/Shared/
 None are nested under a <votingAuthority> parent, not direct children of
 <infoTable>). Both are fixed in the same change as this migration.
 
-Revision ID: 094
-Revises: 093
+Revision ID: 105
+Revises: 104
 """
 
 from typing import Union
@@ -15,8 +15,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "094"
-down_revision: Union[str, None] = "093"
+revision: str = "105"
+down_revision: Union[str, None] = "104"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
