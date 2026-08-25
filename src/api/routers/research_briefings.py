@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.auth.dependencies import get_current_active_user
 from src.api.deps import get_session
 from src.models.auth import User
@@ -369,7 +370,7 @@ async def generate_briefing(
 ):
     """Generate an on-demand briefing from real portfolio/watchlist/macro data."""
     today = date.today()
-    llm = get_llm_client()
+    client = get_ai_client()
 
     pref = (
         await session.execute(
@@ -387,20 +388,17 @@ async def generate_briefing(
     macro_context = await _assemble_macro_context(session)
 
     executive_summary = None
-    if llm.enabled:
-        executive_summary = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant writing a "
-                "morning briefing executive summary. 2-4 sentences, grounded only "
-                "in the provided data. If a section has no data, note it plainly "
-                "rather than inventing content."
+    if client.enabled:
+        prompt = load_prompt("morning_briefing_summary")
+        executive_summary = await client.complete_text(
+            user=prompt.render(
+                portfolio_impact=portfolio_impact, thesis_updates=thesis_updates,
+                macro_context=macro_context,
             ),
-            user_prompt=(
-                f"Portfolio impact: {portfolio_impact}\n"
-                f"Thesis updates: {thesis_updates}\n"
-                f"Macro context: {macro_context}\n"
-                "Write the executive summary."
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
 
     briefing = MorningBriefing(

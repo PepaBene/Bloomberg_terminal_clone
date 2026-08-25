@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_pagination, get_session
 from src.api.utils.pagination import build_paginated_meta
 from src.models.ownership import (
+    BeneficialOwnershipFiling,
     InsiderHolding,
     InstitutionalHolding,
     InstitutionProfile,
@@ -18,6 +19,7 @@ from src.models.ownership import (
 from src.models.security import Security
 from src.schemas.common import PaginatedResponse, PaginationParams
 from src.schemas.ownership import (
+    BeneficialOwnershipFilingResponse,
     InsiderHoldingResponse,
     InstitutionalHoldingResponse,
     InstitutionProfileResponse,
@@ -166,6 +168,58 @@ async def get_insider_holdings(
 
     return PaginatedResponse(
         data=[InsiderHoldingResponse.model_validate(h) for h in holdings],
+        meta=build_paginated_meta(total_count, pagination),
+    )
+
+
+# ── GET /v1/securities/{id}/ownership/beneficial ───────────────────
+
+@router.get("/securities/{security_id}/ownership/beneficial", response_model=PaginatedResponse)
+async def get_beneficial_ownership(
+    security_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    pagination: PaginationParams = Depends(get_pagination),
+    schedule_type: str | None = Query(None, description="Filter by schedule type (SC 13D, SC 13D/A, SC 13G, SC 13G/A)"),
+    is_activist: bool | None = Query(None, description="Filter to activist (13D family) or passive (13G family) filings"),
+):
+    """Get Schedule 13D/13G beneficial ownership filings for a security."""
+    # Verify security exists
+    sec_result = await session.execute(
+        select(Security.security_id).where(Security.security_id == security_id)
+    )
+    if not sec_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Security '{security_id}' not found")
+
+    query = select(BeneficialOwnershipFiling).where(
+        BeneficialOwnershipFiling.security_id == security_id
+    )
+    count_query = select(BeneficialOwnershipFiling).where(
+        BeneficialOwnershipFiling.security_id == security_id
+    )
+
+    if schedule_type:
+        query = query.where(BeneficialOwnershipFiling.schedule_type == schedule_type.upper())
+        count_query = count_query.where(BeneficialOwnershipFiling.schedule_type == schedule_type.upper())
+    if is_activist is not None:
+        query = query.where(BeneficialOwnershipFiling.is_activist == is_activist)
+        count_query = count_query.where(BeneficialOwnershipFiling.is_activist == is_activist)
+
+    total_result = await session.execute(
+        select(sa_func.count()).select_from(count_query.subquery())
+    )
+    total_count = total_result.scalar_one()
+
+    offset = (pagination.page - 1) * pagination.page_size
+    query = (
+        query.order_by(BeneficialOwnershipFiling.filing_date.desc())
+        .offset(offset)
+        .limit(pagination.page_size)
+    )
+    result = await session.execute(query)
+    filings = result.scalars().all()
+
+    return PaginatedResponse(
+        data=[BeneficialOwnershipFilingResponse.model_validate(f) for f in filings],
         meta=build_paginated_meta(total_count, pagination),
     )
 

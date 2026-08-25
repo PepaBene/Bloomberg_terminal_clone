@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from src.models.entity import Entity
-from src.models.news_article import ArticleEntityLink, NewsArticle
+from src.models.news_article import ArticleEntityLink, NewsArticle, NewsSource
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ async def _seed_article(
         id=aid,
         source_url=source_url,
         title="Test Article Title",
+        summary="Test article summary.",
         source_name="Reuters",
         publish_date=date(2025, 10, 1),
         ingest_date=date(2025, 10, 1),
@@ -178,6 +179,7 @@ async def test_news_article_topics_jsonb(session):
         id=aid,
         source_url="https://news.example.com/topics-jsonb-test",
         title="Tech Merger Faces Regulatory Scrutiny",
+        summary="Test article summary.",
         source_name="Bloomberg",
         publish_date=date(2025, 11, 1),
         ingest_date=date(2025, 11, 1),
@@ -202,6 +204,7 @@ async def test_query_news_by_ingest_date(session):
         session.add(NewsArticle(
             source_url=f"https://news.example.com/ingest-date-test-{day}",
             title=f"Article from day {day}",
+            summary="Test article summary.",
             source_name="Reuters",
             publish_date=date(2025, 12, day),
             ingest_date=date(2025, 12, day),
@@ -218,3 +221,70 @@ async def test_query_news_by_ingest_date(session):
     assert len(articles) == 3
     days = sorted(a.ingest_date.day for a in articles)
     assert days == [1, 5, 10]
+
+
+# ── Layer 2 §4.2: news_sources + credibility columns ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_news_source(session):
+    session.add(NewsSource(
+        source_name="Reuters",
+        domain="reuters.com",
+        tier="WIRE",
+        reliability_weight=Decimal("1.00"),
+        region="GLOBAL",
+        is_paywalled=False,
+    ))
+    await session.flush()
+
+    fetched = await session.get(NewsSource, "Reuters")
+    assert fetched.domain == "reuters.com"
+    assert fetched.tier == "WIRE"
+    assert fetched.reliability_weight == Decimal("1.00")
+    assert fetched.is_paywalled is False
+
+
+@pytest.mark.asyncio
+async def test_news_source_domain_unique(session):
+    session.add(NewsSource(source_name="Reuters", domain="reuters.com", tier="WIRE", reliability_weight=Decimal("1.00")))
+    await session.flush()
+
+    session.add(NewsSource(source_name="Reuters Impostor", domain="reuters.com", tier="BLOG", reliability_weight=Decimal("0.35")))
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_news_article_credibility_columns_default(session):
+    """New rows default to a singleton cluster shape without explicit values."""
+    article = await _seed_article(session, source_url="https://news.example.com/credibility-defaults")
+    assert article.is_non_consensus is False
+    assert article.corroboration_count == 1
+    assert article.cluster_id is None
+    assert article.source_trust is None
+    assert article.credibility_score is None
+
+
+@pytest.mark.asyncio
+async def test_news_article_cluster_self_reference(session):
+    """A representative article's cluster_id points at itself; a
+    corroborating article's cluster_id points at the representative."""
+    rep = await _seed_article(
+        session, source_url="https://reuters.com/story-a", corroboration_count=2,
+    )
+    rep.cluster_id = rep.id
+    await session.flush()
+
+    corroborator = await _seed_article(
+        session,
+        source_url="https://apnews.com/story-a-corroborating",
+        cluster_id=rep.id,
+        source_trust=Decimal("1.00"),
+        credibility_score=Decimal("1.000"),
+    )
+    await session.flush()
+
+    assert rep.cluster_id == rep.id
+    assert corroborator.cluster_id == rep.id

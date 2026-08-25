@@ -1,0 +1,21 @@
+id: analyst_qa_factual_001
+category: analyst_qa
+type: factual
+inputs:
+  question: "What was the company's return on equity in fiscal year 2025?"
+  context: |
+    [MEGACORP-10K-FY2025] MegaCorp Inc. reported net income of $6.2 billion
+    and average shareholders' equity of $34.4 billion for fiscal year 2025,
+    per the Consolidated Statements of Operations and Balance Sheets.
+must_include:
+  - "18"
+must_not_include:
+  - "I don't have access"
+  - "cannot determine"
+max_tokens: 300
+expected_citations:
+  - "MEGACORP-10K-FY2025"
+notes: |
+  ROE = 6.2 / 34.4 ~= 18.0%. The answer should state the figure and cite
+  the source; it should not invent a different net income or equity value
+  not present in the context.

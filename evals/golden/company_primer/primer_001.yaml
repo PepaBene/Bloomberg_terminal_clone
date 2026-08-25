@@ -1,0 +1,22 @@
+id: company_primer_001
+category: company_primer
+type: factual
+inputs:
+  question: "Write a one-paragraph primer on this company covering business, recent performance, and key risk."
+  context: |
+    [MEGACORP-10K-FY2025] MegaCorp Inc. manufactures industrial sensors,
+    operating in 12 countries with FY2025 revenue of $9.8B (+6% YoY) and
+    operating margin of 14.2%. [MEGACORP-10K-FY2025-ITEM1A] Item 1A Risk
+    Factors: "approximately 40% of revenue is concentrated in the
+    automotive sector, which is currently experiencing a cyclical downturn."
+must_include:
+  - "sensor"
+  - "automotive"
+max_tokens: 400
+expected_citations:
+  - "MEGACORP-10K-FY2025"
+  - "MEGACORP-10K-FY2025-ITEM1A"
+notes: |
+  Should mention the sensor business, the revenue growth figure, and the
+  automotive-concentration risk from Item 1A -- not a generic risk not
+  present in the source (e.g. "regulatory risk" with no basis given).

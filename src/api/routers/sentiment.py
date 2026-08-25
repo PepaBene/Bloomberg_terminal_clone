@@ -4,12 +4,15 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.engines.sentiment_analysis import (
+    SentimentResult,
     keyword_sentiment,
     compute_aggregate_sentiment,
     analyze_earnings_call,
@@ -42,24 +45,19 @@ async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
     return entity
 
 
-def _parse_llm_sentiment(raw: str | None):
-    """Parse the "LABEL|SCORE|CONFIDENCE" line the sentiment prompt asks
-    for. Returns None (triggering the keyword fallback) on any mismatch."""
-    if not raw:
-        return None
-    parts = raw.strip().splitlines()[0].split("|")
-    if len(parts) != 3:
-        return None
-    label, score_str, confidence_str = (p.strip() for p in parts)
-    if label.upper() not in ("POSITIVE", "NEGATIVE", "NEUTRAL"):
-        return None
-    try:
-        score = max(-1.0, min(1.0, float(score_str)))
-        confidence = max(0.0, min(1.0, float(confidence_str)))
-    except ValueError:
-        return None
-    from src.engines.sentiment_analysis import SentimentResult
-    return SentimentResult(sentiment=label.upper(), score=round(score, 4), confidence=round(confidence, 4))
+class SentimentClassification(BaseModel):
+    """Structured output shape for the ``sentiment_score`` prompt.
+
+    Replaces the old ``LABEL|SCORE|CONFIDENCE`` delimited-line parser
+    (``_parse_llm_sentiment``, now removed) -- ``complete_structured``
+    validates this shape via a tool-forced JSON call, so a malformed model
+    response is a validation error the caller catches, not a silent parse
+    failure to detect by hand.
+    """
+
+    label: str = Field(description="POSITIVE, NEGATIVE, or NEUTRAL")
+    score: float = Field(ge=-1.0, le=1.0, description="-1.0 (bearish) to 1.0 (bullish)")
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
 async def _score_entity_news(session: AsyncSession, entity_id: uuid.UUID) -> int:
@@ -199,24 +197,34 @@ async def score_text(
     falls back to the keyword-based heuristic (also used as a safety net
     if the LLM response can't be parsed).
     """
-    llm = get_llm_client()
+    client = get_ai_client()
     result = keyword_sentiment(body.text)
     ai_enabled = False
 
-    if llm.enabled:
-        raw = await llm.generate(
-            system_prompt=(
-                "You are a financial sentiment classifier. Respond with exactly one "
-                "line: LABEL|SCORE|CONFIDENCE where LABEL is POSITIVE, NEGATIVE, or "
-                "NEUTRAL, SCORE is a float from -1.0 to 1.0, and CONFIDENCE is a float "
-                "from 0.0 to 1.0. No other text."
-            ),
-            user_prompt=body.text,
-        )
-        parsed = _parse_llm_sentiment(raw)
-        if parsed is not None:
-            result = parsed
-            ai_enabled = True
+    if client.enabled:
+        prompt = load_prompt("sentiment_score")
+        try:
+            classification = await client.complete_structured(
+                response_model=SentimentClassification,
+                user=prompt.render(text=body.text),
+                system=prompt.system,
+                tier=prompt.tier,
+                max_tokens=prompt.max_tokens,
+                feature=prompt.feature,
+            )
+            label = classification.label.strip().upper()
+            if label in ("POSITIVE", "NEGATIVE", "NEUTRAL"):
+                result = SentimentResult(
+                    sentiment=label,
+                    score=round(classification.score, 4),
+                    confidence=round(classification.confidence, 4),
+                )
+                ai_enabled = True
+        except Exception:
+            # API failure or an out-of-enum label -- keep the keyword
+            # fallback already computed above, same safety-net contract
+            # the old delimited-line parser provided.
+            pass
 
     return SentimentScoreResponse(
         sentiment=result.sentiment,

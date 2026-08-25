@@ -1,0 +1,27 @@
+id: semantic_search_001
+category: semantic_search
+type: factual
+inputs:
+  question: "supply chain disruption impact on margins"
+  context: |
+    Indexed documents include: [DOC-A] a 10-K Item 7 MD&A section
+    discussing "logistics cost inflation and semiconductor shortages
+    compressing gross margin by 200bps"; [DOC-B] an unrelated proxy
+    statement about executive compensation; [DOC-C] an earnings call
+    transcript excerpt: "freight costs and chip supply constraints were
+    the primary drag on margin this quarter."
+must_include:
+  - "doc-a"
+  - "doc-c"
+must_not_include:
+  - "doc-b"
+max_tokens: 200
+expected_citations:
+  - "DOC-A"
+  - "DOC-C"
+notes: |
+  DOC-A and DOC-C are both semantically on-topic (supply chain -> margin
+  impact) despite different phrasing ("logistics cost inflation" vs
+  "freight costs and chip supply constraints") -- this is exactly what
+  semantic (not just keyword) retrieval should catch. DOC-B is lexically
+  and semantically unrelated and should not be surfaced.

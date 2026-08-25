@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.models.analyst_qa import QASession, QAFeedback
 from src.models.analytics import AnalyticsResult
@@ -124,7 +125,7 @@ async def ask_question(
 ):
     """Ask a question to the AI analyst Q&A engine."""
     start = time.monotonic()
-    llm = get_llm_client()
+    client = get_ai_client()
 
     entity_context: dict = dict(body.context or {})
     if body.entity_id is not None:
@@ -138,18 +139,17 @@ async def ask_question(
         "has_valuation": bool(entity_context.get("valuation")),
     }
 
-    if llm.enabled:
-        answer_text = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant answering an "
-                "analyst's question. Ground your answer strictly in the provided "
-                "context data. If the data needed to answer isn't present, say so "
-                "explicitly instead of guessing."
+    if client.enabled:
+        prompt = load_prompt("analyst_qa_legacy")
+        answer_text = await client.complete_text(
+            user=prompt.render(
+                question=body.question,
+                context=entity_context or "No entity context provided.",
             ),
-            user_prompt=(
-                f"Question: {body.question}\n"
-                f"Context: {entity_context or 'No entity context provided.'}"
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
         answer_type = "AI_GENERATED" if answer_text else "AI_UNAVAILABLE"
 

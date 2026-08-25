@@ -1,0 +1,18 @@
+id: morning_briefing_portfolio_002
+category: morning_briefing
+type: factual
+inputs:
+  question: "Summarize the overnight movers for this portfolio, biggest first."
+  context: |
+    Portfolio holdings and overnight price moves (no news catalysts
+    available for any holding):
+    - KO: +0.4%
+    - PG: -0.2%
+    - PEP: +0.1%
+must_include:
+  - "no"
+max_tokens: 300
+notes: |
+  A quiet overnight with no material moves and no catalysts should be
+  reported honestly as such (an empty/quiet-night state), not padded with
+  a fabricated catalyst for one of the sub-1% moves.

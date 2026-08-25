@@ -45,10 +45,10 @@ export default function AnalystQA() {
       const data = res as Record<string, any>;
       const answer: ChatMessage = {
         role: 'assistant',
-        text: data?.answer ?? data?.text ?? 'No response available.',
+        text: data?.answer_text ?? 'No response available.',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         sources: data?.sources ?? [],
-        confidence: data?.confidence ?? 0,
+        confidence: data?.confidence_level ?? 0,
       };
       setMessages(prev => [...prev, answer]);
     } catch (err) {

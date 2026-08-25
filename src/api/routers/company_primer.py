@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.engines.company_primer import (
     compute_financial_summary,
@@ -67,7 +68,7 @@ async def get_company_primer(
         return _primer_to_response(existing)
 
     # R-013: Populate data dicts from DB before calling generate_primer()
-    llm = get_llm_client()
+    client = get_ai_client()
 
     # Fetch latest financial period with related statements
     fp_result = await session.execute(
@@ -170,34 +171,28 @@ async def get_company_primer(
 
     ai_description = None
     ai_competitive = None
-    if llm.enabled:
-        ai_description = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant. Write a concise, "
-                "factual business description for a company primer. 2-4 sentences, no "
-                "speculation beyond the provided data."
+    if client.enabled:
+        description_prompt = load_prompt("company_primer_description")
+        ai_description = await client.complete_text(
+            user=description_prompt.render(
+                company=entity.legal_name, financial_data=financial_data,
+                valuation_data=valuation_data,
             ),
-            user_prompt=(
-                f"Company: {entity.legal_name}\n"
-                f"Financial data: {financial_data}\n"
-                f"Valuation data: {valuation_data}\n"
-                "Write a brief business description summarizing the company's financial "
-                "and valuation profile."
-            ),
+            system=description_prompt.system,
+            tier=description_prompt.tier,
+            max_tokens=description_prompt.max_tokens,
+            feature=description_prompt.feature,
         )
-        ai_competitive = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant. Write a concise "
-                "competitive-position assessment. 2-3 sentences, grounded only in the "
-                "provided data."
+        competitive_prompt = load_prompt("company_primer_competitive")
+        ai_competitive = await client.complete_text(
+            user=competitive_prompt.render(
+                company=entity.legal_name, financial_data=financial_data,
+                valuation_data=valuation_data, risks=risk_data,
             ),
-            user_prompt=(
-                f"Company: {entity.legal_name}\n"
-                f"Financial data: {financial_data}\n"
-                f"Valuation data: {valuation_data}\n"
-                f"Key risks: {risk_data}\n"
-                "Assess the company's competitive position based on this data."
-            ),
+            system=competitive_prompt.system,
+            tier=competitive_prompt.tier,
+            max_tokens=competitive_prompt.max_tokens,
+            feature=competitive_prompt.feature,
         )
 
     primer = generate_primer(

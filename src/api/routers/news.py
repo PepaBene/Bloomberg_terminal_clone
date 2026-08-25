@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_, desc, literal_column
@@ -20,6 +21,25 @@ from src.schemas.news_article import (
 )
 
 router = APIRouter(tags=["News Intelligence"])
+
+
+RankBy = Literal["date", "credibility"]
+
+
+def _apply_ranking(stmt, rank_by: RankBy):
+    """Deterministic ranking, zero LLM (§4.5's no-AI mode). ``"date"`` is
+    the pre-existing default (newest first). ``"credibility"`` ranks by
+    the Layer 2 trust/corroboration score first (source tier x
+    corroboration boost -- see src/engines/news_credibility.py), recency
+    as tiebreaker, NULLs (not-yet-enriched articles) sorted last rather
+    than first so unscored rows don't crowd out scored ones.
+    """
+    if rank_by == "credibility":
+        return stmt.order_by(
+            NewsArticle.credibility_score.desc().nulls_last(),
+            NewsArticle.publish_date.desc(),
+        )
+    return stmt.order_by(NewsArticle.publish_date.desc())
 
 
 async def _get_entity(session: AsyncSession, entity_id: uuid.UUID) -> Entity:
@@ -78,6 +98,10 @@ async def _enrich_articles(
                 sentiment_label=article.sentiment_label,
                 source_url=article.source_url,
                 entities=entity_links,
+                source_trust=float(article.source_trust) if article.source_trust is not None else None,
+                credibility_score=float(article.credibility_score) if article.credibility_score is not None else None,
+                is_non_consensus=article.is_non_consensus,
+                corroboration_count=article.corroboration_count,
             )
         )
 
@@ -95,19 +119,17 @@ async def get_latest_news(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     limit: int = Query(20, ge=1, le=100),
+    rank_by: RankBy = Query("date", description="'date' (newest first) or 'credibility' (trust-ranked, §4.5 no-AI mode)"),
 ):
-    """Get the latest news articles across all entities.
+    """Get the latest news articles across all entities (the "market" view).
 
     Opening the news feed triggers a background refresh (debounced to at most
     once per freshness window) that pulls fresh headlines for major companies,
     so the feed stays current without blocking this response.
     """
     background_tasks.add_task(refresh_global_news)
-    result = await session.execute(
-        select(NewsArticle)
-        .order_by(NewsArticle.publish_date.desc())
-        .limit(limit)
-    )
+    stmt = _apply_ranking(select(NewsArticle), rank_by).limit(limit)
+    result = await session.execute(stmt)
     rows = result.scalars().all()
     return await _enrich_articles(session, list(rows))
 
@@ -264,6 +286,7 @@ async def get_news_coverage_stats(
 async def get_news_by_sector(
     gics_sector: str,
     session: AsyncSession = Depends(get_session),
+    rank_by: RankBy = Query("date", description="'date' (newest first) or 'credibility' (trust-ranked, §4.5 no-AI mode)"),
 ):
     """Get recent news for all entities in a GICS sector."""
     # Find entities in this sector
@@ -285,12 +308,10 @@ async def get_news_by_sector(
     if not article_ids:
         return []
 
-    result = await session.execute(
-        select(NewsArticle)
-        .where(NewsArticle.id.in_(article_ids))
-        .order_by(NewsArticle.publish_date.desc())
-        .limit(50)
-    )
+    stmt = _apply_ranking(
+        select(NewsArticle).where(NewsArticle.id.in_(article_ids)), rank_by
+    ).limit(50)
+    result = await session.execute(stmt)
     rows = result.scalars().all()
     return await _enrich_articles(session, list(rows))
 
@@ -365,6 +386,7 @@ async def get_entity_news(
     to_date: date | None = Query(None, description="End date"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    rank_by: RankBy = Query("date", description="'date' (newest first) or 'credibility' (trust-ranked, §4.5 no-AI mode)"),
 ):
     """Get news articles for a specific entity.
 
@@ -400,7 +422,7 @@ async def get_entity_news(
     if to_date:
         stmt = stmt.where(NewsArticle.publish_date <= to_date)
 
-    stmt = stmt.order_by(NewsArticle.publish_date.desc()).offset(offset).limit(limit)
+    stmt = _apply_ranking(stmt, rank_by).offset(offset).limit(limit)
     result = await session.execute(stmt)
     rows = result.scalars().all()
 

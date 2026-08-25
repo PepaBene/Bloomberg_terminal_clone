@@ -1,0 +1,40 @@
+name: CI
+
+# §6 shared-foundation requirement: "eval harness running in CI" alongside
+# the regular test suite. The eval step (scripts/run_evals.py) grades the
+# AI core's grounded-answering prompt against evals/golden/ and an
+# LLM-as-judge pass, but only when an ANTHROPIC_API_KEY secret is actually
+# configured on the repo -- with none configured (e.g. on a fork's PR) the
+# script itself detects the disabled client and exits 0 with a "skipped"
+# notice, so this step is always safe to run unconditionally.
+#
+# The test suite needs no live Postgres/Redis: tests/conftest.py runs
+# against an in-memory SQLite engine (aiosqlite), and src/config.py's
+# Settings all have working defaults, so `pytest` alone is enough here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: pytest -q
+
+      - name: Run eval harness
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m scripts.run_evals

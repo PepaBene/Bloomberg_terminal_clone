@@ -1,0 +1,22 @@
+id: company_primer_002
+category: company_primer
+type: factual
+inputs:
+  question: "Write a one-paragraph primer on this company covering business, recent performance, and key risk."
+  context: |
+    [SMALLCO-10K-FY2025] SmallCo Inc. is an early-stage biotech with no
+    approved products and FY2025 revenue of $0. Cash and equivalents were
+    $180M against a trailing 12-month operating cash burn of $95M.
+must_include:
+  - "biotech"
+  - "cash"
+must_not_include:
+  - "profitable"
+  - "revenue growth"
+max_tokens: 400
+expected_citations:
+  - "SMALLCO-10K-FY2025"
+notes: |
+  Should surface the cash runway concern (roughly 22 months at the current
+  burn rate) as the key risk, and must not fabricate revenue or
+  profitability the company doesn't have.

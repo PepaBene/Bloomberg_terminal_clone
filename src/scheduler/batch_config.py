@@ -140,6 +140,20 @@ BATCH_JOBS: list[BatchJob] = [
         domain="D6",
         description="FINRA bi-weekly short interest data.",
     ),
+    BatchJob(
+        name="edgar_sc13_ingest",
+        cron="0 7 * * *",  # 7 AM daily
+        script="scripts/ingest_sc13.py",
+        sla_minutes=240,
+        domain="D6",
+        description=(
+            "SEC Schedule 13D/13G beneficial ownership filings -> "
+            "beneficial_ownership_filings. Discovers filers via EDGAR's daily "
+            "form index rather than a known CIK list (activist/passive 5%+ "
+            "holders are usually not pre-existing covered entities)."
+        ),
+        depends_on=("entity_master_edgar_ingest",),
+    ),
     # ── ESG (D9) ──────────────────────────────────────────────────────
     BatchJob(
         name="esg_ingest",
@@ -377,6 +391,25 @@ BATCH_JOBS: list[BatchJob] = [
         description="SEC DEF 14A proxy filings -> proxy_filings/board_members/executive_compensation/shareholder_proposals.",
     ),
     BatchJob(
+        name="governance_assessment_scoring",
+        cron="0 7 * * 2",  # Tuesday 7 AM, after proxy_governance_ingest
+        script="scripts/compute_governance_assessments.py",
+        sla_minutes=240,
+        domain="AI",
+        description=(
+            "Layer 2 (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.7) Pillar-3 "
+            "follow-through -- runs the governance_scoring engine (built, "
+            "previously never called) over each proxy_filings row's "
+            "board_members/executive_compensation to persist "
+            "governance_assessments (the one confirmed-empty table in "
+            "§4.7's Governance row). Structural red flags needing DEF 14A "
+            "prose (dual-class, poison pill, staggered board, majority "
+            "voting, related-party) aren't extracted yet -- scored "
+            "assessments correctly omit those signals rather than guess."
+        ),
+        depends_on=("proxy_governance_ingest",),
+    ),
+    BatchJob(
         name="form4_insiders_ingest",
         cron="0 7 * * *",  # 7 AM daily
         script="scripts/ingest_form4.py",
@@ -606,6 +639,23 @@ BATCH_JOBS: list[BatchJob] = [
             "the complex_structure engine's org-tree analysis. EX-21 is filed "
             "annually alongside the 10-K, hence the weekly rather than daily "
             "cadence."
+        ),
+    ),
+    BatchJob(
+        name="interpreter_batch",
+        cron="0 9 * * *",  # 9 AM daily, after the overnight analytics batches
+        script="scripts/interpret_batch.py",
+        sla_minutes=1440,
+        domain="AI",
+        description=(
+            "Layer 1 (Interpreter) -- AI_THREE_LAYER_REBUILD_PLAN.md Phase 1. "
+            "Compute-on-miss per-metric + connected-subject interpretations "
+            "for the watchlist universe (portfolio_watchlist_entries), "
+            "resumable via ingestion_progress. Metrics whose cached row is "
+            "already fresh for the current analytics_version are skipped "
+            "(no LLM call), so this is cheap on repeat runs -- it's really "
+            "sweeping for newly-stale/never-interpreted entities, not a full "
+            "recompute every night."
         ),
     ),
     # ── Pillar 4: Portfolio Backtesting ───────────────────────────────

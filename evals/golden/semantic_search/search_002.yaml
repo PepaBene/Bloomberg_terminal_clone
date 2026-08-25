@@ -1,0 +1,24 @@
+id: semantic_search_002
+category: semantic_search
+type: factual
+inputs:
+  question: "AAPL 2025 buyback authorization amount"
+  context: |
+    Indexed documents include: [DOC-X] an 8-K stating "the Board
+    authorized an additional $110 billion share repurchase program";
+    [DOC-Y] a news article about a different company's dividend increase;
+    [DOC-Z] a 10-Q mentioning "no changes to the repurchase program
+    during the quarter."
+must_include:
+  - "doc-x"
+must_not_include:
+  - "doc-y"
+max_tokens: 200
+expected_citations:
+  - "DOC-X"
+notes: |
+  A precise figure-and-entity query like this should favor the exact
+  lexical/numeric match (DOC-X, "$110 billion") -- the kind of query the
+  hybrid retriever's BM25 half exists for, since a pure embedding search
+  can under-rank an exact number match against more thematically similar
+  but numerically wrong passages.

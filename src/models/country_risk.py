@@ -89,6 +89,12 @@ class GeopoliticalEvent(TimestampMixin, Base):
     event_type: Mapped[str | None] = mapped_column(String(30))
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    # Layer 2 §4.1 (AI_THREE_LAYER_REBUILD_PLAN.md): a real column, not
+    # parsed out of `description`'s "Source: {domain} — {url}" text --
+    # lets gdelt_news_bridge.py dedup/link by URL instead of the
+    # connector's own title-based de-dup (fragile: two distinct events
+    # can legitimately share a headline).
+    source_url: Mapped[str | None] = mapped_column(String(1000), unique=True)
     countries_involved: Mapped[dict | None] = mapped_column(JSONB)
     severity: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str | None] = mapped_column(String(20))

@@ -166,6 +166,15 @@ function IconDashboard({ filled }: IconProps) {
   );
 }
 
+function IconAdviser({ filled }: IconProps) {
+  return (
+    <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
+      <path d="M2 3.5a1 1 0 011-1h10a1 1 0 011 1v6a1 1 0 01-1 1H6.5L3 13v-2.5H3a1 1 0 01-1-1v-6z" />
+      <path d="M5 6h6M5 8.5h3.5" fill="none" />
+    </svg>
+  );
+}
+
 function IconSettings({ filled }: IconProps) {
   return (
     <svg {...(filled ? sf : s)} viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'}>
@@ -218,6 +227,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'fi', icon: IconFixedIncome, label: 'Fixed Inc', path: '/fi', shortcut: '5', subItems: ['Curves', 'Spreads', 'Issuance'] },
       { id: 'portfolio', icon: IconPortfolio, label: 'Portfolio', path: '/portfolio', shortcut: '6', subItems: ['Holdings', 'Attribution', 'Rebalance'] },
       { id: 'risk', icon: IconRisk, label: 'Risk', path: '/risk', shortcut: '7', subItems: ['VaR', 'Stress Test', 'Exposure'] },
+      { id: 'adviser', icon: IconAdviser, label: 'Adviser', path: '/adviser', shortcut: 'A', subItems: ['Chat', 'What-If', 'Recommendations'] },
     ],
   },
   {

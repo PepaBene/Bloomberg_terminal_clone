@@ -38,6 +38,20 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # Batch scheduler (scripts/run_scheduler.py)
     "apscheduler>=3.10.0",
+    # AI core (src/ai/) — Claude client + Gemini embeddings + hybrid retrieval
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
+    "rank-bm25>=0.2.2",
+    # YAML prompt registry (src/ai/prompts/) + eval golden examples (evals/) —
+    # both already imported `yaml` directly without this ever being declared;
+    # it only worked because something else pulls it in transitively.
+    "PyYAML>=6.0.0",
+    # SSE streaming for chat/briefing/deep-research endpoints (src/ai/streaming.py)
+    "sse-starlette>=2.1.0",
+    # Full-article body_text extraction from raw HTML (Layer 2 §4.1) --
+    # unblocks news_dedup's content-fingerprint tier, FinBERT sentiment,
+    # and entity linking, which all degrade to title+summary without it.
+    "trafilatura>=1.12.0",
 ]
 
 [project.optional-dependencies]

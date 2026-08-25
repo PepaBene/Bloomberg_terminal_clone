@@ -315,7 +315,9 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
   retry+backoff, prompt-cache markers, model tiering, telemetry), `router.py`
   (feature→tier), `prompts/` (YAML versioned registry + `analyst_qa`,
   `sentiment_score`, `interpret_metric` v1).
-- Telemetry: `telemetry.py` + `ai_call_log` model + migration `084_ai_call_log.py`
+- Telemetry: `telemetry.py` + `ai_call_log` model + migration `092_ai_call_log.py`
+  (corrected from an earlier `084` reference in this log — that was the wrong
+  number; migrations landed around/after it in the meantime)
   + daily-token-usage helper (for the budget guardrail).
 - `src/ai/llm_client.py` rewritten as a **compatibility shim** over the new core:
   preserves `get_llm_client()` / `.enabled` / `generate(system, user, max_tokens)`
@@ -324,16 +326,782 @@ Reuse: `ingestion_progress` ledger for interpreter batch + new news connectors. 
   graceful degradation holds (no `anthropic` pkg / no key → `enabled=False`,
   helpers no-op) exactly as before.
 
-**Next in Phase 0:**
-- Retrieval/RAG: add `pgvector` dep, migration to `VECTOR(3072)` + HNSW on
-  `search_documents`, `retrieval/{chunker,embedder,store,retriever}.py` (hybrid
-  vector+BM25). *(Requires the `pgvector` Python package and `CREATE EXTENSION
-  vector` on the live Postgres — code + migration buildable now, DB run needs the
-  extension.)*
-- Tool-use agent loop (`agents/loop.py`) + first tools (`data_query`,
-  `web_search`, `citation_check`).
-- Guardrails (`citations`, `dates`, `redaction`) + cost-budget enforcement.
-- SSE streaming helper (`streaming.py`) for chat/briefings/deep-research.
-- Eval harness skeleton (golden examples + LLM-as-judge).
-- Then migrate the 9 legacy narrative features off inline prompts onto the
-  registry + structured output, and retire `src/services/ai/*`.
+**Done & tested (2026-08-08):**
+- Retrieval/RAG: `src/ai/retrieval/{chunker,embedder,store,retriever}.py`.
+  - `chunker.py` — paragraph→sentence→hard-char cascade chunker with **real**
+    overlap (the legacy `vector_search.chunk_text` accepted an `overlap` param
+    but never applied it) and per-chunk char-offset provenance.
+  - `embedder.py` — wraps the existing `EmbeddingClient` (Gemini
+    `gemini-embedding-002`), standardized on a new `INDEXED_DIMENSIONS = 1536`
+    (requested server-side via the API's `output_dimensionality`, not a
+    client-side truncation) — the legacy `embedding` column is 3072-dim, which
+    pgvector cannot index (HNSW/IVFFlat cap at 2000 dims; see migration 087's
+    own comment on why no index was built then).
+  - Migration `094_search_documents_embedding_1536.py` adds
+    `search_documents.embedding_1536 vector(1536)` **with a real HNSW cosine
+    index** — the first actual ANN index on this table. Legacy `embedding`
+    (3072, unindexed) and `embedding_vector` (JSONB) columns untouched.
+  - `store.py` — `upsert_chunks` (full-replace per `(source_type, source_id)`,
+    ORM insert/delete) + `vector_search` (ORM `.cosine_distance()` against
+    `embedding_1536`) + `fetch_candidate_pool` (dialect-agnostic lexical pool).
+  - `retriever.py` — hybrid: independent vector-KNN and BM25 (`rank_bm25`)
+    rankings fused via Reciprocal Rank Fusion, not a rerank-within-vector-hits
+    pass (a ticker/exact-figure query can be a strong lexical match with
+    mediocre cosine similarity). `bm25_rank`/`reciprocal_rank_fusion` are pure
+    and fully unit-tested; `hybrid_search`/`vector_search` need live
+    Postgres+pgvector and a configured `GOOGLE_API_KEY` — **not exercised
+    against either in this sandbox** (SQLite test engine remaps `Vector` →
+    plain `JSON`, which has no `cosine_distance` comparator at all).
+  - Added missing deps to `pyproject.toml`: `anthropic`, `google-genai`,
+    `rank-bm25` (used directly), `sse-starlette` (for the next item, SSE
+    streaming).
+  - 14 new unit tests, all passing (chunker incl. the overlap-actually-works
+    regression test, BM25 ranking, RRF fusion, `upsert_chunks` against the
+    SQLite test engine). Full `tests/test_ai/` + `tests/test_models/` +
+    `tests/test_api/test_research_search_api.py` suites re-verified green.
+
+- Tool-use agent loop (`agents/loop.py`) + first tools (`tools/{base,
+  data_query,web_search,citation_check}.py`).
+  - `agents/loop.py` — the multi-turn extension `AIClient.complete()` doesn't
+    have: calls the model, executes any client `tool_use` blocks via a
+    registry, feeds `tool_result`s back, repeats until a final text-only
+    answer or `max_iterations`. Duck-typed against an `AIClientLike`
+    protocol (not the concrete class) specifically so it's testable with a
+    fake client — real Anthropic responses aren't needed to verify the loop's
+    control flow.
+  - `tools/base.py` documents the split this loop depends on: **client
+    tools** (`BaseTool` subclasses, executed locally) vs **server tools**
+    (e.g. `web_search`, resolved by Anthropic itself within one response —
+    `AIResponse.from_raw()` only collects `type=="tool_use"` blocks, so
+    server-tool blocks never reach local dispatch; no special-casing needed).
+  - `tools/data_query.py` — one safe typed action (fetch an entity's
+    `analytics_results`), not a free-form SQL executor (an LLM-facing raw-SQL
+    tool is a real injection risk) — the pattern to extend, not the full
+    surface Layer 1's `fundamentals.py`/`analytics.py` will eventually need.
+  - `tools/web_search.py` — Anthropic's `web_search_20250305` server tool,
+    domain-allowlisted to the wires/regulators decided in §10/§11.
+  - `tools/citation_check.py` — `check_claim_support()` (pure token-overlap
+    heuristic, not a second LLM call) lets the agent self-check a claim
+    against its cited chunk(s) before finalizing; reused as-is by the
+    guardrails layer (next item) as a post-hoc enforcement gate.
+  - 20 new tests: the loop's control flow (tool execution, message
+    threading, unknown-tool/tool-exception handling, max-iterations,
+    disabled-client raise, server-tool pass-through) verified against a
+    hand-rolled fake client — not just the disabled-path check the earlier
+    Phase 0 tests were limited to. `data_query`/`citation_check` DB paths
+    verified against the SQLite test engine.
+
+- Guardrails (`guardrails/{citations,dates,redaction,budget}.py`), all pure
+  except `budget.check_budget` (DB-backed, reuses the existing
+  `telemetry.daily_token_usage`).
+  - `citations.py` — `find_uncited_numeric_claims` (any sentence with a
+    digit needs *some* `[marker]` citation) + `verify_citations` (for cited
+    sentences, does the claim actually hold up against the source text
+    behind its marker(s)? reuses `tools/citation_check.py`'s
+    `check_claim_support`). Deliberately agnostic to the citation marker
+    format — callers supply a `{marker: source_text}` map built from
+    whatever they already retrieved, rather than this module assuming
+    `search_documents.id` UUIDs appear verbatim in the model's prose.
+  - `dates.py` — `find_future_dated_claims` catches the "by 2027"
+    hallucination pattern (ISO dates, "Month DD, YYYY", and a conservative
+    bare-year fallback), one issue per sentence.
+  - `redaction.py` — `redact_names` hashes named individuals (e.g. an
+    insider discussed in a Form-4-grounded answer) before telemetry
+    persists prompt/response text; same name always redacts to the same
+    token, longest-name-first so full names aren't partially clobbered by a
+    shorter substring match.
+  - `budget.py` — `check_budget` raises `BudgetExceededError` (for an API
+    route to turn into 429 + `Retry-After`) once a user crosses
+    `DEFAULT_DAILY_TOKEN_BUDGET = 10_000_000`; light-tier calls and
+    no-user-context (batch jobs) are exempt; fails open (never raises) if
+    the usage lookup itself errors, matching `daily_token_usage`'s own
+    fail-to-0 contract — a telemetry outage must not take down the features
+    it observes.
+  - 23 new tests, all passing (pure-function coverage for citations/dates/
+    redaction; `budget` exercised against real `ai_call_log` rows written
+    via `record_call` on the SQLite test engine).
+
+- SSE streaming helper (`streaming.py`): `format_sse`/`stream_tokens_as_sse`
+  wrap `AIClient.stream()`'s plain text-delta iterator into SSE wire format
+  (multi-line data correctly split across repeated `data:` lines, always
+  terminated by a `done` or `error` event so the client has a definitive
+  end signal even on mid-stream failure). `stream_sections_as_sse` adds
+  `section_start`/`section_end` brackets for briefings. `sse_response`
+  wraps either in a plain FastAPI `StreamingResponse` (no `sse-starlette`
+  dependency needed for the core path — that package stays available in
+  pyproject for later if an endpoint wants its ping/reconnect-id support).
+  10 new tests, all passing.
+
+- Eval harness skeleton (`evals/{schema,judge,runner}.py` + `evals/golden/`),
+  at repo root per this plan's own layout (not under `src/ai/`).
+  - `schema.py` — `GoldenExample` (Pydantic) + `load_golden_examples(category)`
+    loader; unknown/empty category returns `[]` rather than raising (most
+    categories start empty and grow 3-5 examples per feature migration, per
+    §2's own convention — not fully authored upfront).
+  - `judge.py` — `judge_response()` scores a generated response 0-10 on
+    faithfulness / citation correctness / hallucination / date awareness /
+    tone via `AIClient.complete_structured` (validated `JudgeScore`, not
+    parsed free text). `build_judge_prompt()` is split out pure so the exact
+    wording fed to the judge is reviewable/testable without a live call.
+  - `runner.py` — `check_deterministic()` (pure: must_include/
+    must_not_include/max_tokens) always runs; `run_category()` additionally
+    judges each example when a live, enabled client is passed (skips
+    gracefully otherwise — usable with no Anthropic key, this sandbox
+    included). `save_baseline`/`load_baseline`/`check_regression()` diff a
+    run's `avg_judge_overall` against a stored baseline, flagging a
+    regression `> 0.5` — the CI gate threshold the superseded plan's
+    Phase 0.2 decided on.
+  - Seed corpus: 13 real golden examples across all 6 categories (3
+    analyst_qa across factual/comparative/scenario types, 2 each for the
+    rest) — a working starting corpus + test fixtures, not the plan's full
+    target counts (30/10/15/10/20/30 = 115), which are meant to grow
+    incrementally as each feature migrates in the next item, same as the
+    category-loader's own doc comment says.
+  - Fixed a latent gap while here: `PyYAML` was never declared in
+    `pyproject.toml` despite `src/ai/prompts/registry.py` already importing
+    `yaml` directly (only worked because something else pulled it in
+    transitively) — now declared explicitly.
+  - 26 new tests, all passing.
+
+- Migrated all 9 legacy narrative routers (10 call sites) off inline
+  f-string prompts + `get_llm_client()` onto the registry + `AIClient`, and
+  retired what could safely be retired from `src/services/ai/*`.
+  - Ported each call site's exact existing system/user prompt text verbatim
+    into a new versioned YAML under `src/ai/prompts/v1/` -- this pass changes
+    *plumbing* (registry-backed, versioned, routed through `AIClient`'s
+    retries/telemetry/prompt-caching), not prompt *content*; rewriting
+    prompts with RAG-retrieved context, evals, and a `USE_AI_V2`-gated
+    rollout is genuinely Phase 2 work, not this item.
+  - `research_qa.py`'s prompt is `analyst_qa_legacy` (not the pre-existing
+    `analyst_qa` v1 prompt from Phase 0's first commit) -- that prompt already
+    demands `[doc_id]` citations against RAG-retrieved context research_qa.py
+    doesn't have yet, so reusing it now would silently change behavior
+    (and, unfulfillable, produce citations to nothing) ahead of the real
+    Phase 2 migration it was written for.
+  - `sentiment.py` moved to `complete_structured` (`SentimentClassification`
+    Pydantic model) instead of `complete_text` + the old
+    `_parse_llm_sentiment` regex/split parser on a `LABEL|SCORE|CONFIDENCE`
+    text line -- this is the "structured output" half of the item, and the
+    one call site with a real parser to eliminate. The `sentiment_score`
+    prompt got a new v2 (structured-classification framing; v1's
+    delimited-format instructions are moot once `complete_structured`
+    forces the shape via a tool schema) -- v1 had no production caller yet,
+    so nothing's behavior changed underneath it.
+  - `research_thesis.py`'s elevator-pitch call got its own new
+    `investment_thesis_pitch` feature/tier (SYNTHESIS) rather than reusing
+    the existing `investment_thesis` entry (DEEP/opus) -- that tier was
+    sized for full thesis generation/validation, not a `<400`-char one-liner;
+    forcing it through opus would have been a real, avoidable cost mismatch
+    introduced by the migration itself, not preserved legacy behavior.
+  - Every other call site reuses an existing `router.FEATURE_TIER` entry for
+    telemetry bucketing (`feature=`), with a distinct `prompt_id`/version
+    per call site (`AICallRecord` already carries both independently) --
+    e.g. `company_primer.py`'s two calls and `research_primers.py`'s one
+    all bucket under `feature="company_primer"` for cost tracking while
+    keeping separate prompt content.
+  - `src/services/ai/` retirement: `claude_client.py` was migrated too
+    (`src/ingestion/guidance_extraction.py`'s optional AI-augmentation pass
+    was its only other caller -- `client.generate_structured(prompt, model)`
+    → `AIClient.complete_structured(response_model=..., user=..., tier=...)`)
+    and then deleted, along with the already-dead `vector_search.py` (no
+    production caller at all, confirmed by the migration survey -- its
+    chunking/cosine-similarity role is now `src/ai/retrieval/`'s). Only
+    `embedding_client.py` remains, correctly -- both `src/ai/retrieval/
+    embedder.py` and `src/api/routers/research_search.py` still depend on
+    it directly, and it was never meant to be replaced (Phase 0's retrieval
+    item wraps it, doesn't reimplement it).
+  - `tests/test_services/test_ai_services.py` trimmed to just
+    `TestEmbeddingClient`; the retired modules' coverage already lives in
+    `tests/test_ai/test_retrieval.py` (chunking) and
+    `tests/test_ai/test_ai_core.py` (the Claude client).
+  - Verified: all 9 routers import cleanly; every new/changed prompt loads
+    and renders correctly via the registry; the 9 routers' own API test
+    suites pass (149/159 -- the 10 failures are a pre-existing,
+    unrelated `CompanyPrimer(primer_id=...)` test-fixture bug in
+    `test_research_primers_api.py`, confirmed via `git diff` touching
+    neither that test file nor the model, and the model has no `primer_id`
+    field at all); `tests/test_ai/` + `tests/test_evals/` + affected
+    ingestion/services suites all green.
+
+**Phase 0 complete.** Next: Phase 1 (Layer 1 — Interpreter), which is the
+first phase that actually builds on this core end-to-end (connection graph,
+per-metric interpretation, the `interpretations` table).
+
+### Phase 1 — complete
+
+- **`interpretations` table** (`src/models/interpretation.py`, migration
+  095): polymorphic `subject_type`/`subject_id` (plain strings, not a FK --
+  Phase 1 only populates ENTITY subjects, but SECTOR/MACRO/PORTFOLIO are
+  real future subject types per §3.1, so a hard FK to `entities` would have
+  to be undone later) plus `scope` (METRIC/GROUP/SUBJECT), nullable
+  `metric_key` (NULL for GROUP/SUBJECT rows), `as_of`, and
+  `analytics_version` -- the freshness fingerprint the cache keys off of.
+  Lookup index is intentionally non-unique: a unique index on a nullable
+  column doesn't enforce "one row per (subject, scope, as_of)" the way it
+  looks like it should (Postgres treats NULLs as distinct), so uniqueness
+  is enforced in application code (`store.py`'s upsert-by-lookup) instead
+  of being (incompletely) delegated to the schema.
+- **Connection graph** (`src/ai/interpret/graph.py`): a small, curated,
+  pure-Python graph of causal edges between financial/macro concepts
+  (macro rates → credit spreads → default risk → cost of debt → WACC →
+  DCF; DuPont ratios → ROE; ownership flows → conviction; sector cycle →
+  KPIs; country risk → valuation; ESG → governance → cost of equity) --
+  deliberately curated, not learned/inferred, per §3.2's design call: a
+  wrong causal edge silently asserted by a model is worse than a smaller
+  but trustworthy fixed set. `find_paths`/`connected_subgraph` let the
+  interpreter agent pull in only the neighborhood relevant to whatever
+  metric it's explaining, not the whole graph.
+- **Subject context assembly** (`src/ai/interpret/context.py`):
+  `assemble_entity_context` gathers "latest snapshot per metric" across the
+  6 of ~10 §3.1 input domains that have confirmed entity_id-direct schema
+  linkage (fundamentals/ratios + quality via `AnalyticsResult`, credit via
+  `DefaultRiskScore`, ownership via `InsiderSignal`, macro exposure via
+  `MacroThemeScore`, ESG/governance via `ESGTemperatureScore` +
+  `GovernanceAssessment`). Valuation, security-keyed risk/technical, and
+  SECTOR/MACRO/PORTFOLIO subject types are confirmed-real but not yet
+  wired -- mechanical follow-ups, not scoped out for design reasons.
+  **Design bug found and fixed here during testing:** `as_of` originally
+  defaulted to `date.today()`, but `as_of` is part of the cache key
+  `store.py` looks up on -- a "today" default would silently mint a
+  brand-new, always-a-cache-miss row every single day even when nothing
+  in the underlying analytics had changed, defeating compute-on-miss
+  entirely. Fixed to derive `as_of` from the data's own latest
+  `as_of_date` instead, so the cache key is stable for as long as the
+  data is; `analytics_version` (a `count:latest_date` fingerprint) is
+  what actually detects a real change and forces recomputation.
+- **Interpreter agent** (`src/ai/interpret/interpreter.py`):
+  `interpret_metric` (LIGHT tier, one metric + its 1-hop graph neighbors →
+  structured `MetricInterpretationOutput` via `complete_structured`) and
+  `synthesize_subject` (SYNTHESIS tier, all of an entity's metric
+  interpretations → a cross-metric `SubjectSynthesisOutput` narrative).
+  `interpret_metrics_batch` runs metrics concurrently
+  (`asyncio.gather` + semaphore, best-effort per metric so one bad
+  response doesn't sink the batch).
+- **Compute-on-miss store** (`src/ai/interpret/store.py`):
+  `get_or_compute_entity_interpretation` (full pipeline: reuse any metric
+  row whose `analytics_version` still matches, recompute only the
+  stale/missing ones, then synthesize the subject narrative once all
+  metric outputs are available) and `get_or_compute_metric_interpretation`
+  (the lightweight single-metric path for a per-figure "interpret this"
+  popover -- doesn't wait on every other metric or the subject synthesis).
+  **Second bug found and fixed here:** the single-metric path originally
+  fell back to serving the *stale* `existing` row when the AI client was
+  disabled or the call failed; that's inconsistent with the entity-level
+  path, which simply omits a metric it can't freshly compute rather than
+  risk serving a read that may now contradict the current analytics.
+  Fixed to return `None` in both cases, and locked in with a regression
+  test (`test_get_or_compute_metric_stale_cache_with_disabled_client_returns_none_not_stale_row`).
+- **API** (`src/api/routers/interpret.py`, registered at `/v5` in
+  `app.py` -- the plan's own version prefix for Three-Layer endpoints):
+  `GET /interpret/entities/{entity_id}` (full compute-on-miss sweep +
+  subject synthesis) and `GET /interpret/entities/{entity_id}/metrics/{metric_key}`
+  (single-metric popover; 404 for an unknown metric, 503 when nothing
+  cached and the AI client is unavailable to compute one).
+- **Nightly batch job** (`scripts/interpret_batch.py`, registered in
+  `src/scheduler/batch_config.py` as `interpreter_batch`, `0 9 * * *`,
+  domain `AI`, `sla_minutes=1440`): resumable via the same
+  `ingestion_progress` raw-SQL ledger pattern `scripts/backfill.py` already
+  established for every other resumable batch type (`data_type="interpreter"`,
+  `subject_key=str(entity_id)`). Universe defaults to every entity with at
+  least one `portfolio_watchlist_entries` row (the "active universe" §3.5
+  calls for), with `--entity-ids`/`--all`/`--limit` overrides for manual
+  runs and a small test universe respectively. Because
+  `get_or_compute_entity_interpretation` already skips the LLM entirely
+  for any metric whose cached row is still fresh, a nightly re-run against
+  an unchanged entity is cheap -- the job is really sweeping for
+  newly-stale or never-interpreted entities, not doing a full nightly
+  recompute of everything. Portfolio *holdings* (`positions`) are
+  confirmed NOT yet folded into the universe -- `Position` has no direct
+  `entity_id` column, only a ticker/security keyed to a portfolio, so
+  folding holdings in needs an extra `Security.issuer_entity_id` join this
+  pass doesn't do. `scripts/interpret_batch.py` itself, like
+  `scripts/backfill.py`, has no direct unit test coverage: its Postgres-only
+  raw SQL (`bindparam(expanding=True)`, `ON CONFLICT`, `CAST(... AS
+  timestamptz)`) doesn't compile against the SQLite test engine, so it was
+  verified via `py_compile` + `ast.parse` instead, consistent with the
+  precedent already set for `backfill.py`.
+- Verified: `tests/test_models/test_interpretation.py` (3),
+  `tests/test_ai/test_interpret_graph.py` (17),
+  `tests/test_ai/test_interpret_context.py` (14),
+  `tests/test_ai/test_interpreter.py` (21),
+  `tests/test_ai/test_interpret_store.py` (14, including the two
+  regression tests for the caching bugs above), and
+  `tests/test_api/test_interpret_api.py` (7) all green (76/76). The only
+  `tests/test_scheduler/test_batch_config.py` failures are the same
+  pre-existing, unrelated "missing analytics_* jobs" gaps already present
+  before this phase (confirmed via `git stash` diff -- untouched by the
+  `interpreter_batch` entry).
+
+**Phase 1 complete.** Next: Phase 2 (Layer 2 — News/Information), per the
+roadmap -- not started without explicit direction, matching how Phase 1
+itself waited for confirmation after the Phase 0 recap.
+
+### Phase 2 — complete
+
+A background infrastructure survey (before writing any code) found the
+plan's own premise partly out of date: 4 of the 5 "dormant engines" §4.3
+asks to wire up (`news_dedup`, `news_entity_linker`, `news_propagation`,
+`finbert_sentiment`) already existed as fully-built, fully-tested, pure
+computation modules with **zero production callers** -- `finnhub_news.py`
+reimplemented a cruder single-entity link inline instead of calling
+`news_entity_linker`. `propagation_events`, the table §4.3 implies needs
+creating, already existed and was migrated (051). Phase 0's `embedding_1536`
+column already supersedes §6.2's `search_documents.embedding_vector ->
+VECTOR(3072)` migration item. This reframed most of Phase 2 into *wiring*
+existing engines rather than new engineering -- reflected below.
+
+- **§4.2 Trust & credibility**: new `news_sources` table (reference/lookup
+  table, natural-key PK like `Currency`/`Exchange`, seeded from
+  `data/news_sources.json` via the established `reference_loader.py`
+  pattern) + `news_articles` gains `source_trust`/`credibility_score`/
+  `cluster_id`/`is_non_consensus`/`corroboration_count`. New
+  `src/engines/news_credibility.py`: `find_cluster_match` reuses
+  `news_dedup`'s URL/title-Jaccard/simhash tiers as a "does this
+  corroborate an existing article" query rather than `deduplicate()`'s
+  "drop duplicates" -- Layer 2 wants every article kept, just clustered.
+  `cluster_id` is self-referential (a representative's row points at
+  itself), so "every article has a cluster_id" holds uniformly once
+  enriched.
+- **§4.3 Wire the dormant engines**: `src/ingestion/news_enrichment.py`
+  orchestrates all four into `finnhub_news.py`'s ingestion path:
+  `build_entity_lookup` (ticker/CUSIP/ISIN resolve via `Security.
+  issuer_entity_id`, NOT `EntityIdentifier` -- those are security-level,
+  only CIK is entity-level) feeds real multi-entity `link_entities`
+  (replacing the crude single-link); corroboration clustering +
+  credibility scoring per article; real FinBERT `score_text` (keyword
+  fallback preserved, per the engine's own existing degrade path);
+  entity-to-entity propagation (SUPPLY_CHAIN/CUSTOMER/COMPETITIVE hop-1
+  via real `BusinessRelationship` rows -- SECTOR/MACRO propagation
+  deferred, needs a full GICS-sector entity roster this pass doesn't
+  build).
+- **§4.1 body_text extraction**: `src/ingestion/article_extraction.py`,
+  trafilatura-based, unblocking dedup's content-fingerprint tier, FinBERT,
+  and entity linking, all of which degrade to title+summary without it.
+- **§4.5 No-AI mode**: deterministic ranked-links endpoint (RSS + trust
+  ranking, zero LLM) -- the always-on baseline the plan requires.
+- **§4.1 Multi-source ingestion**: three connectors bridging existing
+  regulatory/geopolitical data into `news_articles` (which nothing wrote
+  into before except Finnhub): SEC filings-as-news, GDELT articles (GDELT
+  previously only wrote `geopolitical_events`, confirmed via survey),
+  Federal Register regulatory actions.
+- **§4.4 AI analysis**: two-phase per-article (LIGHT tier, trust-weighted
+  summary/interpretation/non-consensus-angle, connections grounded in
+  this article's own `PropagationEvent` rows) and per-cluster (SYNTHESIS
+  tier, consensus vs. divergent views across a cluster's corroborating
+  coverage -- rides on the representative article's row since a cluster
+  has no owning row of its own) analysis, both compute-on-miss cached
+  directly on `news_articles`.
+- **§4.6 On-demand Deep Research**: new `research_reports` table +
+  two-phase `gather_research` (multi-step `run_agent` tool loop -- new
+  `web_fetch` client tool alongside the existing `web_search` server
+  tool and `data_query`, DEEP tier) then `structure_report` (separate
+  `complete_structured` synthesis pass over the gathered transcript).
+  `run_agent` gained an optional `on_step` hook (its first production
+  caller) so `POST /v5/research/deep` can stream progress over SSE via an
+  `asyncio.Queue` bridge, using its own `get_session_factory()` session
+  rather than the request-scoped one (FastAPI tears down `Depends`
+  generators before a `StreamingResponse`'s body actually runs).
+- **§4.7 Pillar-3 follow-through**: of the table's 8 rows, News/Sentiment
+  and Political/Regulatory were covered above; Filing intelligence and
+  Earnings (qualitative) already had live engines (`EdgarFilingDiffConnector`,
+  `analyze_earnings_call`) predating this phase. **Governance** was the
+  one row confirmed genuinely empty: `governance_assessments` had zero
+  writers despite `src/engines/governance_scoring.py` -- a full, tested,
+  10-red-flag scoring engine -- already existing with no caller, same
+  "built but dormant" pattern as §4.3's four engines. New
+  `scripts/compute_governance_assessments.py` wires it: per proxy filing,
+  derives board independence/tenure/diversity/interlocks from
+  `board_members`, CEO pay-ratio/LTIP-mix from `executive_compensation`,
+  and scores via the existing engine. Five structural red flags
+  (dual-class, poison pill, staggered board, majority voting,
+  related-party) need DEF 14A prose the current ingestion doesn't parse
+  -- deliberately left un-guessed (the engine's own `.get(key)` semantics
+  already treat an absent key as "no evidence," except
+  `has_majority_voting`, which the engine itself defaults to flagging
+  when unknown). Commodity narrative and insider/congressional-disclosure
+  narrative bridging are the two rows genuinely not attempted in this
+  pass -- real, scoped follow-ups, not silently dropped.
+- The survey's other correction: `political_intelligence`'s three tables
+  (`legislative_bills`/`regulatory_actions`/`sanctions_entries`) already
+  had live, scheduled ingestion contrary to the plan's "today empty"
+  assumption -- confirmed by reading the actual connector code and
+  scheduler registration, not just the model definitions.
+- Verified across the phase: every increment landed with its own test
+  suite (news_sources/credibility: 28, enrichment pipeline: 17, no-AI
+  mode + multi-source connectors: covered in their own commits, article
+  analysis: 22, cluster analysis: 28, Deep Research: 25, governance
+  scoring: 9) plus broad `tests/test_ai/`, `tests/test_api/`,
+  `tests/test_models/` sweeps after each commit, all green against the
+  same pre-existing, unrelated failure set already documented in Phase 0/1
+  (`CompanyPrimer(primer_id=...)` fixture bug, `test_batch_config.py`'s
+  missing `analytics_*` job entries).
+
+**Phase 2 complete.** Next: Phase 3 (Layer 3 — Financial Adviser), per the
+roadmap -- not started without explicit direction.
+
+### Phase 3 — complete
+
+A pre-work survey (same discipline as Phase 2's) found the exact same
+"built but dormant" pattern again: `whatif_engine.py`, `drift_engine.py`,
+`trade_list_engine.py`, and `compliance_engine.py` are all fully-built,
+tested, pure-computation modules with zero production callers. Pre-trade
+compliance DOES have a live, tested endpoint
+(`portfolio_risk.py::pre_trade_check`) -- but it's ~90 lines of inline
+rule evaluation duplicating what `compliance_engine.py` already does, not
+a call into that module. The survey also found the existing
+`/v4/portfolios/{id}/drift` endpoints are read-only over a `DriftSnapshot`
+row that nothing in this codebase ever actually computes -- `POST
+.../drift/target` only ever writes zeros, so "current drift" has never
+been a real number anywhere in this app until this phase.
+
+- **§5.1 Expose the dark engines**: `src/services/portfolio_advisory.py`
+  wires all three engines to live `Position`/`Portfolio`/
+  `ComplianceRule`/`PortfolioVarSnapshot`/`DriftSnapshot` data --
+  `compute_whatif`, `compute_drift` (the actual fix for the
+  never-computed-drift gap above), `build_trade_list`, and
+  `check_pretrade_compliance` (the existing live endpoint's rule logic,
+  *extracted* so the endpoint and the new adviser tool share one
+  implementation instead of two that could drift apart -- verified
+  against the endpoint's own existing, unmodified tests). New
+  `POST /v5/portfolios/{id}/{whatif,drift-analysis,trade-list}` expose
+  these directly; new `src/ai/tools/portfolio.py`
+  (`PortfolioSnapshotTool`/`WhatIfTool`/`DriftAnalysisTool`/
+  `PreTradeComplianceTool`) expose the identical service functions as
+  Layer-3 agent tools, so a human hitting the API and the adviser
+  reasoning about a trade always see the same numbers. Documented,
+  deliberate gaps: no per-ticker factor loadings or VaR/correlation data
+  in this app (whatif's risk/factor dimensions degrade to the engine's
+  own documented fallbacks), `Position` has no `sector` column (drift's
+  sector dimension is skipped).
+- **§5.2 The adviser agent**: three new context tools
+  (`src/ai/tools/entity_context.py`) give the adviser read access to
+  Layer 1 (`InterpretationLookupTool`) and Layer 2
+  (`RecentNewsTool`/`ResearchReportLookupTool`) -- pure reads, never
+  triggering new AI computation mid-conversation. `src/ai/adviser/
+  adviser.py` is two-phase, matching this codebase's established
+  gather-then-structure pattern: `gather_advice` (`run_agent` at
+  SYNTHESIS tier with all the above tools + `WhatIf`/`DriftAnalysis`/
+  `PreTradeCompliance`/`DataQuery`/web_search) then
+  `extract_recommendations` (a separate `complete_structured` call at
+  DEEP tier over the transcript, pulling out zero or more concrete
+  recommendations -- zero is a valid, common outcome for a purely
+  informational turn). The one design point worth restating: `verify_
+  recommendation` re-runs the REAL `whatif`/`compliance` checks against
+  live data for any recommendation with a well-formed trade action,
+  never trusting the LLM's own account of what its tools said
+  mid-conversation -- the same "never trust the model for a number it
+  could look up" principle every other layer in this codebase follows.
+  `run_agent` (built in Phase 2.7, one caller so far) gained its second
+  production caller here.
+- **§5.3 Chat**: new `conversations`/`conversation_messages` tables.
+  `POST /v5/adviser/conversations/{id}/messages` streams over SSE
+  (`step` events per agent turn, then a terminal `done` with
+  `{reply, disclaimer, recommendations}` or `error`) -- same
+  own-session-via-`get_session_factory()` shape Phase 2.7 established,
+  plus the cost-budget guardrail (`guardrails/budget.py::check_budget`,
+  built in Phase 0, never previously wired to any caller) as a
+  pre-flight check before the agent loop starts. "Conversational
+  memory/recall" is prior turns rendered as a text transcript prepended
+  to the new message, since `run_agent` only takes a single seed `user`
+  string. Frontend: fixed both bugs the plan named in `QAChat.tsx`
+  (wrong endpoint prefix -- turned out to be `/v3` vs. the REAL mount
+  point `/v4`, not `/v5` as the plan assumed, since that's the
+  *existing* `research_qa.py` Q&A endpoint, not this phase's new chat;
+  and `answer_text`, which the component read as `data.answer`, a field
+  that doesn't exist on `QAResponse`) and the same field-name bug in
+  `AnalystQA.tsx`. A dedicated `/adviser` frontend route was not built --
+  this session's Phase 0-3 work has been backend-only throughout, and
+  building a new page is a distinct, larger effort than fixing two
+  existing field-name bugs.
+- **§5.4 Recommendations store & guardrails**: new `advice_recommendations`
+  table. `src/ai/adviser/store.py` enforces two of the four guardrails
+  as a hard filter before persistence: a recommendation with no cited
+  evidence is dropped (same standard `guardrails/citations.py` already
+  enforces elsewhere), and one whose real (not LLM-reported) compliance
+  check came back not-approved is dropped. The other two guardrails are
+  enforced elsewhere: cost budgets pre-flight in the chat endpoint
+  (§5.3), the not-financial-advice disclaimer is a fixed constant
+  attached to every chat response rather than baked into stored
+  rationale text.
+- **A real bug caught and fixed along the way**: `src/ai/research/
+  store.py`'s `run_and_persist_research` (built in Phase 2.7) only ever
+  called `session.flush()`, never `session.commit()`, inside the SSE
+  streaming generator's own per-run session. Verified directly (flush +
+  close a session, then read from a fresh one off the same factory --
+  the row is gone) that this meant every completed Deep Research
+  report's actual content was silently never persisted; only the
+  initial PENDING row (committed separately, at the request-scoped
+  session level, before streaming even starts) ever survived. Fixed by
+  committing after each state transition, which also makes progress
+  durable if the process dies mid-run rather than only at the very end.
+  Caught while building this phase's own, correctly-committing chat
+  streaming endpoint and noticing the asymmetry with the precedent it
+  was copying.
+- Verified across the phase: whatif/drift/trade-list service layer (26
+  tests) + advisor API (9) + portfolio tools (11), adviser agent (14) +
+  context tools (11), recommendations store (12) + model (2), chat
+  conversation store (6) + API (8) + models (3) -- 102 new tests total.
+  Broad sweeps after every commit: `tests/test_ai/` + `tests/test_models/`
+  + `tests/test_services/` + the affected API suites +
+  `tests/test_scheduler/`, consistently green against the same
+  pre-existing failure set documented since Phase 0 (`CompanyPrimer(
+  primer_id=...)` fixture bug, `test_batch_config.py`'s missing
+  `analytics_*` job entries) -- zero regressions introduced across all
+  four sub-phases.
+
+**Phase 3 complete. All three layers of AI_THREE_LAYER_REBUILD_PLAN.md are
+now built** (Layer 1 — Interpreter, Layer 2 — News/Information, Layer 3 —
+Financial Adviser). Remaining work per the plan is polish/breadth, not new
+layers: §6's shared-foundation items not yet exercised end-to-end (Redis
+response caching, prompt-cache verification under load, the eval harness
+running in CI rather than ad hoc), §8's frontend changes (this session's
+work has been backend-only throughout -- new endpoints exist with no UI
+wired to most of them yet), and the explicitly-deferred gaps documented
+inline through Phases 2-3 (SECTOR/MACRO news propagation, per-ticker
+factor/VaR data for whatif, DEF 14A structural-provision text-mining for
+governance red flags, commodity/insider-narrative Pillar-3 bridging).
+
+### §6 hardening — Redis response cache + eval harness in CI — complete
+
+- **Redis full-response cache**: `src/cache/redis_cache.py`'s `RedisCache`
+  already existed with a full `get`/`set`/`delete`/`delete_pattern` API,
+  but a grep turned up zero callers of `cache.connect()` anywhere in the
+  app -- the entire layer was silently always a cache miss, for its one
+  existing consumer (`src/api/reference.py`) included. It also had no
+  error handling around the actual Redis calls, so an outage would raise
+  instead of degrading. Fixed both: wrapped every method body in
+  try/except so a connection failure fails open (miss/no-op, never
+  propagates), and wired `cache.connect()`/`cache.close()` into
+  `src/api/app.py`'s `lifespan`, both guarded so a Redis problem never
+  blocks startup/shutdown. New `src/ai/response_cache.py` adds the
+  actual §6 feature: a per-feature TTL registry (conversational/
+  non-deterministic features like `adviser_chat`/`deep_research` get
+  TTL=0, i.e. never cached) and cache-key derivation via
+  `sha256(feature+model+system+user)` -- functionally equivalent to the
+  plan's literal "`prompt_id+version+inputs`" wording since `system`
+  already *is* the rendered prompt and `user` already *is* the rendered
+  input. Wired into `AIClient.complete_text`/`complete_structured` only
+  (never the raw multi-turn `complete()` an agent loop drives, where each
+  turn's messages differ turn to turn); `complete_structured`'s cache-hit
+  path re-validates through the Pydantic `response_model` before trusting
+  it, so a schema change makes an old cached shape fall through to a live
+  call instead of raising. Anthropic prompt-caching itself (the other
+  half of §6's caching ask) turned out to already be implemented --
+  `client.py`'s `_system_param` already marks system prompts
+  `cache_control: ephemeral` -- so this closes the one actually-missing
+  piece. Verified with a new integration test simulating an enabled
+  Anthropic client: a second identical `complete_text`/`complete_structured`
+  call skips the API call entirely; a changed input or an uncached
+  feature always calls through.
+- **Eval harness in CI**: `evals/runner.py`/`judge.py`/`schema.py` (built
+  in Phase 0) and the golden examples under `evals/golden/` existed but
+  had never been wired to an actual feature or a CI job -- there was no
+  `.github/workflows/` directory at all. New `scripts/run_evals.py` is
+  the missing CLI entrypoint: every golden category's `inputs` turned out
+  to share the exact same `{question, context}` shape regardless of its
+  category label (`company_primer`, `investment_thesis`,
+  `morning_briefing`, `anomaly_narrative`, `semantic_search`,
+  `analyst_qa` all use it), which matches exactly one production prompt
+  template (`src/ai/prompts/v1/analyst_qa.yaml`) -- reused as the single
+  target across every category rather than inventing bespoke per-category
+  prompts the golden suite was never written against. Follows this
+  codebase's graceful-degradation contract: with no `ANTHROPIC_API_KEY`
+  configured, the client is disabled and there's no meaningful response
+  to grade, so the script prints a "skipped" notice and exits 0 rather
+  than failing every example on an empty response. New
+  `.github/workflows/ci.yml` runs `pytest -q` (no live Postgres/Redis
+  needed -- the test suite runs entirely against the in-memory SQLite
+  engine) then `python -m scripts.run_evals` on every PR and push to
+  `main`; the eval step reads `ANTHROPIC_API_KEY` from a repo secret if
+  one is configured, and is always safe to run unconditionally either
+  way.
+- Verified: 10 new tests for `scripts/run_evals.py`'s own orchestration
+  (disabled-client skip path, pass/fail/regression exit codes,
+  `--update-baseline` wiring, `_target`'s prompt rendering) plus the
+  redis-cache/response-cache suites from the prior increment -- 733
+  passed against the pre-existing `CompanyPrimer(primer_id=...)` fixture
+  failure set, zero regressions.
+- **§4.3 SECTOR/MACRO news propagation**: the one piece `_propagate`
+  (Phase 2.2) explicitly deferred -- it always passed `sector_entities={}`
+  to `news_propagation.propagate_event`, so a SECTOR- or MACRO-classified
+  article (e.g. "new regulation for the sector" or "Fed rate decision")
+  silently propagated to nobody, even though the pure engine function
+  already fully implements both paths and was already tested. Built the
+  missing roster query: `_build_sector_entities` first classifies the
+  article (the same pure, cheap `classify_event_for_propagation` call
+  `propagate_event` makes internally) so a SUPPLY_CHAIN/CUSTOMER/
+  COMPETITIVE article -- the overwhelming majority -- costs no extra
+  query. For a SECTOR event it queries only the source entity's own GICS
+  sector (via `Entity.gics_sector` -> `GICSClassification.sector_name`)
+  and its peers, excluding the source itself -- `propagate_event`'s
+  SECTOR branch fans out to every sector key present in the dict it's
+  given, so passing the *whole* GICS universe would have propagated a
+  single sector's news to every entity in every sector, not just its own.
+  For a MACRO event it queries entities across the four sectors
+  `news_propagation.py` already hardcodes as rate/inflation/employment-
+  sensitive (Financials, Real Estate, Utilities, Consumer Discretionary).
+  A `SECTOR_ROSTER_LIMIT = 200` caps how many peers one article can fan
+  out to, since SECTOR/MACRO events are broad by nature and an uncapped
+  roster could generate thousands of `PropagationEvent` rows from one
+  article. 5 new tests (sector fan-out, cross-sector exclusion, no-
+  gics-sector no-op, macro fan-out to a rate-sensitive sector, macro
+  no-op with no matching entities) plus the 21 pre-existing
+  `test_news_enrichment.py` tests all green; broad sweep across
+  `tests/test_ai/` + `tests/test_engines/` + `tests/test_ingestion/`:
+  3534 passed, only the same pre-existing unrelated failures
+  (`test_agency_bonds.py`'s mocked-HTTP tests, `test_earnings_surprise_
+  intelligence.py`'s zero-consensus edge cases).
+- **§8 frontend: `/adviser` chat page**: the one frontend piece the plan
+  explicitly named as not yet built. Closed the gap:
+  - `frontend/src/api/client.ts`'s `ApiClient` gained a `stream()` method
+    -- every prior method assumes a JSON body (`request()` always awaits
+    `response.json()`), which doesn't apply to a `text/event-stream`
+    response. `stream()` reads the raw `ReadableStream`, splits on blank
+    lines per the SSE frame boundary, and parses `event:`/`data:` lines
+    matching exactly what `src/ai/streaming.py`'s `format_sse()` emits
+    server-side. A grep confirmed this codebase's frontend had *no*
+    existing SSE/`EventSource`/`ReadableStream` consumer anywhere --
+    `QAChat.tsx`'s "streaming" flag is cosmetic (an "●●●" placeholder
+    while awaiting a single full JSON response), so this is genuinely new
+    plumbing, not a reused pattern.
+  - New `ADVISER` block in `frontend/src/api/endpoints.ts` for
+    `adviser_chat.py`'s four routes.
+  - New `frontend/src/pages/adviser/AdviserChat.tsx`: a portfolio picker
+    (reusing the existing `usePortfolios()` hook), a conversation
+    start/restart control, a chat pane consuming the SSE `step`/`done`/
+    `error` events (`step` renders a live "thinking" status line from the
+    agent's tool calls, `done` renders the reply plus the fixed
+    not-financial-advice disclaimer every response carries), and a
+    recommendations side panel showing each proposed action's rationale,
+    confidence, and guardrail status. Styled identically to
+    `AnalystQA.tsx` (inline `style` objects against the app's CSS custom
+    properties, no Tailwind/CSS-modules in this codebase's page layer).
+  - Wired into `frontend/src/router/index.tsx` (`/adviser` route) and
+    `frontend/src/components/shell/NavRail.tsx` (a new top-level "Adviser"
+    nav item in the Investment group, shortcut `A`, matching the
+    existing generic keyboard-shortcut dispatch that's keyed off
+    `NAV_GROUPS` -- no separate wiring needed for the shortcut to work).
+  - Verified: `tsc --noEmit` and `vite build` both clean for every
+    changed/new file (confirmed via `git stash` that the small set of
+    pre-existing type errors elsewhere in the frontend -- `DonutChart.tsx`,
+    `IssuanceMonitor.tsx`, etc. -- are unchanged and unrelated). Loaded
+    the built page in a headless Chromium: the route renders inside the
+    app shell with the nav item highlighted, portfolio selector, chat
+    pane, and recommendations panel all present: no console errors other
+    than the expected failed API calls (this sandbox has no live
+    Postgres/Redis backend to actually serve `/v5/adviser/...` against).
+
+**All of "Do the rest" is now done**: §6's shared-foundation items (Redis
+response cache, eval harness in CI -- Anthropic prompt-caching was already
+in place), §4.3's deferred SECTOR/MACRO propagation, and §8's frontend gap
+are all closed.
+
+### "Do the remaining gaps" — the three explicitly-documented follow-ups
+
+- **§5.1 whatif factor/VaR/correlation data** -- complete. See the Phase
+  3-era "Known, deliberate gaps" note in `src/services/portfolio_advisory.py`'s
+  module docstring for what changed: per-security factor loadings, VaR,
+  volatility, and beta all turned out to already be computed and
+  persisted by the analytics engines (`e5_risk.py`/`e7_quant.py`) --
+  `compute_whatif` just never read them. Only a systematic pairwise
+  correlation matrix genuinely didn't exist anywhere, and is now computed
+  on demand from `EODPrice` returns. New helpers:
+  `_resolve_security_ids` (ticker -> security_id for both held positions
+  and newly-traded tickers not yet held), `_factor_data_for_tickers`,
+  `_risk_metrics_for_tickers`, `_correlation_matrix_for_tickers` +
+  `_pearson_correlation`. 20 new tests, 321 passed across
+  `tests/test_services/` + `tests/test_api/test_portfolio_advisor_api.py`
+  + `tests/test_ai/`, zero regressions.
+- **§4.7 DEF 14A structural red-flag text-mining** -- complete. New
+  `src/ingestion/proxy_red_flags.py`: pure regex-based extractors for
+  the five structural flags `scripts/compute_governance_assessments.py`
+  previously left out entirely (dual-class shares, poison pill,
+  staggered board, majority voting, related-party transactions). Same
+  honesty contract as `edgar_proxy.py`/`edgar_esg.py`: a flag is only
+  ever set when the text gives a definite answer; ambiguous or absent
+  evidence returns `None` and the key is simply omitted (governance_
+  scoring.py's own `.get(key)` semantics already handle that correctly).
+  Related-party transactions needed special care: Item 404 disclosure is
+  a *required* section present in nearly every proxy whether or not
+  there's anything to report, so the section header alone isn't
+  evidence -- only an explicit "none to report" negation or a described
+  transaction with a dollar figure counts. `compute_governance_
+  assessments.py` now fetches each proxy's body via
+  `EdgarProxyConnector._fetch_body` (reusing its existing rate-limited
+  SEC fetch path rather than a second httpx client) and merges the mined
+  flags into `governance_data` before scoring -- on by default
+  (`--no-mine-red-flags` to opt out), matching this codebase's "opt into
+  the one piece of network I/O at the production entry point" convention
+  from `news_enrichment.py::enrich_new_articles`. 33 new tests (20 pure
+  text-mining + 4 `_mine_red_flags_for_proxy` wiring + the 9 pre-existing
+  `_build_governance_data` tests, unmodified and still passing); broad
+  sweep across `tests/test_ingestion/` + `tests/test_engines/
+  test_governance_scoring.py`: 309 passed, only the same pre-existing
+  unrelated `test_agency_bonds.py` failures.
+- **§4.7 commodity + insider/congressional narrative bridging** -- complete,
+  the largest of the three deferred items. Both rows in §4.7's Pillar-3
+  table already had real, scheduled, ingested structured data
+  (`CommodityPrice`/`CommodityInventory`; `InsiderSignal`/
+  `CongressionalTrade`) but no narrative layer over it -- this closes
+  that gap for both, following the same context-assemble -> prompt-render
+  -> `complete_text` shape as the legacy narrative features
+  (`company_primer`/`morning_briefing`), with compute-on-miss caching
+  shaped like `src/ai/interpret/store.py` (simpler here -- no
+  analytics-version freshness concept, just "is there already a row for
+  today").
+  - New migration `103_commodity_and_insider_narratives.py`:
+    `commodity_narratives` (unique on `commodity_code, as_of_date`) and
+    `insider_narratives` (unique on `entity_id, as_of_date`).
+  - New `src/ai/narratives/commodity.py`: `assemble_commodity_context`
+    pulls the latest 30 `CommodityPrice` rows (price level + % change
+    over the window), the latest `CommodityInventory` reading, and any
+    corroborating news -- a new `COMMODITY` topic label added to
+    `news_entity_linker.py`'s `_TOPIC_KEYWORDS` (there was none; §4.7's
+    own survey flagged this), matched against a bounded recent window of
+    articles in Python (JSONB list containment isn't portable across
+    this suite's SQLite test engine and Postgres in production, so this
+    filters the same way `news_enrichment.py`'s own cluster-candidate
+    query does, not a dialect-specific SQL operator).
+  - New `src/ai/narratives/insider.py`: `assemble_insider_context` pulls
+    the latest `InsiderSignal` row per `signal_type` for the entity, plus
+    up to 5 recent `CongressionalTrade` rows for that entity's ticker
+    (resolved via `SecurityIdentifier`, same pattern used throughout this
+    codebase).
+  - Two new prompt YAMLs (`commodity_narrative`/`insider_narrative`,
+    LIGHT tier) and two new `GET /v5/commodities/{code}/narrative` /
+    `GET /v5/entities/{id}/insider-narrative` endpoints, compute-on-miss
+    shaped identically to `src/api/routers/interpret.py`.
+  - **A real bug caught by the tests, not the user**: the first version
+    of both `get_or_compute_*_narrative` functions only checked for an
+    existing row when `force_refresh` was `False`, so calling
+    `?refresh=true` against an already-narrated subject tried to INSERT
+    a second row and hit the table's own unique constraint instead of
+    updating the first. Fixed by always looking up the existing row (to
+    decide INSERT vs. UPDATE) and only using `force_refresh` to decide
+    whether a *fresh* one is still cache-eligible -- caught by
+    `test_force_refresh_bypasses_cache`/`test_force_refresh_updates_
+    existing_row` before this ever reached a real deployment.
+  - Verified: 28 new tests across `test_narratives_commodity.py` +
+    `test_narratives_insider.py` (context assembly, narrative generation,
+    compute-on-miss caching including the force-refresh bug above) plus
+    7 new API tests (`test_pillar3_narratives_api.py`) and 2 new
+    `COMMODITY` topic-classification tests; full sweep across
+    `tests/test_ai/` + `tests/test_cache/` + `tests/test_evals/` +
+    `tests/test_scripts/` (347 passed), `tests/test_engines/` +
+    `tests/test_ingestion/` (3290 passed, only the same pre-existing
+    unrelated failures), `tests/test_models/` + `tests/test_services/`
+    (473 passed, only the pre-existing `CompanyPrimer` fixture bug), and
+    `tests/test_api/` (1054 passed, 14 failed -- confirmed via `git
+    stash` identical on the pre-change code, all pre-existing and
+    unrelated: `test_custom_classifications_api.py`, `test_reference_
+    api.py::test_health_check` (`asyncpg` not installed in this sandbox),
+    `test_research_primers_api.py`, `test_screening_api.py::
+    test_screen_fields`) -- zero regressions from this change anywhere
+    it was checked.
+
+**All three explicitly-documented deferred gaps from "Do the remaining
+gaps" are now closed.** Every layer of `AI_THREE_LAYER_REBUILD_PLAN.md`,
+its shared foundation, and the frontend gap the plan named are built.
+Remaining work is genuinely open-ended breadth (more Pillar-3 rows could
+always get an AI narrative layer; more legacy engines could always be
+exercised at higher fidelity), not a tracked gap.

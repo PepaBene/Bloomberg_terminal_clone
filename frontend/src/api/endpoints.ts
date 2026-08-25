@@ -1162,3 +1162,18 @@ export const COMPLEX_STRUCTURE = {
   analyze: '/v1/complex-structure/analyze',
   entity: (entityId: string) => `/v1/complex-structure/entity/${entityId}`,
 } as const;
+
+// ---------------------------------------------------------------------------
+// AI Core Layer 3: Financial Adviser Chat
+// Real routes: src/api/routers/adviser_chat.py, mounted with prefix /v5
+// (AI_THREE_LAYER_REBUILD_PLAN.md §5.3). sendMessage streams the adviser's
+// turn over Server-Sent Events (see api/client.ts's `stream()`) rather than
+// returning a JSON body -- do not call it with api.post().
+// ---------------------------------------------------------------------------
+
+export const ADVISER = {
+  createConversation: '/v5/adviser/conversations',
+  sendMessage: (conversationId: string) => `/v5/adviser/conversations/${conversationId}/messages`,
+  messages: (conversationId: string) => `/v5/adviser/conversations/${conversationId}/messages`,
+  recommendations: (conversationId: string) => `/v5/adviser/conversations/${conversationId}/recommendations`,
+} as const;

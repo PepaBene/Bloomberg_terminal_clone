@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.engines import company_primer_engine
 from src.models.company_primer_model import CompanyPrimer, PrimerRefreshLog
@@ -197,21 +198,21 @@ async def _generate_primer(session: AsyncSession, entity: Entity) -> CompanyPrim
         peers=[],
     )
 
-    llm = get_llm_client()
+    client = get_ai_client()
     executive_summary = None
-    if llm.enabled:
-        executive_summary = await llm.generate(
-            system_prompt=(
-                "You are a senior equity research analyst. Write a concise (3-5 "
-                "sentence) executive summary for a company research primer, "
-                "grounded strictly in the provided structured data."
+    if client.enabled:
+        prompt = load_prompt("research_primer_summary")
+        executive_summary = await client.complete_text(
+            user=prompt.render(
+                company=result.entity_name,
+                financial_health=filings["financial_data"],
+                market_position=result.competitive.market_position,
+                top_risks=[r.description for r in result.risks[:3]],
             ),
-            user_prompt=(
-                f"Company: {result.entity_name}\n"
-                f"Financial health: {filings['financial_data']}\n"
-                f"Market position: {result.competitive.market_position}\n"
-                f"Top risks: {[r.description for r in result.risks[:3]]}"
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
 
     max_version = (

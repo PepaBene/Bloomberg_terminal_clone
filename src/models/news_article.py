@@ -36,10 +36,67 @@ class NewsArticle(TimestampMixin, Base):
     is_propagated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     propagation_source: Mapped[str | None] = mapped_column(String(30))
 
+    # ── Layer 2 (AI_THREE_LAYER_REBUILD_PLAN.md §4.2): trust & corroboration ──
+    source_trust: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    credibility_score: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
+    # Self-referential: points at the cluster's representative article (the
+    # first one seen). A representative's cluster_id points at itself, so
+    # "every article has a cluster_id" holds uniformly -- no NULL-means-
+    # singleton special case for callers to handle.
+    cluster_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("news_articles.id"), index=True
+    )
+    is_non_consensus: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    corroboration_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    # ── Layer 2 §4.4: per-article AI analysis ──────────────────────────
+    # One JSONB blob rather than five+ ai_* columns -- matches how
+    # Interpretation.drivers/consequences/connections already store
+    # structured LLM output in this codebase. Shape:
+    # {summary, interpretation, non_consensus_angle, connections: [str],
+    #  confidence, model, prompt_id, prompt_version, analyzed_at}.
+    # NULL means "not yet analyzed" -- the compute-on-miss cache-miss
+    # state (src/ai/news/store.py); articles are immutable post-
+    # enrichment, so there's no separate freshness/version check the way
+    # Layer 1's interpretations need for changing analytics.
+    ai_analysis: Mapped[dict | None] = mapped_column(JSONB)
+
+    # Populated ONLY on a cluster's representative row (cluster_id == id)
+    # -- src/ai/news/cluster_analyzer.py. Shape: {consensus_summary,
+    # divergent_views: [str], materiality_assessment, confidence, model,
+    # prompt_id, prompt_version}. A cluster has no owning row of its own
+    # (cluster_id is just a self-reference on the representative), so this
+    # rides on the representative article rather than a separate table.
+    cluster_analysis: Mapped[dict | None] = mapped_column(JSONB)
+
     __table_args__ = (
         Index("idx_news_type_date", "news_type", "publish_date"),
         Index("idx_news_materiality_date", "materiality", "publish_date"),
     )
+
+
+class NewsSource(TimestampMixin, Base):
+    """Trust/credibility registry for news sources (§4.2).
+
+    A reference/lookup table like ``Currency``/``Exchange`` in
+    ``src/models/reference.py`` -- natural-key primary key, no surrogate
+    UUID, seeded from static JSON via ``reference_loader.py`` rather than
+    an ingestion connector. ``source_name`` is the free-form label
+    ingestion connectors already write onto ``NewsArticle.source_name``
+    (e.g. Finnhub passes through whatever the underlying feed calls
+    itself), so it's the natural key here too; ``domain`` is a secondary,
+    nullable-unique lookup for connectors that only have a URL.
+    """
+
+    __tablename__ = "news_sources"
+
+    source_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    domain: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    tier: Mapped[str] = mapped_column(String(10), nullable=False)  # WIRE|TIER1|TIER2|BLOG|SOCIAL|PR
+    reliability_weight: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
+    region: Mapped[str | None] = mapped_column(String(50))
+    is_paywalled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class ArticleEntityLink(TimestampMixin, Base):

@@ -17,6 +17,7 @@ from src.api.auth.dependencies import get_current_user
 from src.api.middleware import RequestContextMiddleware
 from src.api.middleware.audit import AuditLogMiddleware
 from src.api.utils.field_selection import FieldSelectionMiddleware
+from src.cache.redis_cache import cache
 from src.config import settings
 from src.database import get_session_factory
 from src.models.analytics import AnalyticsResult
@@ -45,6 +46,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
 
+    # AI_THREE_LAYER_REBUILD_PLAN.md §6: Redis full-response cache. Never
+    # wired to app startup before this -- src/cache/redis_cache.py's
+    # `cache` singleton had no live connection anywhere, so every
+    # existing caller (src/api/reference.py) was silently always a miss.
+    # connect() is lazy (doesn't itself verify reachability), and every
+    # RedisCache method fails open on a connection error, so a
+    # misconfigured/unreachable Redis degrades to "no caching," never a
+    # startup failure.
+    try:
+        await cache.connect()
+        logger.info("Redis cache: connected")
+    except Exception as e:
+        logger.warning(f"Redis cache connect failed (continuing without caching): {e}")
+
     # [Bug 73 fix] Auto-seed on startup if DB is empty
     try:
         async with get_session_factory()() as session:
@@ -56,6 +71,10 @@ async def lifespan(app: FastAPI):
         logger.warning("Auto-seed failed to start: %s", e)
 
     yield
+    try:
+        await cache.close()
+    except Exception:
+        logger.debug("Redis cache close failed during shutdown", exc_info=True)
     logger.info("Bloomberg Data Fabric API shutting down")
 
 
@@ -548,6 +567,54 @@ def create_app() -> FastAPI:
     except Exception as e:
         logger.warning(f"Failed to import router research_alerts_p4: {e}")
         router_import_failures.append("research_alerts_p4")
+
+    # AI Layer 1 — Interpreter (AI_THREE_LAYER_REBUILD_PLAN.md Phase 1)
+    try:
+        from src.api.routers.interpret import router as interpret_router
+        app.include_router(interpret_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router interpret: {e}")
+        router_import_failures.append("interpret")
+
+    # AI Layer 2 — News analysis (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.4)
+    try:
+        from src.api.routers.news_analysis import router as news_analysis_router
+        app.include_router(news_analysis_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router news_analysis: {e}")
+        router_import_failures.append("news_analysis")
+
+    # AI Layer 2 — on-demand Deep Research (AI_THREE_LAYER_REBUILD_PLAN.md Phase 2 §4.6)
+    try:
+        from src.api.routers.research_deep import router as research_deep_router
+        app.include_router(research_deep_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router research_deep: {e}")
+        router_import_failures.append("research_deep")
+
+    # AI Layer 3 — Financial Adviser: portfolio advisor tools (AI_THREE_LAYER_REBUILD_PLAN.md Phase 3 §5.1)
+    try:
+        from src.api.routers.portfolio_advisor import router as portfolio_advisor_router
+        app.include_router(portfolio_advisor_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router portfolio_advisor: {e}")
+        router_import_failures.append("portfolio_advisor")
+
+    # AI Layer 3 — Financial Adviser: chat (AI_THREE_LAYER_REBUILD_PLAN.md Phase 3 §5.3)
+    try:
+        from src.api.routers.adviser_chat import router as adviser_chat_router
+        app.include_router(adviser_chat_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router adviser_chat: {e}")
+        router_import_failures.append("adviser_chat")
+
+    # AI Layer 2 — Pillar-3 commodity/insider narratives (AI_THREE_LAYER_REBUILD_PLAN.md §4.7)
+    try:
+        from src.api.routers.pillar3_narratives import router as pillar3_narratives_router
+        app.include_router(pillar3_narratives_router, prefix="/v5")
+    except Exception as e:
+        logger.warning(f"Failed to import router pillar3_narratives: {e}")
+        router_import_failures.append("pillar3_narratives")
 
     # ------------------------------------------------------------------
     # Pillar 4 Phase 3: Risk Management

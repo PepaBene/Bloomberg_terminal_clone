@@ -27,8 +27,39 @@ class NewsArticleResponse(BaseModel):
     sentiment_label: str | None = None
     source_url: str | None = None
     entities: list[ArticleEntityLinkResponse] = []
+    # Layer 2 §4.2/§4.5: trust/corroboration, for the deterministic
+    # no-AI ranked view -- lets the frontend show "why this is ranked
+    # here" (trust tier, corroborating source count) without an LLM call.
+    source_trust: float | None = None
+    credibility_score: float | None = None
+    is_non_consensus: bool = False
+    corroboration_count: int = 1
 
     model_config = {"from_attributes": True}
+
+
+class ArticleAnalysisResponse(BaseModel):
+    """Layer 2 §4.4: per-article AI analysis (trust-weighted summary,
+    interpretation, non-consensus angle, connections)."""
+
+    article_id: UUID
+    summary: str
+    interpretation: str
+    non_consensus_angle: str | None = None
+    connections: list[str] = []
+    confidence: float
+
+
+class ClusterAnalysisResponse(BaseModel):
+    """Layer 2 §4.4: per-cluster AI synthesis across corroborating
+    coverage (consensus view, divergent views, materiality)."""
+
+    representative_article_id: UUID
+    corroboration_count: int
+    consensus_summary: str
+    divergent_views: list[str] = []
+    materiality_assessment: str
+    confidence: float
 
 
 class NewsSearchRequest(BaseModel):

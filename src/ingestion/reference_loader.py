@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.news_article import NewsSource
 from src.models.reference import (
     Country,
     Currency,
@@ -125,6 +126,15 @@ async def load_sic_gics_mapping(session: AsyncSession) -> dict[str, int]:
     records = _load_json("sic_to_gics_mapping.json")
     return await _upsert_batch(
         session, SICToGICSMapping, records, ["sic_code"], "sic_to_gics_mapping"
+    )
+
+
+async def load_news_sources(session: AsyncSession) -> dict[str, int]:
+    """Load the Layer 2 trust/credibility source registry from
+    news_sources.json (AI_THREE_LAYER_REBUILD_PLAN.md §4.2)."""
+    records = _load_json("news_sources.json")
+    return await _upsert_batch(
+        session, NewsSource, records, ["source_name"], "news_sources"
     )
 
 

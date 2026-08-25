@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.models.entity import Entity
 from src.models.fi_intelligence import (
@@ -710,15 +711,15 @@ async def get_issuer_rating_narrative(
 
     rating_narrative = _build_rating_narrative(entity.legal_name, issuances)
 
-    llm = get_llm_client()
-    if llm.enabled and issuances:
-        polished = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg fixed-income research AI assistant. Rewrite the "
-                "given rating summary as a single polished sentence, without adding "
-                "any facts not present in it."
-            ),
-            user_prompt=rating_narrative,
+    client = get_ai_client()
+    if client.enabled and issuances:
+        prompt = load_prompt("rating_narrative")
+        polished = await client.complete_text(
+            user=prompt.render(rating_narrative=rating_narrative),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
         if polished:
             rating_narrative = polished

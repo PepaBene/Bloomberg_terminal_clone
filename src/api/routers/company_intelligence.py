@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm_client import get_llm_client
+from src.ai.client import get_ai_client
+from src.ai.prompts import load_prompt
 from src.api.deps import get_session
 from src.engines.company_intelligence import (
     extract_key_signals,
@@ -272,26 +273,24 @@ async def _generate_and_persist_briefing(
     """Assemble real signal/valuation data, optionally generate an AI summary,
     and persist a new briefing row."""
     entity_id = entity.entity_id
-    llm = get_llm_client()
+    client = get_ai_client()
     signal_data = await _assemble_signal_data(session, entity_id)
     valuation_data = await _assemble_valuation_data(session, entity_id)
 
     ai_summary = None
-    if llm.enabled:
+    if client.enabled:
         signals_preview = extract_key_signals(signal_data)
-        ai_summary = await llm.generate(
-            system_prompt=(
-                "You are a Bloomberg financial research AI assistant. Write a concise "
-                "daily company intelligence briefing summary, 2-4 sentences, grounded "
-                "only in the provided signals and valuation data. If data is sparse, "
-                "say so plainly rather than speculating."
+        prompt = load_prompt("company_briefing_summary")
+        ai_summary = await client.complete_text(
+            user=prompt.render(
+                company=entity.legal_name,
+                signals=[s.signal for s in signals_preview],
+                valuation_data=valuation_data,
             ),
-            user_prompt=(
-                f"Company: {entity.legal_name}\n"
-                f"Key signals: {[s.signal for s in signals_preview]}\n"
-                f"Valuation data: {valuation_data}\n"
-                "Summarize the current state of this company for a portfolio manager."
-            ),
+            system=prompt.system,
+            tier=prompt.tier,
+            max_tokens=prompt.max_tokens,
+            feature=prompt.feature,
         )
 
     briefing = generate_briefing(

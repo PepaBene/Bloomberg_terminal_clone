@@ -14,6 +14,9 @@ from src.models.base import Base, TimestampMixin
 # gemini-embedding-002's default output dimensionality (DEFAULT_DIMENSIONS
 # in src/services/ai/embedding_client.py) — must stay in sync.
 EMBEDDING_DIMENSIONS = 3072
+# Reduced, indexable dimensionality used by the new src/ai/retrieval/ stack
+# (INDEXED_DIMENSIONS in src/ai/retrieval/embedder.py) — must stay in sync.
+EMBEDDING_DIMENSIONS_INDEXED = 1536
 
 
 class SearchDocument(Base):
@@ -42,9 +45,20 @@ class SearchDocument(Base):
     # `embedding` for backward compatibility with any other JSONB
     # consumer. Real ANN ranking in semantic_search() uses `embedding`.
     embedding_vector: Mapped[dict | None] = mapped_column(JSONB)
-    # M-001: real pgvector column with an HNSW cosine index (see migration
-    # 087) — replaces the JSONB + pure-Python cosine_similarity() loop.
+    # M-001: real pgvector column (see migration 087). NOTE: despite the
+    # column name suggesting otherwise, this has no HNSW/IVFFlat index —
+    # pgvector caps both index types at 2000 dimensions and this is 3072, so
+    # ranking against it is still the pure-Python cosine_similarity() loop
+    # in src/services/ai/vector_search.py. See `embedding_1536` below for
+    # the indexed column the new src/ai/retrieval/ stack actually queries.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    # Indexed RAG embedding (migration 094) — HNSW cosine index, written and
+    # queried by src/ai/retrieval/{embedder,store,retriever}.py. Independent
+    # of `embedding` above: a row can have one, the other, both, or neither
+    # depending on which pipeline wrote it.
+    embedding_1536: Mapped[list[float] | None] = mapped_column(
+        Vector(EMBEDDING_DIMENSIONS_INDEXED)
+    )
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

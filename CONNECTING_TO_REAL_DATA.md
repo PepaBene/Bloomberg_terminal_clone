@@ -217,6 +217,14 @@ python scripts/ingest_corporate_actions.py --limit 100
 # 10. Ownership — 13F (institutional) + Form 4 (insider)
 python scripts/ingest_ownership.py --limit 100
 
+# 10b. Beneficial ownership — SEC Schedule 13D (activist) + 13G (passive)
+# Unlike 13F/Form 4 above, this does NOT source CIKs from entity_identifiers
+# first -- an activist fund/individual is frequently not a pre-existing
+# covered entity, so it sweeps EDGAR's keyless daily form index by form type
+# + date range instead and resolves the issuer (never the filer) against
+# entity_identifiers, skipping filings whose issuer doesn't resolve.
+python scripts/ingest_sc13.py --days-back 10 --limit 100
+
 # 11. Short interest — FINRA twice-monthly
 python scripts/ingest_short_interest.py
 

@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
+from src.ingestion.news_enrichment import enrich_new_articles
 from src.ingestion.rate_limiter import RateLimiter
 from src.models.news_article import ArticleEntityLink, NewsArticle
 
@@ -67,6 +68,7 @@ class FinnhubNewsConnector:
             return 0
 
         new_count = 0
+        new_article_ids: list[uuid.UUID] = []
         for art in articles:
             url = (art.get("url") or "").strip()
             headline = (art.get("headline") or "").strip()
@@ -101,6 +103,7 @@ class FinnhubNewsConnector:
                     )
                 )
                 new_count += 1
+                new_article_ids.append(article_id)
 
             link_exists = await session.scalar(
                 select(ArticleEntityLink.id).where(
@@ -123,4 +126,14 @@ class FinnhubNewsConnector:
         await session.commit()
         if new_count:
             logger.info("Finnhub news: %s → %d new articles", symbol, new_count)
+            try:
+                enriched = await enrich_new_articles(
+                    session, new_article_ids, primary_entity_id=entity_id,
+                )
+                logger.info(
+                    "Finnhub news: enriched %d/%d new articles for %s",
+                    enriched, len(new_article_ids), symbol,
+                )
+            except Exception as e:  # noqa: BLE001 — enrichment is best-effort, never blocks ingestion
+                logger.warning("News enrichment failed for %s: %s", symbol, e)
         return new_count

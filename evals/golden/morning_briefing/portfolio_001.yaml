@@ -1,0 +1,23 @@
+id: morning_briefing_portfolio_001
+category: morning_briefing
+type: factual
+inputs:
+  question: "Summarize the overnight movers for this portfolio, biggest first."
+  context: |
+    Portfolio holdings and overnight price moves:
+    - AAPL: -1.2%
+    - NVDA: +8.4% [NVDA-NEWS-001: beat Q3 earnings estimates, raised guidance]
+    - JNJ: +0.3%
+    - XOM: -2.1% [XOM-NEWS-002: OPEC+ surprise supply increase]
+must_include:
+  - "nvda"
+must_not_include:
+  - "no significant moves"
+max_tokens: 500
+expected_citations:
+  - "NVDA-NEWS-001"
+  - "XOM-NEWS-002"
+notes: |
+  NVDA's +8.4% move is the largest in magnitude and has a clear cited
+  catalyst -- it should lead the briefing, not be buried after smaller,
+  uncited moves like JNJ's +0.3%.

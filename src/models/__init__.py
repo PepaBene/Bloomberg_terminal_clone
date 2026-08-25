@@ -41,6 +41,7 @@ from src.models.estimates import (
     EstimateSurprise,
 )
 from src.models.ownership import (
+    BeneficialOwnershipFiling,
     InsiderHolding,
     InstitutionalHolding,
     InstitutionProfile,
@@ -58,7 +59,12 @@ from src.models.relationships import (
     RelationshipHistory,
 )
 from src.models.auth import APIAuditLog, User
+from src.models.interpretation import Interpretation
 from src.models.quality import DataQualityIssue, DataQualityScore
+from src.models.research_report import ResearchReport
+from src.models.advice_recommendation import AdviceRecommendation
+from src.models.conversation import Conversation, ConversationMessage
+from src.models.pillar3_narratives import CommodityNarrative, InsiderNarrative
 from src.models.reference import (
     Country,
     Currency,
@@ -143,6 +149,7 @@ __all__ = [
     "InsiderHolding",
     "OwnershipSummary",
     "ShortInterest",
+    "BeneficialOwnershipFiling",
     # Corporate Actions (D5)
     "CorporateAction",
     "DividendAction",
@@ -154,4 +161,12 @@ __all__ = [
     # Auth
     "User",
     "APIAuditLog",
+    # AI Layer 1 — Interpreter
+    "Interpretation",
+    "ResearchReport",
+    "AdviceRecommendation",
+    "Conversation",
+    "ConversationMessage",
+    "CommodityNarrative",
+    "InsiderNarrative",
 ]

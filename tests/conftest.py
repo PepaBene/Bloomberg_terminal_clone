@@ -100,6 +100,11 @@ import src.models.compliance  # noqa: F401  (Pillar 4 Phase 3)
 import src.models.congressional_trades  # noqa: F401  (Financial Analysis Suite)
 import src.models.ai_call_log  # noqa: F401  (AI core — Phase 0 telemetry)
 import src.models.subsidiary  # noqa: F401  (Complex Structure data-source build)
+import src.models.interpretation  # noqa: F401  (AI Layer 1 — Interpreter, Phase 1)
+import src.models.research_report  # noqa: F401  (AI Layer 2 — Deep Research, Phase 2.7)
+import src.models.advice_recommendation  # noqa: F401  (AI Layer 3 — Financial Adviser, Phase 3.4)
+import src.models.conversation  # noqa: F401  (AI Layer 3 — Financial Adviser chat, Phase 3.3)
+import src.models.pillar3_narratives  # noqa: F401  (Layer 2 §4.7 commodity/insider narratives)
 
 
 # Patch JSONB (and pgvector Vector) columns to use plain JSON under SQLite —

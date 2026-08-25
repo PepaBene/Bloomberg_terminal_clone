@@ -129,6 +129,67 @@ class OwnershipSummary(Base):
     )
 
 
+class BeneficialOwnershipFiling(TimestampMixin, Base):
+    """Beneficial ownership disclosures from SEC Schedule 13D / 13G filings.
+
+    SC 13D is filed by a beneficial owner of >5% of a class of equity
+    securities who has (or intends to influence/change) control of the
+    issuer -- the "activist" schedule. SC 13G is the short-form alternative
+    for passive holders (qualified institutional investors, exempt
+    investors, or holders below the control threshold). ``schedule_type``
+    carries the raw EDGAR form string ("SC 13D", "SC 13D/A", "SC 13G",
+    "SC 13G/A"); ``is_activist`` is a convenience flag for the 13D family.
+    """
+
+    __tablename__ = "beneficial_ownership_filings"
+
+    filing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    issuer_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=False
+    )
+    security_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("securities.security_id")
+    )
+
+    # The reporting person (activist fund, individual, institution). Often
+    # NOT a pre-existing covered entity, so the FK is nullable and the name
+    # is always kept denormalized -- same idiom as MandADeal.acquirer_*.
+    filer_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.entity_id")
+    )
+    filer_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    filer_cik: Mapped[str | None] = mapped_column(String(10))
+    reporting_person_type: Mapped[str | None] = mapped_column(String(5))
+
+    schedule_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    is_activist: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_amendment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    filing_date: Mapped[date] = mapped_column(Date, nullable=False)
+    event_date: Mapped[date | None] = mapped_column(Date)
+
+    shares_owned: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    percent_of_class: Mapped[float | None] = mapped_column(Numeric(8, 4))
+    sole_voting_power: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    shared_voting_power: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    sole_dispositive_power: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    shared_dispositive_power: Mapped[float | None] = mapped_column(Numeric(20, 2))
+
+    accession_number: Mapped[str | None] = mapped_column(String(30))
+    filing_url: Mapped[str | None] = mapped_column(String(500))
+    source: Mapped[str | None] = mapped_column(String(50))
+
+    __table_args__ = (
+        Index("idx_beneficial_ownership_issuer_date", "issuer_entity_id", "filing_date"),
+        Index("idx_beneficial_ownership_security", "security_id"),
+        Index("idx_beneficial_ownership_filer", "filer_entity_id"),
+        Index("idx_beneficial_ownership_schedule_type", "schedule_type"),
+        Index("uq_beneficial_ownership_accession", "accession_number", unique=True),
+    )
+
+
 class ShortInterest(Base):
     """Short interest data per security (Spec 8.5)."""
 
