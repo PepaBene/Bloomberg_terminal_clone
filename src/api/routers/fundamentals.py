@@ -124,8 +124,8 @@ async def get_income_statements(
 ):
     """Get income statement series for an entity."""
     query = (
-        select(IncomeStatement)
-        .join(FinancialPeriod)
+        select(IncomeStatement, FinancialPeriod)
+        .join(FinancialPeriod, IncomeStatement.period_id == FinancialPeriod.period_id)
         .where(FinancialPeriod.entity_id == entity_id)
     )
 
@@ -138,10 +138,18 @@ async def get_income_statements(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.order_by(FinancialPeriod.period_end_date.desc()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    statements = result.scalars().all()
+    rows = result.all()
 
     return PaginatedResponse(
-        data=[IncomeStatementResponse.model_validate(s) for s in statements],
+        data=[
+            IncomeStatementResponse.model_validate(stmt).model_copy(update={
+                "period_end_date": period.period_end_date,
+                "fiscal_year": period.fiscal_year,
+                "fiscal_quarter": period.fiscal_quarter,
+                "period_type": period.period_type,
+            })
+            for stmt, period in rows
+        ],
         meta=build_paginated_meta(total_count, pagination),
     )
 
@@ -157,8 +165,8 @@ async def get_balance_sheets(
 ):
     """Get balance sheet series for an entity."""
     query = (
-        select(BalanceSheet)
-        .join(FinancialPeriod)
+        select(BalanceSheet, FinancialPeriod)
+        .join(FinancialPeriod, BalanceSheet.period_id == FinancialPeriod.period_id)
         .where(FinancialPeriod.entity_id == entity_id)
     )
 
@@ -171,10 +179,18 @@ async def get_balance_sheets(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.order_by(FinancialPeriod.period_end_date.desc()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    statements = result.scalars().all()
+    rows = result.all()
 
     return PaginatedResponse(
-        data=[BalanceSheetResponse.model_validate(s) for s in statements],
+        data=[
+            BalanceSheetResponse.model_validate(stmt).model_copy(update={
+                "period_end_date": period.period_end_date,
+                "fiscal_year": period.fiscal_year,
+                "fiscal_quarter": period.fiscal_quarter,
+                "period_type": period.period_type,
+            })
+            for stmt, period in rows
+        ],
         meta=build_paginated_meta(total_count, pagination),
     )
 
@@ -190,8 +206,8 @@ async def get_cash_flows(
 ):
     """Get cash flow statement series for an entity."""
     query = (
-        select(CashFlowStatement)
-        .join(FinancialPeriod)
+        select(CashFlowStatement, FinancialPeriod)
+        .join(FinancialPeriod, CashFlowStatement.period_id == FinancialPeriod.period_id)
         .where(FinancialPeriod.entity_id == entity_id)
     )
 
@@ -204,10 +220,18 @@ async def get_cash_flows(
     offset = (pagination.page - 1) * pagination.page_size
     query = query.order_by(FinancialPeriod.period_end_date.desc()).offset(offset).limit(pagination.page_size)
     result = await session.execute(query)
-    statements = result.scalars().all()
+    rows = result.all()
 
     return PaginatedResponse(
-        data=[CashFlowStatementResponse.model_validate(s) for s in statements],
+        data=[
+            CashFlowStatementResponse.model_validate(stmt).model_copy(update={
+                "period_end_date": period.period_end_date,
+                "fiscal_year": period.fiscal_year,
+                "fiscal_quarter": period.fiscal_quarter,
+                "period_type": period.period_type,
+            })
+            for stmt, period in rows
+        ],
         meta=build_paginated_meta(total_count, pagination),
     )
 

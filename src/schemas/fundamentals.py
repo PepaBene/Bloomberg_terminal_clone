@@ -41,6 +41,12 @@ class FilingResponse(BaseModel):
 class IncomeStatementResponse(BaseModel):
     statement_id: uuid.UUID
     period_id: uuid.UUID
+    # Period (joined from financial_periods -- frontend needs these to label
+    # columns; the statement row itself only carries the FK)
+    period_end_date: date | None = None
+    fiscal_year: int | None = None
+    fiscal_quarter: int | None = None
+    period_type: str | None = None
     # Revenue
     total_revenue: Decimal | None = None
     cost_of_revenue: Decimal | None = None
@@ -91,6 +97,10 @@ class IncomeStatementResponse(BaseModel):
 class BalanceSheetResponse(BaseModel):
     statement_id: uuid.UUID
     period_id: uuid.UUID
+    period_end_date: date | None = None
+    fiscal_year: int | None = None
+    fiscal_quarter: int | None = None
+    period_type: str | None = None
     # Current assets
     cash_and_equivalents: Decimal | None = None
     short_term_investments: Decimal | None = None
@@ -152,6 +162,10 @@ class BalanceSheetResponse(BaseModel):
 class CashFlowStatementResponse(BaseModel):
     statement_id: uuid.UUID
     period_id: uuid.UUID
+    period_end_date: date | None = None
+    fiscal_year: int | None = None
+    fiscal_quarter: int | None = None
+    period_type: str | None = None
     # Operating
     net_income: Decimal | None = None
     depreciation_amortization: Decimal | None = None

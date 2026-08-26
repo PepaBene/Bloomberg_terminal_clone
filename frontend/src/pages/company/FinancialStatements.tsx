@@ -34,33 +34,122 @@ interface EntityDetailApi {
   short_name?: string | null;
 }
 
-// Shape this page expects from the income/balance/cash-flow hooks (annual vs.
-// quarterly statement rows). Declared explicitly instead of leaving the hook
-// result implicitly typed, which otherwise widens to `{}` and breaks the
-// `.annual`/`.quarterly` access below.
+// Real shape of GET /v1/entities/{id}/fundamentals/{income-statement,
+// balance-sheet,cash-flow} (src/schemas/fundamentals.py) -- a flat,
+// period-major PaginatedResponse (`{data: [...]}`), one row per period with
+// every line item as a field on that row, ordered newest-first. This is NOT
+// the `{annual: [...], quarterly: [...]}` line-item-major shape the page
+// previously assumed (which never existed on the wire), so every table
+// rendered zero rows regardless of how much real data existed. Pivoted into
+// `StatementRowData[]` (one row per line item, one column per period) below.
+interface StatementPeriodRow {
+  period_end_date: string | null;
+  fiscal_year: number | null;
+  fiscal_quarter: number | null;
+  period_type: string | null;
+  [key: string]: unknown;
+}
 interface StatementsApi {
-  annual?: StatementRowData[];
-  quarterly?: StatementRowData[];
+  data?: StatementPeriodRow[];
 }
 
-// --- Mock Data ---------------------------------------------------------------
+interface LineItemDef {
+  key: string;
+  label: string;
+  indent?: number;
+  isBold?: boolean;
+}
+
+const INCOME_STATEMENT_LINE_ITEMS: LineItemDef[] = [
+  { key: 'total_revenue', label: 'Total Revenue', isBold: true },
+  { key: 'cost_of_revenue', label: 'Cost of Revenue', indent: 1 },
+  { key: 'gross_profit', label: 'Gross Profit', isBold: true },
+  { key: 'research_development', label: 'R&D', indent: 1 },
+  { key: 'selling_general_admin', label: 'SG&A', indent: 1 },
+  { key: 'total_operating_expense', label: 'Total Operating Expense', indent: 1 },
+  { key: 'operating_income', label: 'Operating Income', isBold: true },
+  { key: 'other_income_expense', label: 'Other Income/Expense', indent: 1 },
+  { key: 'pretax_income', label: 'Pretax Income' },
+  { key: 'income_tax_expense', label: 'Income Tax Expense', indent: 1 },
+  { key: 'net_income', label: 'Net Income', isBold: true },
+  { key: 'basic_eps', label: 'Basic EPS' },
+  { key: 'diluted_eps', label: 'Diluted EPS' },
+];
+
+const BALANCE_SHEET_LINE_ITEMS: LineItemDef[] = [
+  { key: 'cash_and_equivalents', label: 'Cash & Equivalents', indent: 1 },
+  { key: 'accounts_receivable', label: 'Accounts Receivable', indent: 1 },
+  { key: 'inventory', label: 'Inventory', indent: 1 },
+  { key: 'total_current_assets', label: 'Total Current Assets', isBold: true },
+  { key: 'ppe_net', label: 'PP&E, Net', indent: 1 },
+  { key: 'goodwill', label: 'Goodwill', indent: 1 },
+  { key: 'total_non_current_assets', label: 'Total Non-Current Assets', isBold: true },
+  { key: 'total_assets', label: 'Total Assets', isBold: true },
+  { key: 'accounts_payable', label: 'Accounts Payable', indent: 1 },
+  { key: 'short_term_debt', label: 'Short-Term Debt', indent: 1 },
+  { key: 'total_current_liabilities', label: 'Total Current Liabilities', isBold: true },
+  { key: 'long_term_debt', label: 'Long-Term Debt', indent: 1 },
+  { key: 'total_nc_liabilities', label: 'Total Non-Current Liabilities', isBold: true },
+  { key: 'total_liabilities', label: 'Total Liabilities', isBold: true },
+  { key: 'total_equity', label: 'Total Equity', isBold: true },
+  { key: 'total_debt', label: 'Total Debt' },
+  { key: 'net_debt', label: 'Net Debt' },
+];
+
+const CASH_FLOW_LINE_ITEMS: LineItemDef[] = [
+  { key: 'net_income', label: 'Net Income' },
+  { key: 'depreciation_amortization', label: 'D&A', indent: 1 },
+  { key: 'stock_based_comp', label: 'Stock-Based Comp', indent: 1 },
+  { key: 'change_in_receivables', label: 'Change in Receivables', indent: 1 },
+  { key: 'change_in_inventory', label: 'Change in Inventory', indent: 1 },
+  { key: 'change_in_payables', label: 'Change in Payables', indent: 1 },
+  { key: 'cash_from_operations', label: 'Cash From Operations', isBold: true },
+  { key: 'capital_expenditures', label: 'Capital Expenditures', indent: 1 },
+  { key: 'acquisitions', label: 'Acquisitions', indent: 1 },
+  { key: 'cash_from_investing', label: 'Cash From Investing', isBold: true },
+  { key: 'debt_issued', label: 'Debt Issued', indent: 1 },
+  { key: 'debt_repaid', label: 'Debt Repaid', indent: 1 },
+  { key: 'stock_repurchased', label: 'Stock Repurchased', indent: 1 },
+  { key: 'dividends_paid', label: 'Dividends Paid', indent: 1 },
+  { key: 'cash_from_financing', label: 'Cash From Financing', isBold: true },
+  { key: 'net_change_in_cash', label: 'Net Change in Cash', isBold: true },
+  { key: 'free_cash_flow', label: 'Free Cash Flow', isBold: true },
+];
+
+function periodLabel(p: StatementPeriodRow): string {
+  if (p.fiscal_quarter != null) return `Q${p.fiscal_quarter} FY${p.fiscal_year}`;
+  if (p.fiscal_year != null) return `FY${p.fiscal_year}`;
+  return p.period_end_date ?? '—';
+}
+
+function toMillions(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n / 1_000_000 : null;
+}
+
+function pivotStatements(
+  rows: StatementPeriodRow[] | undefined,
+  lineItems: LineItemDef[],
+  periodCount: number,
+): { periods: string[]; rows: StatementRowData[] } {
+  const slice = (rows ?? []).slice(0, periodCount);
+  const periods = slice.map(periodLabel);
+  const pivoted: StatementRowData[] = lineItems.map((item) => ({
+    key: item.key,
+    label: item.label,
+    indent: item.indent ?? 0,
+    isBold: item.isBold,
+    values: slice.map((p) =>
+      item.key === 'basic_eps' || item.key === 'diluted_eps'
+        ? (p[item.key] != null ? Number(p[item.key]) : null)
+        : toMillions(p[item.key]),
+    ),
+  }));
+  return { periods, rows: pivoted };
+}
 
 const DEFAULT_COMPANY = { name: 'Loading...', ticker: '' };
-
-const ANNUAL_PERIODS = ['FY2025', 'FY2024', 'FY2023', 'FY2022'];
-const QUARTERLY_PERIODS = ['Q1 2026', 'Q4 2025', 'Q3 2025', 'Q2 2025'];
-
-const incomeStatementRows: StatementRowData[] = [];
-
-const balanceSheetRows: StatementRowData[] = [];
-
-const cashFlowRows: StatementRowData[] = [];
-
-const QUARTERLY_IS: StatementRowData[] = [];
-
-const QUARTERLY_BS: StatementRowData[] = [];
-
-const QUARTERLY_CF: StatementRowData[] = [];
 
 // --- Component ---------------------------------------------------------------
 
@@ -82,35 +171,48 @@ export default function FinancialStatements() {
     ticker: primary?.ticker ?? DEFAULT_COMPANY.ticker,
   };
 
+  const [periodMode, setPeriodMode] = useState<'annual' | 'quarterly'>('annual');
+  const [periodCount, setPeriodCount] = useState(4);
+  const [commonSizeEnabled, setCommonSizeEnabled] = useState(false);
+  const isAnnual = periodMode === 'annual';
+  const periodTypeParam = isAnnual ? 'ANNUAL' : 'QUARTERLY';
+
   // Wire to API hooks
   // (`resolvedId` is `string | undefined`; these hooks take a required
   // `string` and internally guard on `enabled: !!entityId`, so passing `?? ''`
   // is safe — it never fires a request when there's no resolved id.)
-  const { data: apiIncome } = useIncomeStatements(resolvedId ?? '') as { data: StatementsApi | undefined };
-  const { data: apiBalance } = useBalanceSheets(resolvedId ?? '') as { data: StatementsApi | undefined };
-  const { data: apiCashFlow } = useCashFlows(resolvedId ?? '') as { data: StatementsApi | undefined };
+  const { data: apiIncome } = useIncomeStatements(resolvedId ?? '', { period_type: periodTypeParam, page_size: 20 }) as { data: StatementsApi | undefined };
+  const { data: apiBalance } = useBalanceSheets(resolvedId ?? '', { period_type: periodTypeParam, page_size: 20 }) as { data: StatementsApi | undefined };
+  const { data: apiCashFlow } = useCashFlows(resolvedId ?? '', { period_type: periodTypeParam, page_size: 20 }) as { data: StatementsApi | undefined };
   const { data: apiSegments } = useSegments(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
   const { data: apiRevBreakdown } = useRevenueBreakdown(resolvedId ?? '') as { data: PaginatedSegmentsApi | undefined };
-
-  const [periodMode, setPeriodMode] = useState<'annual' | 'quarterly'>('annual');
-  const [periodCount, setPeriodCount] = useState(4);
-  const [commonSizeEnabled, setCommonSizeEnabled] = useState(false);
 
   // Line-item chart slide-over state
   const [chartOpen, setChartOpen] = useState(false);
   const [chartLabel, setChartLabel] = useState('');
   const [chartData, setChartData] = useState<LineItemDataPoint[]>([]);
 
-  const isAnnual = periodMode === 'annual';
-  const periods = isAnnual ? ANNUAL_PERIODS : QUARTERLY_PERIODS;
-  const isRows = isAnnual ? incomeStatementRows : QUARTERLY_IS;
-  const bsRows = isAnnual ? balanceSheetRows : QUARTERLY_BS;
-  const cfRows = isAnnual ? cashFlowRows : QUARTERLY_CF;
+  // Pivot the real period-major API rows (one row per period, every line
+  // item as a field) into line-item-major StatementRowData[] (one row per
+  // line item, one column per period) -- see the StatementsApi comment above
+  // for why this couldn't just read `.annual`/`.quarterly` off the response.
+  const income = useMemo(
+    () => pivotStatements(apiIncome?.data, INCOME_STATEMENT_LINE_ITEMS, periodCount),
+    [apiIncome, periodCount],
+  );
+  const balance = useMemo(
+    () => pivotStatements(apiBalance?.data, BALANCE_SHEET_LINE_ITEMS, periodCount),
+    [apiBalance, periodCount],
+  );
+  const cashFlow = useMemo(
+    () => pivotStatements(apiCashFlow?.data, CASH_FLOW_LINE_ITEMS, periodCount),
+    [apiCashFlow, periodCount],
+  );
 
-  // Use API data if available, fall back to mock
-  const incomeRows = (isAnnual ? apiIncome?.annual : apiIncome?.quarterly) ?? isRows;
-  const balanceRows = (isAnnual ? apiBalance?.annual : apiBalance?.quarterly) ?? bsRows;
-  const cashFlowDisplayRows = (isAnnual ? apiCashFlow?.annual : apiCashFlow?.quarterly) ?? cfRows;
+  const periods = income.periods.length > 0 ? income.periods : balance.periods;
+  const incomeRows = income.rows;
+  const balanceRows = balance.rows;
+  const cashFlowDisplayRows = cashFlow.rows;
 
   // Revenue base for common-size
   const revenueBase = incomeRows[0]?.values[0] ?? 1;

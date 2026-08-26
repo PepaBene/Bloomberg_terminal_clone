@@ -119,6 +119,7 @@ function useBreadcrumbs(): string[] {
 
 export function TopBar() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const primary = useSecurityStore((s) => s.primary);
   const setPrimary = useSecurityStore((s) => s.setPrimary);
   const unread = useAlertsStore((s) => s.unread);
@@ -162,7 +163,15 @@ export function TopBar() {
         .find((r) => r.security_id === result.id);
       if (!row) return;
       setCommandBarOpen(false);
-      navigate('/company');
+      // Only jump to the Company Overview page when the user isn't already
+      // in a company-scoped view -- previously this always navigated to
+      // /company, so searching a new ticker while on e.g.
+      // /company/financials or /company/peers yanked the user back to the
+      // overview page instead of updating the security in place and
+      // keeping them on the subpage they were looking at.
+      if (!pathname.startsWith('/company')) {
+        navigate('/company');
+      }
       const security = {
         security_id: row.security_id,
         ticker: row.ticker,
@@ -197,7 +206,7 @@ export function TopBar() {
         // Leave entity_id null -- pages fall back to security_id-keyed data.
       }
     },
-    [searchData, setPrimary, pushHistory, navigate],
+    [searchData, setPrimary, pushHistory, navigate, pathname],
   );
 
   // Cmd/Ctrl+K shortcut
