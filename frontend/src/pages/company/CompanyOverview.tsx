@@ -15,7 +15,7 @@ import { PriceChartPanel } from '@/components/company/PriceChartPanel';
 import { SeasonalityChart } from '@/components/company/SeasonalityChart';
 import { SentimentGauge } from '@/components/intelligence';
 import { EmptyState } from '@/components/feedback';
-import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores } from '@/hooks';
+import { useSentimentHistory, useEarningsSurprises, useTechnicalSignals, useCompositeScores, useFilingEvents } from '@/hooks';
 // `useCorporateActions` from '@/hooks' (useMissingDomains.ts) hits
 // /v1/entities/{id}/corporate-actions, which no backend route serves (422).
 // The real route is /v1/securities/{id}/corporate-actions, exposed by this
@@ -104,11 +104,27 @@ interface NewsItem {
 interface FilingItem {
   id: string;
   date: string;
-  type: '10-K' | '10-Q' | '8-K';
+  type: string;
   title: string;
 }
 
 const DEFAULT_FILINGS: FilingItem[] = [];
+
+// Mirrors EightKEventsListResponse (src/schemas/filing_intelligence.py) --
+// {events: [...], total_count}. This mini-widget mapped a permanently-empty
+// DEFAULT_FILINGS constant and was never wired to real data at all, even
+// though /company/filings (FilingsView.tsx) already reads the same
+// endpoint correctly.
+interface FilingEventApi {
+  id: string;
+  filing_date: string;
+  item_number: string;
+  item_description: string | null;
+  ai_summary: string | null;
+}
+interface FilingEventsListApi {
+  events?: FilingEventApi[];
+}
 
 const FILING_TYPE_COLORS: Record<string, string> = {
   '10-K': 'var(--color-accent-primary)',
@@ -153,9 +169,33 @@ export default function CompanyOverview() {
     changePct: 0,
   };
 
-  // KPIs / quality are keyed by security_id under /v2 analytics and are not
-  // wired here — shown as honest "—" placeholders rather than fabricated values.
-  const kpis = DEFAULT_METRICS;
+  // KPIs are keyed by security_id under /v2 analytics (see the ID-space note
+  // above) -- GET /v2/analytics/key-metrics/{security_id} assembles them
+  // from real batch-computed analytics_results (pe_trailing/ev_ebitda/roe/
+  // dividend_yield/revenue_yoy) plus a live price x shares-outstanding
+  // market cap, replacing the previous hardcoded "—" placeholder row.
+  const { data: keyMetrics } = useQuery<{
+    market_cap: number | null; pe_trailing: number | null; ev_ebitda: number | null;
+    revenue_growth: number | null; roe: number | null; dividend_yield: number | null;
+  }>({
+    queryKey: ['company', 'key-metrics', primary?.security_id],
+    queryFn: () => api.get(`/v2/analytics/key-metrics/${primary?.security_id}`),
+    enabled: !!primary?.security_id,
+    retry: 0,
+  });
+  const fmtUsd = (v: number | null | undefined) => v == null ? '—' : v >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${v.toFixed(2)}`;
+  const fmtRatio = (v: number | null | undefined) => v == null ? '—' : `${v.toFixed(1)}x`;
+  // revenue_yoy is stored as a fraction (0.1615 = 16.15%), same convention
+  // as dividend_yield -- multiply by 100 for display.
+  const fmtPct = (v: number | null | undefined) => v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+  const kpis: MetricItem[] = keyMetrics ? [
+    { label: 'Market Cap', value: fmtUsd(keyMetrics.market_cap) },
+    { label: 'P/E (TTM)', value: fmtRatio(keyMetrics.pe_trailing) },
+    { label: 'EV/EBITDA', value: fmtRatio(keyMetrics.ev_ebitda) },
+    { label: 'Rev Growth', value: fmtPct(keyMetrics.revenue_growth) },
+    { label: 'ROE', value: keyMetrics.roe == null ? '—' : `${(keyMetrics.roe * 100).toFixed(1)}%` },
+    { label: 'Div Yield', value: keyMetrics.dividend_yield == null ? '—' : `${(keyMetrics.dividend_yield * 100).toFixed(2)}%` },
+  ] : DEFAULT_METRICS;
 
   // Fetch entity news (real: GET /v3/news/{entity_id})
   const { data: newsRaw } = useQuery<NewsArticleDTO[]>({
@@ -185,6 +225,13 @@ export default function CompanyOverview() {
   // populated.
   const { data: sentimentHistory } = useSentimentHistory(resolvedId);
   const { data: earningsSurprises } = useEarningsSurprises(resolvedId);
+  const { data: apiFilings } = useFilingEvents(resolvedId) as { data: FilingEventsListApi | undefined };
+  const activeFilings: FilingItem[] = (apiFilings?.events ?? []).slice(0, 5).map((e) => ({
+    id: e.id,
+    date: e.filing_date,
+    type: e.item_number,
+    title: e.item_description ?? e.ai_summary ?? `Item ${e.item_number}`,
+  }));
   const { data: technicalSignals } = useTechnicalSignals(primary?.security_id);
   const { data: compositeScores } = useCompositeScores(primary?.security_id);
   const { data: corpActions } = useCorporateActions(primary?.security_id ?? '', {
@@ -432,7 +479,7 @@ export default function CompanyOverview() {
                 </tr>
               </thead>
               <tbody>
-                {DEFAULT_FILINGS.map((f) => (
+                {(activeFilings.length > 0 ? activeFilings : DEFAULT_FILINGS).map((f) => (
                   <tr key={f.id} style={{ height: '32px' }}>
                     <td style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', padding: '4px 8px', borderBottom: '1px solid var(--color-surface-border)', whiteSpace: 'nowrap' }}>
                       {f.date}

@@ -28,7 +28,7 @@ from src.models.analytics import (
     MultipleTimeSeries,
     WACCResult,
 )
-from src.models.security import EODPrice, Security
+from src.models.security import EODPrice, EquityDetails, Security
 from src.schemas.analytics import (
     AllCompositeScoresResponse,
     AllScoresResponse,
@@ -789,6 +789,83 @@ async def get_trends(
         as_of_date=rows[0].as_of_date if rows else None,
         trends=trends,
     )
+
+
+# ---------------------------------------------------------------------------
+# Key Metrics header strip (Company Overview page)
+# ---------------------------------------------------------------------------
+#
+# CompanyOverview.tsx's KPI row (Market Cap/P/E/EV-EBITDA/Rev Growth/ROE/Div
+# Yield) shipped as `kpis = DEFAULT_METRICS`, a hardcoded "—" placeholder --
+# real pe_trailing/ev_ebitda/roe/dividend_yield/revenue_yoy values already
+# exist in analytics_results (computed by E1/E2 batch engines), just never
+# read for this header. Market cap isn't a stored metric anywhere, so it's
+# computed here from the latest close price x shares outstanding.
+
+_KEY_METRIC_NAMES = ("pe_trailing", "ev_ebitda", "roe", "dividend_yield")
+
+
+@router.get("/key-metrics/{security_id}", response_model=dict)
+async def get_key_metrics(
+    security_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """Header-strip KPIs for the Company Overview page."""
+    sec = await _resolve_security(session, security_id)
+
+    result = await session.execute(
+        select(AnalyticsResult)
+        .where(
+            AnalyticsResult.security_id == security_id,
+            AnalyticsResult.metric_name.in_(_KEY_METRIC_NAMES),
+        )
+        .order_by(AnalyticsResult.as_of_date.desc())
+    )
+    metrics: dict[str, float] = {}
+    for row in result.scalars().all():
+        if row.value is not None and row.metric_name not in metrics:
+            metrics[row.metric_name] = float(row.value)
+
+    growth_result = await session.execute(
+        select(AnalyticsResult)
+        .where(
+            AnalyticsResult.entity_id == sec.issuer_entity_id,
+            AnalyticsResult.metric_name == "revenue_yoy",
+        )
+        .order_by(AnalyticsResult.as_of_date.desc())
+        .limit(1)
+    )
+    revenue_growth_row = growth_result.scalars().first()
+
+    price_row = (
+        await session.execute(
+            select(EODPrice.close)
+            .where(EODPrice.security_id == security_id, EODPrice.close.isnot(None))
+            .order_by(EODPrice.price_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    shares_row = (
+        await session.execute(
+            select(EquityDetails.shares_outstanding).where(
+                EquityDetails.security_id == security_id
+            )
+        )
+    ).scalar_one_or_none()
+    market_cap = (
+        float(price_row) * float(shares_row)
+        if price_row is not None and shares_row is not None
+        else None
+    )
+
+    return {
+        "market_cap": market_cap,
+        "pe_trailing": metrics.get("pe_trailing"),
+        "ev_ebitda": metrics.get("ev_ebitda"),
+        "revenue_growth": float(revenue_growth_row.value) if revenue_growth_row and revenue_growth_row.value is not None else None,
+        "roe": metrics.get("roe"),
+        "dividend_yield": metrics.get("dividend_yield"),
+    }
 
 
 # ---------------------------------------------------------------------------
